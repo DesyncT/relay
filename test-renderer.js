@@ -91,6 +91,16 @@ app.whenReady().then(async () => {
   assert.equal(assignments.overflow, false, 'Long assignment metadata must fit compact rows');
   assert.ok(assignments.details.every(Boolean), 'Assignment details must remain inside compact row bounds');
   assert.ok(assignments.recovered.every(text => !/passed/i.test(text)), 'Interrupted running/reviewing assignments must not recover as passed');
+  const retryButtons=await win.webContents.executeJavaScript(`(async()=>{
+    const buttons=[...document.querySelectorAll('#reqbar .rq-retry')];
+    const same=buttons.find(button=>button.textContent==='Retry');
+    const alternate=buttons.find(button=>button.textContent==='Try another model');
+    await same.onclick();await alternate.onclick();
+    const calls=(await api.call('test:calls')).filter(call=>call[0]==='chat:requirement-retry');
+    return {count:buttons.length,same:calls.some(call=>call[3]===false),alternate:calls.some(call=>call[3]===true)};
+  })()`);
+  assert.ok(retryButtons.count>=2,'Failed checklist rows expose retry controls');
+  assert.equal(retryButtons.same,true);assert.equal(retryButtons.alternate,true);
   const persistedRecovery = await win.webContents.executeJavaScript(`(async () => {
     const sid = 'persisted-assignment-recovery';
     await api.call('test:save-session', sid, {title:'Persisted recovery', reqs:{items:[{t:'Saved running',done:false},{t:'Saved reviewing',done:false}], assignments:[
@@ -284,7 +294,8 @@ app.whenReady().then(async () => {
     busy.replaceChildren(document.createTextNode('Agent is working'));
     reqbar.hidden = false; reqbar.replaceChildren(document.createTextNode('Requirements · 40%'));
     button.hidden = false;
-    await new Promise(resolve => setTimeout(resolve, 80));
+    await new Promise(resolve => requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    await Promise.all(button.getAnimations().map(animation=>animation.finished.catch(()=>{})));
     const br = button.getBoundingClientRect(), busyTop = busy.getBoundingClientRect().top, reqTop = reqbar.getBoundingClientRect().top;
     return {clearOfStatus:br.bottom <= Math.min(busyTop, reqTop) + 1, cssOffset:document.querySelector('#chat').style.getPropertyValue('--scroll-bottom-offset'), buttonBottom:br.bottom, busyTop, reqTop};
   })()`);
@@ -301,6 +312,42 @@ app.whenReady().then(async () => {
   console.log('Native input-to-frame with background updates:',JSON.stringify(latency));
   assert.ok(latency.maxMs < 250,'Native typing should paint without long stalls while status updates are active');
   assert.deepEqual(errors, []);
+  const appearance = await win.webContents.executeJavaScript(`(async()=>{
+    await api.call('test:appearance-tree',{projects:[{id:'project',name:'Relay',path:'C:/relay'}],sessions:[{id:'appearance',projectId:'project',title:'Balance workers across Claude and Codex and recover from provider limits',supercode:true},{id:'native',projectId:'project',title:'Code directly with the selected model',supercode:false}],active:'appearance'});
+    await Sidebar.mount(document.querySelector('#sidebar'),{onOpen:openSession});
+    showTab('themes');
+    document.querySelector('[data-theme="terminal"]').click();
+    const terminal={font:getComputedStyle(document.querySelector('#chat')).fontFamily,radius:getComputedStyle(document.querySelector('#quickBtn')).borderRadius,
+      rowHeight:document.querySelector('.sb-row').getBoundingClientRect().height};
+    document.querySelector('[data-theme="paper"]').click();
+    const light=getComputedStyle(document.documentElement).colorScheme;
+    document.querySelector('#themeGenerate').click();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const preview=!document.querySelector('.theme-generated').hidden;
+    const unchanged=document.documentElement.dataset.relayTheme==='paper';
+    document.querySelector('.theme-generated button').click();
+    const generated={id:document.documentElement.dataset.relayTheme,font:getComputedStyle(document.querySelector('#chat')).fontFamily,radius:getComputedStyle(document.querySelector('#quickBtn')).borderRadius,
+      border:getComputedStyle(document.querySelector('#quickActions')).borderTopWidth,saved:JSON.parse(localStorage.getItem('relay.theme.v1')).theme.name};
+    await api.call('test:theme-fails',true); document.querySelector('#themeGenerate').click();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const failure={message:document.querySelector('.theme-status').textContent,id:document.documentElement.dataset.relayTheme};
+    document.querySelector('[data-theme="graphite"]').click();
+    return {terminal,light,preview,unchanged,generated,failure};
+  })()`);
+  assert.match(appearance.terminal.font,/mono|Consolas|Courier/i,'Terminal font must reach conversation text');
+  assert.equal(appearance.terminal.radius,'0px');
+  assert.ok(appearance.terminal.rowHeight>=56,'Themes preserve room for two-line session titles');
+  assert.equal(appearance.light,'light');
+  assert.equal(appearance.preview,true); assert.equal(appearance.unchanged,true,'AI theme preview must not replace the active theme');
+  assert.equal(appearance.generated.id,'custom'); assert.match(appearance.generated.font,/Georgia/);
+  assert.equal(appearance.generated.radius,'4px'); assert.equal(appearance.generated.border,'2px');
+  assert.equal(appearance.generated.saved,'Generated ink');
+  assert.match(appearance.failure.message,/credits/); assert.equal(appearance.failure.id,'custom','Generation failure keeps the chosen theme');
+  for(const [label,theme] of [['themes','graphite'],['terminal','terminal']]) {
+    await win.webContents.executeJavaScript(`document.querySelector('[data-theme="${theme}"]').click();showTab('themes');new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+    fs.writeFileSync(path.join(output,label+'.png'),(await win.webContents.capturePage()).toPNG());
+  }
+  await win.webContents.executeJavaScript(`document.querySelector('[data-theme="graphite"]').click();localStorage.removeItem('relay.theme.v1')`);
   console.log('Renderer layout, tag recovery, focus, choice and custom-answer checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();
 }).catch(error => { console.error(error); app.exit(1); });

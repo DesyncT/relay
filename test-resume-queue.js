@@ -10,8 +10,9 @@ const lane = { busy:false, next:null }, rt = { lanes:{ claude:lane } };
 const queued = [{ text:'queued user request' }], events = [];
 const userQueues = { get:() => queued, set:(_sid, items) => { queued.splice(0, queued.length, ...items); } };
 const requirementCoordinators = new Map();
+const requirementRetries = new Set();
 const context = {
-  RT:() => rt, userQueues, requirementCoordinators, subsOf:() => [], subLive:() => false, saveResume:() => {},
+  RT:() => rt, userQueues, requirementCoordinators, requirementRetries, subsOf:() => [], subLive:() => false, saveResume:() => {},
   pump:(_sid, _who) => { const trigger = lane.next.trigger; lane.next = null; lane.busy = true; events.push(trigger.text); },
   send:() => {}, queueUpdate:() => {}, dispatchUser:(_sid, item) => events.push(item.text),
 };
@@ -29,4 +30,7 @@ lane.busy = false;
 context.drainUserQueue('session');
 assert.deepEqual(events, ['resume persisted implementation', 'queued user request']);
 assert.equal(queued.length, 0, 'queue drains after resumed work settles');
+queued.push({text:'wait for retry preparation'}); requirementRetries.add('session');
+context.drainUserQueue('session'); assert.equal(queued.length,1,'Queue waits while a retry repairs its file scope');
+requirementRetries.delete('session'); context.drainUserQueue('session'); assert.equal(queued.length,0);
 console.log('resume queue ordering tests passed');

@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const {parseTheme,themePrompt}=require('./theme-generator');
+const colors=Object.fromEntries(['deep','bg','card','raised','text','text2','muted','line','lineStrong','accent','codex','negative'].map(key=>[key,'#abcdef']));
+for(const key of ['deep','bg','card','raised']) colors[key]='#111111';
+const theme={name:'Custom terminal',colors,font:'mono',radius:0,borderWidth:1,density:'compact'};
+assert.deepEqual(parseTheme(JSON.stringify(theme)),theme);
+assert.deepEqual(parseTheme('```json\n'+JSON.stringify(theme)+'\n```'),theme);
+for(const bad of [{...theme,font:'url(evil)'},{...theme,radius:100},{...theme,borderWidth:-1},{...theme,colors:{...colors,bg:'red;display:none'}},{...theme,colors:{bg:'#ffffff'}},{...theme,colors:{...colors,text:'#00000000'}},{...theme,colors:{...colors,text:'#111111'}}]) assert.throws(()=>parseTheme(JSON.stringify(bad)));
+assert.match(themePrompt(),/Do not use tools/);
+console.log('Generated theme schema checks passed');

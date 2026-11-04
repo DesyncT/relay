@@ -4,12 +4,12 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const DEFAULT_ROUTES = {
   claude: {
     planning: { model: 'claude-haiku-5-5', effort: 'low' },
-    coding: { model: 'claude-opus-5-5', effort: 'medium' },
-    other: { model: 'claude-sonnet-5-5', effort: 'medium' },
+    coding: { model: 'claude-haiku-5-5', effort: 'low' },
+    other: { model: 'claude-haiku-5-5', effort: 'low' },
   },
   codex: {
     planning: { model: 'gpt-6-luna', effort: 'low' },
-    coding: { model: 'gpt-6-astra', effort: 'medium' }, // astra ~ opus tier
+    coding: { model: 'gpt-6-luna', effort: 'low' },
     other: { model: 'gpt-6-luna', effort: 'low' },
   },
   antigravity: {

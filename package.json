@@ -1,7 +1,7 @@
 {
   "name": "relay",
   "productName": "Relay",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "AI coding agents (Claude Code, Codex and any model you connect) working together in one chat",
   "author": "DesyncT",
   "license": "MIT",
@@ -11,7 +11,7 @@
   "scripts": {
     "start": "electron .",
     "check": "node usage.js",
-    "test": "node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-requirement-gate.js && node test-question-controls.js && node test-requirement-workflow.js && node test-requirement-workspaces.js && node test-requirement-coordinator.js && node test-requirement-recovery.js && node test-resume-queue.js && node test-integration-check.js && node test-workspace-reclaim.js",
+    "test": "node test-code-mode.js && node test-worker-routing.js && node test-requirement-retry.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-requirement-gate.js && node test-question-controls.js && node test-requirement-workflow.js && node test-requirement-workspaces.js && node test-requirement-coordinator.js && node test-requirement-recovery.js && node test-resume-queue.js && node test-integration-check.js && node test-workspace-reclaim.js",
     "test:ui": "electron test-renderer.js",
     "dist": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always"

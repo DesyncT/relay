@@ -154,6 +154,7 @@ async function finalFailEscalatesAndCeilingReportsFindings() {
   const r = await runRequirementIntegration(assignments, { integrate:async(integrator)=>{routes.push(integrator.model); return {checksPassed:true};}, review:async()=>routes.length===1 ? {verdict:'FAIL',evidence:'FILE: app.js\nLINE: 9\nACTUAL: wrong\nEXPECTED: right'} : {verdict:'FAIL',evidence:'FILE: app.js\nLINE: 10\nACTUAL: still wrong\nEXPECTED: right'}, nextRoute: a=>a.retryCount ? null : {provider:'codex',model:'gpt-6.1-sol',effort:'medium'} });
   assert.equal(routes.length, 2, 'final FAIL retries integration with a stronger route');
   assert.equal(routes[1], 'gpt-6.1-sol');
+  assert.deepEqual(assignments[0].integrationRoute,{provider:'codex',model:'gpt-6.1-sol',effort:'medium'},'Manual retry must remember the actual last integration model');
   assert.equal(r.status, 'open'); assert.match(r.blocker, /exhaust/); assert.match(r.findings, /still wrong/);
 }
 

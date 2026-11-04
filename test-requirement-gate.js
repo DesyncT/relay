@@ -18,7 +18,8 @@ function dispatchTaggedRequest() {
     store: { getSession: () => ({ lead: 'claude' }) }, RT: () => rt,
     post: (_, from, text) => { const m = { from, text, at: 2 }; messages.push(m); return m; },
     reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; },
-    limit, REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => false, isConversation: require('./turn').isConversation,
+    limit, REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => true, isConversation: require('./turn').isConversation,
+    route:()=>({first:['claude']}),
     onUserText: () => {}, AGENT_NAMES: ['claude', 'codex'], enqueue: () => {},
   });
   assert.equal(reqs.items.length, 0, 'User tags must not populate the agent checklist');
@@ -42,7 +43,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
   const events = [];
   const context = {
     limit, answeredQuestions:()=>5, sid: 'test', who: 'claude', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
-    supercodeOn:() => false,
+    supercodeOn:() => true, ep:0, startRequirementWorkflow:async()=>events.push({workflow:true}),
     msgs: () => [{ from: 'user', text: 'Fix the new request', at: 2 }], WRAP: /^wrap up$/i,
     reqsOf: () => reqs,
     setReqs: (_, value) => { reqs = value; },
@@ -65,7 +66,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
     assert.match(events[publication].text, /1\. Show requirements before editing/);
     if (prose) assert.equal(events[publication].text, '1. Show requirements before editing'); // the read-only run's prose ("plan mode is on…") is not posted
     assert.ok(events.slice(0, publication).every(e => e.readonly));
-    assert.equal(events[publication + 1].readonly, false);
+    assert.equal(events[publication + 1].workflow, true, 'EasyCode dispatches the published checklist to its coordinator');
     assert.equal(reqs.items.length, 1);
     assert.equal(reqs.requestAt, 2);
   }

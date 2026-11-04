@@ -12,7 +12,9 @@ const { isLimitError, parseReset } = require('./limits');
 const registerPanels = require('./panels-main');
 const models = require('./models');
 const { providerArgs } = require('./permissions');
-const { createAssignments, nextEscalation, scopeCovers } = require('./requirement-workflow');
+const { createAssignments, scopeCovers } = require('./requirement-workflow');
+const { initialWorkerRoutes, balanceWorkers, nextWorkerRoute } = require('./worker-routing');
+const { normalPrompt } = require('./normal-code');
 const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
 const { recoverRequirementAssignments, canCleanupRequirementWorkspaces } = require('./requirement-recovery');
@@ -190,10 +192,10 @@ function claudeRun(label, who, prompt, c = {}) {
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, w, st, c.route?.meta); // quiet: subagent runs have their own panel
   setStatus(who, 'thinking');
   const isAntigravity = (c.cmd || settings.claudeCmd).includes('antigravity') || String(who).startsWith('antigravity');
-  const bare = (!c.conn && (isAntigravity || process.env.ANTHROPIC_API_KEY || c.bare)) ? ['--bare'] : [];
+  const bare = (!c.conn && (isAntigravity || (!c.nativeCode && process.env.ANTHROPIC_API_KEY) || c.bare)) ? ['--bare'] : [];
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
-  const chrome = !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Claude in Chrome: drive the user's real browser, like Codex's computer use
-  let shared = []; if (!bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // Codex's skills, for Claude too
+  const chrome = !c.nativeCode && !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Code uses the CLI's own browser configuration.
+  let shared = []; if (!c.nativeCode && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // Shared Relay skills belong to EasyCode; Code uses the CLI's own environment.
   return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); } catch {}
@@ -219,7 +221,7 @@ function codexRun(prompt, images, c = {}) {
   setStatus('codex', 'thinking');
   // --image takes many values; the = form keeps the trailing "-" as the stdin prompt
   const imgs = images.map((a) => '--image=' + q(a.path));
-  const args = providerArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', '--enable', 'image_generation', ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex', { readonly:c.readonly }).concat('-');
+  const args = providerArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', ...(!c.nativeCode ? ['--enable','image_generation'] : []), ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex', { readonly:c.readonly }).concat('-');
   const runModel = modelFromArgs(args, c.route?.meta?.model || (readText(path.join(HOME, '.codex', 'config.toml')).match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || 'gpt-unknown');
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
     const e = json(l), it = e.item || {};
@@ -349,13 +351,15 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
     }
     // Normal chats continue the CLI's own session (full memory, tools and context, like the terminal); supercode rebuilds the prompt each turn
     const ck = cm ? prov + ':' + cm.conn.id : prov; // CLI session id is kept per connection
+    if (!enhanced && !c.sub && sessOf(sid)?.nativeCodeVersion !== 1) store.updateSession(sid,{nativeCodeVersion:1,cli:{}});
     const resumeId = !enhanced && !c.sub && !c.conversation && prov !== 'antigravity' ? sessOf(sid)?.cli?.[ck] : null;
     const onSession = !enhanced && !c.sub && !c.conversation && prov !== 'antigravity' ? (id) => { const cli = sessOf(sid)?.cli || {}; if (cli[ck] !== id) try { store.updateSession(sid, { cli: { ...cli, [ck]: id } }); } catch {} } : null;
-    try { return { ...(await PROV[cm ? cm.engine : prov](mkPrompt(prov !== seat), trigger, { ...ctxFor(sid, rd), ...c, seat, resumeId, onSession, conn: cm })), prov, rd }; }
+    try { return { ...(await PROV[cm ? cm.engine : prov](mkPrompt(prov !== seat,{resumed:!!resumeId}), trigger, { ...ctxFor(sid, rd), ...c, nativeCode:!enhanced, seat, resumeId, onSession, conn: cm })), prov, rd }; }
     catch (e) {
       if (resumeId && !e.cancelled && !isLimitError(e.message)) { try { store.updateSession(sid, { cli: { ...sessOf(sid).cli, [ck]: null } }); } catch {} continue; } // stale session: start fresh once
       if (e.cancelled || !isLimitError(e.message)) throw e;
       markDown(prov, e.message);
+      if (c.routeOverride) throw e; // The coordinator chooses another worker; a pinned route must never retry itself.
       if (!enhanced) throw e;
       if (i >= 2 || !provOf(seat)) throw provOf(seat) ? e : bothErr();
     }
@@ -382,6 +386,7 @@ function setReqs(sid, reqs) {
   reclaimWorkspaces(sid, before);
 }
 const requirementCoordinators = new Map();
+const requirementRetries = new Set();
 // Open/blocked task workspaces stay for inspection while their assignments are saved; once nothing saved points at one
 // (a new request, cleared requirements or chat) it is unreachable, so it is deleted. Cleanup itself verifies the ownership marker.
 const savedWorkspaceRoots = (sid) => workspacesFromAssignments(reqsOf(sid)?.assignments || []).cleanup;
@@ -406,31 +411,54 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
   if (existing) return existing.promise;
   const checklist = reqsOf(sid)?.items || [];
   const available = AGENT_NAMES.filter(p => !isDown(p) && settings.routes?.[p]?.coding);
-  const routes = settings.routes || {};
+  const routes = initialWorkerRoutes(settings.routes || {});
   let assignments, workspaces;
   if (recovery) {
     assignments = recovery.assignments;
     workspaces = recovery.workspaces;
     owner = assignments.find(a => a.owner)?.owner || owner;
   } else {
-    const planPrompt = `Plan parallel implementation tasks for this completed checklist. Return ONLY a JSON array. Each entry has requirementIndex (zero-based checklist index), task (concrete worker instruction), provider (one of ${available.join(', ')}), model, effort, and files (exact repository-relative paths owned by this task). Assign exactly one entry per actionable requirement; skip items marked done:true. Assign disjoint paths when possible; do not invent paths or include preservation-only constraints. Checklist: ${JSON.stringify(checklist)}`;
+    const planPrompt = `Inspect the project with read-only tools and plan parallel implementation tasks for this completed checklist. Return ONLY a JSON array. Each entry has requirementIndex (zero-based checklist index), task (concrete worker instruction), provider (one of ${available.join(', ')}), model, effort, and files (exact repository-relative file or folder paths owned by this task). Available starting routes: ${JSON.stringify(routes)}. Assign exactly one entry per actionable requirement; skip items marked done:true. Assign disjoint paths when possible; do not invent paths. For preservation-only constraints return an entry with preservationOnly:true instead of inventing an implementation task. Checklist: ${JSON.stringify(checklist)}`;
     let plan = [];
+    const planTasks = async prompt => {
+      let lastError;
+      for (const provider of available.filter(provider=>!isDown(provider))) {
+        if (epoch !== rt.epoch) return [];
+        try {
+          const planned = await seatRun(sid,owner,'coding',()=>prompt,trigger,{quiet:true,requirementsOnly:true,routeOverride:{provider,...routes[provider].coding}});
+          const parsed=JSON.parse(planned.text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));
+          if (!Array.isArray(parsed)) throw new Error('Planner did not return a task array');
+          return parsed;
+        } catch (error) {lastError=error; if(error.cancelled) throw error;}
+      }
+      throw lastError || new Error('No provider is available to plan tasks');
+    };
     setReqs(sid, { ...reqsOf(sid), planning: owner }); // the checklist shows "splitting into tasks" until assignments exist
     try {
-      const planned = await seatRun(sid, owner, 'coding', () => planPrompt, trigger, { quiet: true, requirementsOnly: true });
-      const raw = planned.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) plan = parsed;
+      plan = await planTasks(planPrompt);
     } catch {}
     if (reqsOf(sid)?.planning) { const { planning, ...rest } = reqsOf(sid); setReqs(sid, rest); }
     if (epoch !== rt.epoch) return null;
     // finished items (a continued checklist) get no task; a plan entry for one is dropped instead of failing the whole run
-    const open = checklist.map((item) => item.done ? { ...item, actionable: false } : item);
+    const open = checklist.map((item,index) => item.done || plan.some(entry=>entry?.requirementIndex===index && entry.preservationOnly===true) ? { ...item, actionable: false } : item);
     // the planner sometimes names its own model or effort, or a provider that is off: snap each entry to a configured route instead of failing the run
     const routeFor = (p) => available.includes(p) && routes[p]?.coding ? p : available.find((x) => routes[x]?.coding);
     const fixed = plan.filter((e) => open[e?.requirementIndex] && open[e.requirementIndex].actionable !== false)
       .map((e) => { const p = routeFor(e.provider); return p ? { ...e, provider: p, model: routes[p].coding.model, effort: routes[p].coding.effort } : e; });
-    assignments = createAssignments(open, fixed, routes, available);
+    assignments = balanceWorkers(createAssignments(open, fixed, routes, available),routes,available);
+    const missing=assignments.filter(assignment=>assignment.blocker==='missing-file-scope').map(assignment=>assignment.requirementIndex);
+    if (missing.length) {
+      setReqs(sid,{...reqsOf(sid),planning:owner});
+      try {
+        const repaired=await planTasks(`${planPrompt}\nRepair the missing or invalid file scopes for requirements ${JSON.stringify(missing)}. Inspect the actual project paths. Return entries ONLY for these indices. Verification tasks must name the actual files or folders they inspect. Do not use '.', absolute paths or guessed paths.`);
+        const replacements=repaired.filter(entry=>missing.includes(entry?.requirementIndex)).map(entry=>{
+          const provider=routeFor(entry.provider); return provider ? {...entry,provider,...routes[provider].coding} : entry;
+        });
+        for (const entry of replacements) if(entry.preservationOnly===true) open[entry.requirementIndex]={...open[entry.requirementIndex],actionable:false};
+        assignments=balanceWorkers(createAssignments(open,[...fixed.filter(entry=>!missing.includes(entry.requirementIndex)),...replacements.filter(entry=>open[entry.requirementIndex]?.actionable!==false)],routes,available),routes,available);
+      } catch {}
+      const {planning,...rest}=reqsOf(sid) || {}; setReqs(sid,rest);
+    }
     for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
     const runnableAssignments = assignments.filter(a => a.status === 'queued');
     try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
@@ -448,15 +476,17 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     limit: limit('parallelTasks') || Math.max(1, assignments.length), workspaceMode: workspaces.mode, // 0 = every independent task at once
     persist: current => setReqs(sid, { ...reqsOf(sid), assignments: current.map(a => ({ ...a, workspace: a.workspace && { ...a.workspace } })) }),
     emit: ({ assignments: current }) => send('reqs:update', { sid, reqs:reqsOf(sid), assignments:current }),
-    nextRoute: a => nextEscalation(a, routes, available),
+    nextRoute: (a,reason) => nextWorkerRoute(a,routes,available.filter(provider=>!isDown(provider)),reason),
     runTask: async a => {
-      if (a.status !== 'running' || a.blocker === 'missing-file-scope' || !a.files?.length || !a.workspace?.files?.length) throw new Error('Task cannot run without an explicit assigned file scope');
-      if (epoch !== rt.epoch) throw new Error('Workflow cancelled');
+      if (a.status !== 'running' || a.blocker === 'missing-file-scope' || !a.files?.length || !a.workspace?.files?.length) throw Object.assign(new Error('Task cannot run without an explicit assigned file scope'),{nonRetryable:true});
+      if (epoch !== rt.epoch) throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
       const ws = a.workspace;
       const workerPath = ws.path && path.resolve(ws.path), projectPath = path.resolve(cwdFor(sid));
-      if (!workerPath || ws.blocked || (process.platform === 'win32' ? workerPath.toLowerCase() === projectPath.toLowerCase() : workerPath === projectPath)) throw new Error('Task cannot run without an isolated workspace');
+      if (!workerPath || ws.blocked || (process.platform === 'win32' ? workerPath.toLowerCase() === projectPath.toLowerCase() : workerPath === projectPath)) throw Object.assign(new Error('Task cannot run without an isolated workspace'),{nonRetryable:true});
+      if (isDown(a.provider)) throw new Error(`${a.provider} is unavailable; replacing this worker`);
       const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.`;
       const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
+      if (epoch !== rt.epoch) throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
       let changes = { paths:[], patch:Buffer.alloc(0) };
       if (ws.mode !== 'shared' || ws.isolated) {
         if (!ws.files?.length) throw new Error('Task cannot collect changes without an explicit assigned file scope');
@@ -472,7 +502,11 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
       return { paths, evidence:result.text, checkEvidence, activity:result.activity || [], usage:result.usage };
     },
     reviewTask: async (a, work) => {
-      const outcomes = await Promise.all(providerOrder.slice(0, judgeCount('reviewerCount')).map(async (provider, index) => {
+      const outcomes=[], failures=[];
+      const reviewers=providerOrder.filter(provider=>!isDown(provider)).sort((left,right)=>Number(left===a.provider)-Number(right===a.provider));
+      for (const [index,provider] of reviewers.entries()) {
+        if (epoch !== rt.epoch) throw Object.assign(new Error('Review cancelled'),{cancelled:true});
+        if (outcomes.length >= judgeCount('reviewerCount')) break;
         const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
         const effort = 'low';
         const route = { extra:argsFor(provider,'other',{ [provider]:{ other:{ model, effort } } },''), meta:{ phase:'review', model, effort } };
@@ -481,9 +515,10 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
           const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
           let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
           if (verdict === 'FAIL' && !['FILE','LINE','ACTUAL','EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(result.text))) verdict = 'UNKNOWN';
-          return { verdict, evidence:result.text.slice(0,1800), provider, model, effort };
-        } catch (error) { return { verdict:'UNKNOWN', evidence:String(error.message), provider, model, effort }; }
-      }));
+          outcomes.push({ verdict, evidence:result.text.slice(0,1800), provider, model, effort });
+        } catch (error) { if(error.cancelled || epoch!==rt.epoch) throw Object.assign(error,{cancelled:true}); if (isLimitError(error.message)) markDown(provider,error.message); failures.push(`${provider}: ${error.message}`); }
+      }
+      if (!outcomes.length) return {verdict:'UNKNOWN',reviewers:[],evidence:failures.join('\n') || 'No reviewer provider is available.'};
       const verdict = outcomes.some(x => x.verdict === 'FAIL') ? 'FAIL' : outcomes.every(x => x.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
       return { verdict, reviewers:outcomes, evidence:outcomes.map(x => `${x.provider}: ${x.verdict} — ${x.evidence}`).join('\n') };
     },
@@ -511,17 +546,18 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
   // Taken once before the first patch: a retry must undo an earlier attempt's out-of-scope edit, not hide it. ponytail: Git roots only; non-Git projects are not checked
   let before;
   return runRequirementIntegration(assignments, {
-    nextRoute: assignment => nextEscalation(assignment, routes, available),
+    nextRoute: (assignment,reason) => nextWorkerRoute(assignment,routes,available.filter(provider=>!isDown(provider)),reason),
     persist: current => setReqs(sid, { ...reqsOf(sid), assignments:current.map(a => ({ ...a, workspace:a.workspace && { ...a.workspace } })) }),
     integrate: async (integrator, changes) => {
-      if (epoch !== rt.epoch) throw new Error('Integration cancelled');
+      if (epoch !== rt.epoch) throw Object.assign(new Error('Integration cancelled'),{cancelled:true});
+      if (isDown(integrator.provider)) throw new Error(`${integrator.provider} is unavailable; replacing the integration worker`);
       before ??= projectChanges(projectPath);
       const conflicts = [];
       if (!integrator.retryCount) for (const change of changes) if (change.patch.length) conflicts.push(...applyTaskChanges(projectPath, change));
       const assigned = assignments.filter(a => a.status === 'passed').map(a => ({ id:a.id, task:a.task, requirement:a.requirementIndex, files:a.changedPaths || [], patchIncluded:changes.some(c => c.assignmentId === a.id && c.patch.length) }));
       const prompt = `${ACCESS_NOTE}\nYou are the single integration agent for the passed requirement tasks. Inspect the active project and integrate/reconcile their combined work, resolving overlaps and preserving existing user changes. Task summaries and patch application state: ${JSON.stringify(assigned)}\nPatch conflicts or scope errors: ${JSON.stringify(conflicts).slice(0,5000)}\n${integrator.previousFindings ? `Previous final-review findings to repair: ${integrator.previousFindings}` : ''}\nRequirements, including preservation constraints: ${JSON.stringify(reqsOf(sid)?.items || [])}\nOnly make changes needed to combine these passed tasks. Run the full project checks and report the exact command and result. Do not claim checks passed if they could not run.`;
       const integrated = await seatRun(sid, integrator.owner || owner, 'coding', () => prompt, trigger, { quiet:true, cwd:projectPath, sub:'req-integration', routeOverride:{ provider:integrator.provider, model:integrator.model, effort:integrator.effort } });
-      if (epoch !== rt.epoch) throw new Error('Integration cancelled');
+      if (epoch !== rt.epoch) throw Object.assign(new Error('Integration cancelled'),{cancelled:true});
       let checkEvidence = 'No full project check could be run.';
       let hasFullCheck = false;
       try {
@@ -693,6 +729,25 @@ const RT = (sid) => {
 
 async function ask(sid, who, trigger, isLead) {
   const rt = RT(sid), ep = rt.epoch, msgs = () => store.getSession(sid).messages, startLen = msgs().length;
+  if (!supercodeOn(sid)) {
+    try {
+      if (!snapTaken.has(sid)) { snapTaken.add(sid); panels.snapshot(sid)?.catch?.(()=>{}); }
+      const result = await seatRun(sid,who,'coding',(_stand,state)=>{
+        const session=store.getSession(sid);
+        return normalPrompt(session,who,state.resumed);
+      },trigger);
+      if (ep !== rt.epoch) return {next:[]};
+      const msg = post(sid,who,result.text,null,null,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta});
+      if (result.usage) send('agent:usage',{sid,who,...result.usage});
+      return {next:[],msg,ended:true};
+    } catch (error) {
+      if (ep===rt.epoch && !error.cancelled) {
+        const failure=formatFailureInfo(error.raw || error.message,who);
+        post(sid,'system',`${who} failed: ${failure.message}`,null,null,{failure});
+      }
+      return {next:[],ended:true};
+    }
+  }
   if (trigger?.direct) {
     const history = msgs().slice(-12).map(m => `${m.from}: ${m.text || ''}`).join('\n');
     const result = await seatRun(sid, who, 'other', () => `${ACCESS_NOTE}\nReply directly to the user's latest message. This is conversation, not a new implementation task. Be brief: one or two sentences unless an explanation is requested. No requirements, plans, tools, handoffs, control tags or follow-up questions. Use the recent chat to answer factually; never claim unfinished work is done.\n${history}`, trigger, { conversation: true });
@@ -1227,7 +1282,7 @@ ipcMain.handle('chat:export', async (event, sid) => {
 // per-session settings the chat header needs: title, lead (falls back to the global default), project
 ipcMain.handle('chat:info', (_e, sid) => {
   const s = store.getSession(sid), p = store.listProjects().find((x) => x.id === s.projectId);
-  return { reqs: s.reqs || null, supercode:!!s.supercode, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
+  return { reqs: s.supercode ? s.reqs || null : null, supercode:!!s.supercode, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
 });
 // End task: stop the agents, drop the requirements and close the task (know-how stays), so the next message starts fresh
 ipcMain.handle('chat:endTask', (_e, sid) => {
@@ -1240,7 +1295,7 @@ ipcMain.handle('chat:endTask', (_e, sid) => {
 });
 ipcMain.handle('chat:workflow', (_e, sid, enabled) => {
   if (chatBusy(sid)) throw new Error('Wait for this chat to finish before switching modes');
-  store.updateSession(sid, { supercode:!!enabled });
+  store.updateSession(sid, { supercode:!!enabled, cli:{} });
   send('workflow:changed', { sid, supercode:!!enabled });
   return { sid, supercode:!!enabled };
 });
@@ -1300,7 +1355,7 @@ const userQueues = {
 };
 const drainingUserQueue = new Set();
 const queueUpdate = (sid) => send('chat:queue', { sid, items: (userQueues.get(sid) || []) });
-const chatBusy = (sid) => Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive) || requirementCoordinators.has(sid);
+const chatBusy = (sid) => requirementRetries.has(sid) || Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive) || requirementCoordinators.has(sid);
 function drainUserQueue(sid) {
   if (drainingUserQueue.has(sid)) return;
   const q = userQueues.get(sid);
@@ -1322,12 +1377,18 @@ function continueChecklist(sid, trigger, force = false) {
   const rt = RT(sid), sess = store.getSession(sid), owner = AGENT_NAMES.includes(sess.lead || settings.lead) ? sess.lead || settings.lead : 'claude';
   setReqs(sid, { ...reqsOf(sid), requestAt: trigger.at }); // the checklist stays: this message continues it
   post(sid, 'system', `Running the ${open.length} open requirement${open.length === 1 ? '' : 's'} at once.`, null, null, { muted: true });
-  startRequirementWorkflow(sid, owner, trigger, rt.epoch).catch((e) => post(sid, 'system', `Parallel run failed: ${String(e.message).slice(-300)}`, null, null, { muted: true }));
+  startRequirementWorkflow(sid, owner, trigger, rt.epoch).catch((e) => post(sid, 'system', `Parallel run failed: ${String(e.message).slice(-300)}`, null, null, { failure:formatFailureInfo(e.message,owner) }));
   return true;
 }
 function dispatchUser(sid, { text, files, reply }) {
   const sess = store.getSession(sid), rt = RT(sid); // throws on an unknown session
   const m = post(sid, 'user', text, reply, files);
+  if (!supercodeOn(sid)) {
+    const selected=sess.lead || settings.lead;
+    rt.turns=0; rt.paused=false; rt.awaiting=false;
+    enqueue(sid,AGENT_NAMES.includes(selected) ? selected : 'codex',m,null,true);
+    return;
+  }
   if (!files?.length && continueChecklist(sid, m)) return;
   if (!files?.length && isConversation(text)) {
     const selected = sess.lead || settings.lead;
@@ -1440,6 +1501,49 @@ ipcMain.handle('chat:retry', async (_e, sid, targetProv) => {
   for (const who of first) enqueue(sid, who, lastUser, after, who === lead);
   return true;
 });
+ipcMain.handle('chat:requirement-retry', async (_e,sid,assignmentId,alternate=false) => {
+  if (!supercodeOn(sid)) throw new Error('Checklist retries are available in EasyCode.');
+  if (chatBusy(sid)) throw new Error('Wait for the current work to finish, or stop it before retrying.');
+  const session=store.getSession(sid), saved=session.reqs?.assignments || [];
+  const original=saved.find(assignment=>assignment.id===assignmentId);
+  if (!original) throw new Error('This task no longer exists.');
+  const retryProvider=original.status==='passed' ? original.integrationRoute?.provider || original.provider : original.provider;
+  if (!alternate && AGENT_NAMES.includes(retryProvider)) down[retryProvider]=0;
+  const available=AGENT_NAMES.filter(provider=>!isDown(provider)), routes=initialWorkerRoutes(settings.routes);
+  const {prepareRequirementRetry}=require('./requirement-retry');
+  let retry=prepareRequirementRetry(original,{alternate:!!alternate,routes,available});
+  const trigger=session.messages.findLast(message=>message.from==='user');
+  if (!trigger) throw new Error('No user request to retry.');
+  const rt=RT(sid), epoch=rt.epoch;
+  requirementRetries.add(sid);
+  try {
+    if (!retry.files?.length) {
+      const provider=retry.provider, route=routes[provider].coding;
+      const prompt=`Inspect this project with read-only tools. Give an exact file scope for this task: ${session.reqs.items[retry.requirementIndex]?.t || retry.task}. Return ONLY JSON {"task":"concrete worker instruction","files":["repository-relative file or folder"]}. Do not edit files. Do not invent paths; verification tasks must name the actual files they inspect. Never use '.', absolute paths or parent traversal.`;
+      const planned=await seatRun(sid,retry.owner || provider,'coding',()=>prompt,trigger,{quiet:true,requirementsOnly:true,routeOverride:{provider,...route}});
+      const parsed=JSON.parse(planned.text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));
+      const scoped=createAssignments([{text:retry.task}],[{requirementIndex:0,task:parsed.task,files:parsed.files,provider,...route}],routes,[provider])[0];
+      if (!scoped.files.length) throw new Error('The model could not determine safe file paths. Try another model or clarify the task.');
+      retry={...retry,task:scoped.task,files:scoped.files,fileOwnership:scoped.files,coordinatorOwned:false};
+    }
+    if (epoch!==rt.epoch) throw Object.assign(new Error('Retry cancelled'),{cancelled:true});
+    if (retry.status!=='passed' && !validTaskWorkspace(retry.workspace,retry)) {
+      const spaces=createTaskWorkspaces(cwdFor(sid),sid,[retry]), workspace=spaces.tasks[0];
+      if (!workspace) throw new Error('Could not create a workspace for this retry.');
+      retry.workspace={...workspace,...(spaces.cleanup?.[0] && {cleanup:spaces.cleanup[0]})}; retry.workspaceMode=spaces.mode;
+      if(retry.status==='reviewing') retry.status='queued';
+    }
+    const assignments=saved.map(assignment=>assignment.id===assignmentId ? retry : {...assignment});
+    if(original.status==='passed' && original.integrationStatus==='open') {
+      const first=assignments.find(assignment=>assignment.status==='passed');
+      if(first) first.integrationRoute=retry.integrationRoute;
+    }
+    setReqs(sid,{...session.reqs,assignments});
+    requirementRetries.delete(sid);
+    await startRequirementWorkflow(sid,retry.owner || session.lead || 'codex',trigger,epoch,{assignments,workspaces:workspacesFromAssignments(assignments)});
+    return true;
+  } finally {requirementRetries.delete(sid);drainUserQueue(sid);}
+});
 ipcMain.handle('chat:bypass', (_e, sid, on) => { on ? bypass.add(sid) : bypass.delete(sid); send('chat:mode', { sid, mode: modeOf(sid), bypass: bypass.has(sid) }); }); // the renderer shows the confirm dialog first
 ipcMain.handle('chat:stop', (_e, sid) => {
   const rt = RT(sid);
@@ -1449,9 +1553,10 @@ ipcMain.handle('chat:stop', (_e, sid) => {
 });
 
 function interruptSession(sid, rt = RT(sid)) {
+  requirementCoordinators.get(sid)?.coordinator.cancel();
   rt.epoch++;
   for (const l of Object.values(rt.lanes)) l.next = null;
-  for (const p of procs.values()) if (p.sid === sid && (p.label.endsWith('(chat)') || /^(vote|review)/.test(String(p.sub)))) killProc(p);
+  for (const p of procs.values()) if (p.sid === sid) killProc(p);
   stopSubs(sid);
 }
 
@@ -1510,6 +1615,24 @@ ipcMain.handle('settings:limits', () => LIMITS);
 ipcMain.handle('settings:pickFolder', async () => { const r = await dialog.showOpenDialog({ properties: ['openDirectory'] }); return r.canceled ? null : r.filePaths[0] || null; });
 models.register(ipcMain, { get: () => settings, save: () => writeText(SETTINGS_FILE, JSON.stringify(settings, null, 2)), cmds: () => ({ claude: settings.claudeCmd, codex: settings.codexCmd, antigravity: settings.antigravityCmd }) });
 ipcMain.handle('prices:get', () => readJSON(path.join(__dirname, 'prices.json'), {}));
+let generatingTheme=null;
+ipcMain.handle('themes:generate', () => {
+  if (generatingTheme) return generatingTheme;
+  generatingTheme=(async()=>{
+    const {parseTheme,themePrompt}=require('./theme-generator');
+    const prompt=themePrompt(), routes=initialWorkerRoutes(settings.routes);
+    let lastError;
+    for(const provider of ['codex','claude','antigravity'].filter(provider=>!isDown(provider))) {
+      try {
+        const route={extra:argsFor(provider,'coding',routes,''),meta:{phase:'theme',...routes[provider].coding}};
+        const result=await PROV[provider](prompt,null,{cwd:HOME,quiet:true,readonly:true,safeReview:true,nativeCode:true,route,sub:'theme-generation'});
+        return parseTheme(result.text);
+      } catch(error) {lastError=error; if(isLimitError(error.message)) markDown(provider,error.message); if(error.cancelled) throw error;}
+    }
+    throw new Error(lastError ? `Theme generation failed: ${lastError.message}` : 'No AI provider is available. Connect a provider in Settings and try again.');
+  })().finally(()=>{generatingTheme=null;});
+  return generatingTheme;
+});
 ipcMain.handle('settings:save', (_e, s) => { settings = { ...DEFAULTS, ...settings, ...s, down, connections: settings.connections }; settings.routes = mergeRoutes(settings.routes); settings.reviewerCount = judgeCount('reviewerCount'); settings.approvalCount = judgeCount('approvalCount'); writeText(SETTINGS_FILE, JSON.stringify(settings, null, 2)); });
 
 // Every window is a full Relay view; each one opens its own session, and all of them get every event (renderers filter by session).

@@ -2,7 +2,7 @@
 // Matched case-insensitively against an error message (exit code text + stderr + stream error events).
 const LIMIT_PATTERNS = [
   /usage[_ ]limit/, /rate[_ ]?limit/, /limit reached/, /hit your .{0,30}limit/, /quota/, /\b429\b/, /too many requests/,
-  /overloaded/, /\b529\b/, /credit balance/, /insufficient[_ ]funds/,
+  /overloaded/, /\b529\b/, /credit balance/, /insufficient[_ ]funds/, /insufficient[_ ]credits?/, /out of credits/, /no credits/, /credits? (?:exhausted|depleted)/, /\b402\b/, /resource[_ ]exhausted/,
   /authentication[_ ]error/, /invalid api key/, /run \/login/, /not logged in/, /(token|session|login|credentials?) (has |have )?(expired|is invalid)/, /\b401\b/, /unauthorized/,
   /is not recognized as an internal or external command/, /command not found/, /\benoent\b/, /spawn .* not found/,
 ];

@@ -565,6 +565,9 @@
 </style>
 <link rel="stylesheet" href="chrome.css">
 <link rel="stylesheet" href="workbench.css">
+<link rel="stylesheet" href="sidebar-polish.css">
+<link rel="stylesheet" href="themes.css">
+<script src="themes.js"></script>
 </head>
 <body>
 <div id="boot" role="status" aria-label="Loading"><img src="assets/relay.svg" alt=""></div>
@@ -575,11 +578,13 @@
   <button data-tab="rules"><svg class="i" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>Rules</button>
   <button data-tab="skills"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16v4M17 18h4"/></svg>Skills</button>
   <button data-tab="settings"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg>Settings</button>
+  <button data-tab="themes"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg>Themes</button>
   <div id="sidebar"></div>
   <div class="foot" id="navFoot"><span id="navStats"></span><button id="updPill" hidden></button></div>
 </nav>
 <main>
   <section id="usage" class="on"></section>
+  <section id="themes"></section>
 
   <section id="chat">
     <div class="ch-head">
@@ -1716,15 +1721,33 @@ function renderReqs(r) {
   const next = items.findIndex((i) => !i.done), assignmentByIndex = new Map((r.assignments || []).map((a) => [Number(a.requirementIndex), a]));
   const assignmentDetails = (a) => {
     const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', blocked:'Blocked', open:'Open', escalated:'Escalated' };
-    const state = status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
+    const state = a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
+    const displayedRoute=a.integrationRoute || a;
     const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
     const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
     const progress = Math.max(0, Math.min(100, Number(a.progress) || 0));
+    const retryable=['blocked','open'].includes(status) || a.integrationStatus==='open';
+    const retryControls=el('span',{className:'rq-retry-controls'});
+    if(retryable) {
+      const sid=openSid, message=el('span',{className:'rq-retry-error',role:'status'});
+      for(const [label,alternate] of [['Retry',false],['Try another model',true]]) {
+        const button=el('button',{type:'button',className:'rq-retry',textContent:label});
+        button.onclick=async()=>{
+          retryControls.querySelectorAll('button').forEach(control=>control.disabled=true); message.textContent=''; button.textContent='Retrying…';
+          try {await api.call('chat:requirement-retry',sid,a.id,alternate);}
+          catch(error) {message.textContent=error.message;}
+          finally {retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);button.textContent=label;}
+        };retryControls.append(button);
+      }
+      retryControls.append(message);
+    }
     return [el('span', { className:`rq-assignment-state ${status}`, textContent:state }),
-      el('span', { className:'rq-assignment-route', title:[a.provider, a.model, a.effort].filter(Boolean).join(' · '), textContent:[a.provider, [a.model, a.effort].filter(Boolean).join(' ')].filter(Boolean).join(' · ') }),
+      el('span', { className:'rq-assignment-route', title:[displayedRoute.provider, displayedRoute.model, displayedRoute.effort].filter(Boolean).join(' · '), textContent:[displayedRoute.provider, [displayedRoute.model, displayedRoute.effort].filter(Boolean).join(' ')].filter(Boolean).join(' · ') }),
       el('span', { className:'rq-assignment-progress', title:`Progress ${progress}%` }, el('span', { className:'rq-assignment-track' }, el('i', { style:`width:${progress}%` })), el('span', { textContent:`${progress}%` })),
       ...(review ? [el('span', { className:'rq-assignment-review', title:evidence.map(x => x.evidence || x.verdict || '').filter(Boolean).join('\n'), textContent:review })] : []),
-      ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || a.blocker, textContent:`Blocked · ${a.blocker}` })] : [])];
+      ...(a.workerFailures?.length ? [el('span',{className:'rq-assignment-review',textContent:`${a.workerFailures.length} failed attempt${a.workerFailures.length===1 ? '' : 's'}`,title:a.workerFailures.map(failure=>`${failure.provider} · ${failure.model}: ${failure.error}`).join('\n')})] : []),
+      ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || a.blocker, textContent:`Blocked · ${a.blocker}` })] : []),
+      ...(retryable ? [retryControls] : [])];
   };
   const list = el('ol', {}, ...items.map((i, n) => {
     const a = assignmentByIndex.get(n);
@@ -1749,7 +1772,7 @@ function renderReqs(r) {
   }
   box.replaceChildren(sum, list);
 }
-api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(d.reqs || { items: [], idle: true }); }); // a closed task leaves the idle bar
+api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(window.ActiveChat?.supercode ? d.reqs || { items: [], idle: true } : null); });
 api.on('agent:status', (d) => { const a = actBy[d.sid] ||= {}; if (d.status) a[d.who] = d; else delete a[d.who]; if (d.sid === openSid) { renderTyping(); renderSpend(); } });
 setInterval(renderTyping, 1000);
 // Compact provider availability; reset details stay available on hover.
@@ -1783,7 +1806,7 @@ async function renderChips(fake) {
   if (!openSid) return $('#skChips').replaceChildren();
   const sid = openSid, d = fake || await api.call('skills:inUse', sid).catch(() => null);
   if (!d || sid !== openSid) return;
-  const by = new Map(d.forced.map((n) => [n, new Set()]));
+  const by = new Map((window.ActiveChat?.supercode ? d.forced : []).map((n) => [n, new Set()]));
   for (const u of d.used) (by.get(u.name) || by.set(u.name, new Set()).get(u.name)).add(u.by);
   const chip = ([n, who]) => el('span', { className: 'sk1', title: who.size ? `${n} (used by ${[...who].join(', ')})` : n }, ...[...who].map((w) => el('i', { style: `background:var(--${w === 'codex' ? 'codex' : 'claude'})` })), el('span', { className: 'sk-t', textContent: n.replace(/^[\w-]+:/, '') }));
   $('#skChips').replaceChildren(...[...by].map(chip));
@@ -2023,7 +2046,7 @@ api.on('workflow:changed',d => {
   if (window.ActiveChat?.sid !== d.sid) return;
   window.ActiveChat.supercode = d.supercode;
   api.call('chat:info', d.sid).then((i) => { if (openSid === d.sid) renderReqs(i?.reqs || { items: [], idle: true }); });
-  renderLead(leadCur); window.dispatchEvent(new Event('active-chat'));
+  renderLead(leadCur); renderChips(); window.dispatchEvent(new Event('active-chat'));
 });
 function toggleLeadMenu(open = $('#leadMenu').hidden, kb) { $('#leadMenu').hidden = !open; $('#leadPick').setAttribute('aria-expanded', open); if (open && kb) $('#leadMenu .mi')?.focus(); }
 $('#leadPick').onclick = (e) => toggleLeadMenu(undefined, e.detail === 0);
@@ -2360,7 +2383,7 @@ async function loadSettings() {
       row('', 'Mode for new sessions', 'Each chat can still switch from its mode menu', mode),
       row('', 'Commands', 'The CLI each provider runs, plus flags added to every run', cli),
       row('s-cwd', 'Working directory', 'Used by chats outside a project', el('div', { className: 'set-inline' }, cwd, browse)),
-      row('s-supercodeInstructions', 'Supercode roles', 'Which model handles what, and when work moves to a stronger one', roles)),
+      row('s-supercodeInstructions', 'EasyCode roles', 'Guided mode only: worker responsibilities and escalation guidance', roles)),
     sec('limits', 'Limits', 'How much the team may do per task. A dot marks a value you changed', resetAll,
       ...Object.entries(groups).map(([g, items]) => el('div', { className: 'lim-group' }, el('h4', { textContent: g }), el('div', { className: 'lim-grid' }, ...items.map(limTile))))),
     sec('updates', 'Updates', 'Relay downloads new versions in the background and installs them when you restart', null, upd));
@@ -2429,6 +2452,7 @@ $('#discardSettings').onclick = () => loadSettings();
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && $('#settings').classList.contains('on')) { e.preventDefault(); if (!$('#setBar').hidden) saveSettings(); } });
 
 QuickActions.mount({sid:()=>openSid, tab:showTab, session:openSession, newSession:()=>CMDS.find(c=>c.n==='new').run()});
+Themes.mount({api});
 (async () => {
   window._initialLogScrollPending = true;
   Panels.mount($('#chat .ch-body'), () => ({ sid: openSid }));

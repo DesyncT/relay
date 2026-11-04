@@ -15,7 +15,7 @@ window.QuickActions = (() => {
       {label:'New session in this project', hint:'Ctrl+N', run:ctx.newSession, disabled:!ctx.sid()},
       {label:'Export chat as Markdown', hint:'Save a copy', run:exportChat, disabled:!ctx.sid()},
       {label:'Focus message composer', hint:'Ctrl+L', run:()=>document.querySelector('#input').focus(), disabled:!chatOpen()},
-      ...['chat','usage','rules','agents','settings'].map(tab=>({label:tab === 'agents' ? 'Open subagents' : 'Open '+tab, run:()=>ctx.tab(tab)})),
+      ...['chat','usage','rules','agents','settings','themes'].map(tab=>({label:tab === 'agents' ? 'Open subagents' : 'Open '+tab, run:()=>ctx.tab(tab)})),
     ].filter(x=>!x.disabled);
   }
   function draw() {

@@ -22,6 +22,12 @@ Build the installer: `npm run dist`. Publish a release (needs `GH_TOKEN`): `npm 
 
 ## Keyboard shortcuts and chat tools
 
+**Code** talks directly to your selected Codex or Claude Code CLI and resumes its native session. It uses that CLI's installed skills, project instructions, tools, and configuration. Relay does not add its requirements interview, forced shared skills, workers, or review workflow to Code chats. The first run may replay saved conversation history to establish a new CLI session.
+
+**EasyCode** is the guided workflow: clarify the request, build a checklist, and distribute workers across available Codex, Claude, and Gemini providers. Workers start with smaller models and switch providers after errors or unavailable credits. Failed reviews can move work to a stronger model. Failed checklist steps have **Retry** and **Try another model** controls; completed sibling tasks stay intact.
+
+**Themes** includes Graphite, Paper, Midnight, and a square-corner monospace Terminal preset. **Generate with AI** uses an available provider to create colors, typography, corner radius, borders, and spacing density. Preview before applying; theme preferences are saved locally. Generated palettes must pass schema and text-contrast checks.
+
 - `Ctrl+Shift+P`: search actions in the command palette (also available from **Actions** in the chat header).
 - `Ctrl+K`: find and switch sessions by title or project.
 - `Ctrl+F`: search the current chat and jump to a message.

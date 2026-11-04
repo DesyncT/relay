@@ -49,7 +49,7 @@ function createAssignments(items, plan, routes, availableProviders) {
       if (!fallbackProvider) throw new Error('No valid configured coding route available for fallback assignment');
       ({ model, effort } = routeAt(routes, fallbackProvider));
       provider = fallbackProvider;
-      task = `Coordinator-owned task for requirement ${index}: ${String(item.text || item.requirement || item.title || '').trim()}`;
+      task = `Coordinator-owned task for requirement ${index}: ${String(item.t || item.text || item.requirement || item.title || '').trim()}`;
       files = [];
       coordinatorOwned = true;
     }

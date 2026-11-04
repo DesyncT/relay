@@ -407,6 +407,11 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
 
 /* requirements list: numbered rows, status on the first text line, quoted targets as code */
+.rq-retry-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.rq-retry { min-height:28px; padding:4px 8px; color:var(--text-2); background:var(--card); border:1px solid var(--line-strong); border-radius:4px; font-size:12px; }
+.rq-retry:hover { color:var(--text); background:var(--raised); }
+.rq-retry:focus-visible { outline:2px solid var(--claude) !important; outline-offset:2px; }
+.rq-retry-error { color:var(--negative); font-size:12px; }
 #quickActions { width:min(560px, calc(100vw - 32px)); padding:16px; color:var(--text); background:var(--card); border:1px solid var(--line-strong); border-radius:12px; }
 #quickActions::backdrop { background:var(--deep); opacity:.75; }
 #quickActions header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }

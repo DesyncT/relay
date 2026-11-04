@@ -17,9 +17,6 @@
   let box, list, searchBox, input, results, menu, opts = {};
   let tree = { projects: [], sessions: [], active: null };
   let working = new Set(); // chats with an agent running
-  const pinged = new Set(); // unread dots that already pinged; rows are rebuilt on every render
-  const seen = new Set(); // ids already animated in
-  let fresh = null; // session just created here
   const expanded = new Set(); // group keys showing more than LIMIT rows
   let timer, searchTimer;
 
@@ -73,7 +70,6 @@
     if (!pid) { const p = await api.call('projects:pick').catch((e) => { alert(e.message); }); pid = p?.id; }
     if (!pid) return;
     const s = await api.call('sessions:create', pid);
-    fresh = s.id; // its row grows in on the next render
     opts.onNew?.(pid, s.id);
     await refresh(); open(s.id);
   }
@@ -115,18 +111,15 @@
   const nav = (e, all, el_) => { const k = all.indexOf(el_) + (e.key === 'ArrowDown' ? 1 : -1); all[k]?.focus(); e.preventDefault(); };
 
   // ---- rendering ----
-  function row(s, i) {
+  function row(s) {
     const title = el('span', { className: 'sb-title', textContent: s.title });
-    const r = el('div', { className: 'sb-row' + (s.id === tree.active ? ' on' : ''), tabIndex: 0, role: 'button', title: s.title });
+    const r = el('div', { className: 'sb-row' + (s.id === tree.active ? ' on' : ''), tabIndex: 0, role: 'button', title: s.title + '\nF2 to rename · Alt+↑/↓ to reorder' });
     r.dataset.id = s.id;
-    if (s.id === fresh) { r.classList.add('sb-new'); fresh = null; }
-    else if (!seen.has(s.id) && i < 8) { r.classList.add('sb-in'); r.style.animationDelay = i * 20 + 'ms'; }
-    seen.add(s.id);
-    r.append(el('span', { className:'sb-supercode', title: s.supercode ? 'Supercode' : '', innerHTML: !s.supercode ? '' :'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-12h-7z"/></svg>' }));
+    r.setAttribute('aria-pressed', String(s.id === tree.active));
+    r.append(el('span', { className:'sb-supercode', title: s.supercode ? 'EasyCode' : '', innerHTML: !s.supercode ? '' :'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-12h-7z"/></svg>' }));
     r.append(title);
     if (working.has(s.id)) r.append(el('span', { className: 'sb-spin', title: 'Working' }));
-    else if (s.unread) r.append(el('span', { className: 'sb-dot' + (pinged.has(s.id) ? '' : ' ping'), title: 'Done, not read yet' })), pinged.add(s.id);
-    else pinged.delete(s.id);
+    else if (s.unread) r.append(el('span', { className: 'sb-dot', title: 'Done, not read yet' }));
     const items = [['Rename', () => inlineRename(title, s.title, (v) => api.call('sessions:rename', s.id, v))], ['Delete', () => delSession(s), true]];
     r.append(btn('sb-more', 'Session actions', 'more', (e) => { e.stopPropagation(); showMenu(e.currentTarget, items); }));
     r.onclick = () => open(s.id);
@@ -145,7 +138,7 @@
 
   function group(p) {
     const name = el('span', { className: 'sb-name', textContent: p.name });
-    const h = el('div', { className: 'sb-group-h' + (p.collapsed ? ' collapsed' : ''), tabIndex: 0, role: 'button', title: p.path });
+    const h = el('div', { className: 'sb-group-h' + (p.collapsed ? ' collapsed' : ''), tabIndex: 0, role: 'button', title: p.path + '\nAlt+↑/↓ to reorder' });
     h.setAttribute('aria-expanded', String(!p.collapsed));
     const caret = icon('caret'); caret.classList.add('sb-caret');
     h.append(caret, name);
