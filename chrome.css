@@ -1,0 +1,162 @@
+/* Relay chrome: custom scrollbars and title bar. Link after index.html's own <style>. */
+
+/* ---- scrollbars ---- */
+::-webkit-scrollbar { width:6px; height:6px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background:transparent; }
+::-webkit-scrollbar-thumb { background:rgba(237,237,238,.12); border:1px solid transparent; background-clip:padding-box; border-radius:999px; }
+::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background:rgba(237,237,238,.28); background-clip:padding-box; }
+/* Keep the main chat log easy to grab while small panes stay visually quiet. */
+#log::-webkit-scrollbar { width:6px; }
+
+/* ---- title bar ---- */
+:root { --tb-h:40px; }
+body.tb { padding-top:var(--tb-h); height:100vh; }
+body.tb main { min-width:0; overflow-x:hidden; }
+body.tb #chat.on { height:100%; }
+body.tb nav .brand { display:none; }
+#tb { position:fixed; top:0; left:0; right:0; height:var(--tb-h); z-index:50; display:flex; align-items:center; gap:8px; padding:0 8px 0 16px;
+  padding-right:max(146px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+  background:#0f0f10; border-bottom:1px solid var(--line); -webkit-app-region:drag; user-select:none; font-size:13px; line-height:20px; color:var(--text-2); }
+#tb .tb-brand { display:flex; align-items:center; gap:10px; color:var(--text); font-weight:500; }
+#tb .tb-sep { color:var(--muted); }
+#tb .tb-title { color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+#tb .tb-actions { margin-left:auto; display:flex; gap:2px; -webkit-app-region:no-drag; }
+#tb .tb-actions button { all:unset; box-sizing:border-box; width:30px; height:28px; display:grid; place-items:center; border-radius:6px; color:var(--text-2); cursor:pointer; transition:background-color .15s, color .15s; }
+#tb .tb-actions button:hover { background:var(--raised); color:var(--text); }
+#tb .tb-actions button:focus-visible { outline:none; }
+
+/* Motion. One curve (--ease), short durations; everything off under reduced motion. */
+main > section.on { animation:cx-in .28s var(--ease) both; }
+@keyframes cx-in { from { opacity:0; transform:translateY(8px); } }
+
+/* Usage: blocks rise in order, the chart line draws, bars grow from the left */
+#usage > * { animation:cx-in .4s var(--ease) both; }
+#usage > :nth-child(2) { animation-delay:.04s; } #usage > :nth-child(3) { animation-delay:.08s; }
+#usage > :nth-child(4) { animation-delay:.12s; } #usage > :nth-child(5) { animation-delay:.16s; }
+#usage > :nth-child(6) { animation-delay:.2s; } #usage > :nth-child(n+7) { animation-delay:.24s; }
+#usage svg path[fill="none"] { stroke-dasharray:4000; animation:cx-draw 1.1s var(--ease) .15s both; }
+#usage svg path[opacity] { animation:cx-fade .6s var(--ease) .5s both; }
+@keyframes cx-draw { from { stroke-dashoffset:4000; } to { stroke-dashoffset:0; } }
+@keyframes cx-fade { from { opacity:0; } }
+#usage .u-bar i, #usage .u-mb { transform-origin:left; animation:cx-grow .7s var(--ease) .2s both; }
+@keyframes cx-grow { from { transform:scaleX(0); } }
+#usage tr { animation:cx-fade .3s var(--ease) both; }
+#usage tr:nth-child(2) { animation-delay:.05s; } #usage tr:nth-child(3) { animation-delay:.1s; }
+#usage tr:nth-child(4) { animation-delay:.15s; } #usage tr:nth-child(n+5) { animation-delay:.2s; }
+
+/* Press feedback on every button */
+button, .sb-act, .sb-row { transition:transform .1s var(--ease), background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
+button:active:not(:disabled), .sb-act:active, .sb-row:active { transform:scale(.97); }
+
+/* Chat: reply chip and attachments slide in (not #busy: it redraws every second) */
+#rchip > *, #pend > * { animation:cx-in .2s var(--ease) both; }
+.acts { transition:opacity .12s var(--ease), transform .12s var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  main > section.on, #usage > *, #usage svg path, #usage .u-bar i, #usage .u-mb, #usage tr, #rchip > *, #pend > * { animation:none !important; }
+  button:active, .sb-act:active, .sb-row:active { transform:none; }
+}
+
+/* Keep the composer inset evenly from the black chat area's side and bottom edges. */
+main:has(#chat.on) { padding:0; overflow:hidden; }
+#chat.on .ch-head { padding:0 0 0 24px; }
+#chat.on #log { padding-top:8px; }
+main > #chat.on { height:100%; }
+#chat.on .cbar { margin:16px !important; }
+
+/* Typing status and spend share one row: status left, spend right. Attachments sit above, reply chip stays glued to the composer */
+.ch-main > #pend { order:1; }
+.ch-main > #busy { order:2; height:auto; min-height:28px; flex-wrap:wrap; white-space:normal; overflow-wrap:anywhere; }
+.ch-main > #busy:empty { display:none; }
+#chat.on #scrollBottom { bottom:calc(var(--composer-h, 150px) + 40px); }
+.ch-main > #reqbar { order:2; padding:2px 16px 0; font-size:12px; color:var(--muted); }
+#chat.on .ch-main > #reqbar:not([hidden]) ~ .cbar { margin-top:4px !important; } /* the bar sits right on the composer, no dead band */
+#reqbar summary { display:flex; align-items:center; gap:10px; cursor:pointer; list-style:none; white-space:nowrap; }
+#reqbar summary::-webkit-details-marker { display:none; }
+#reqbar .rq-track { flex:1; height:4px; border-radius:2px; background:var(--raised); overflow:hidden; }
+#reqbar .rq-fill { display:block; height:100%; background:var(--claude); transition:width .3s; }
+/* agents running: a light sweeps along the track */
+#reqbar .rq-track { position:relative; }
+#reqbar.working:not(.has) .rq-track::after { content:''; position:absolute; inset:0; width:30%; background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--claude) 70%, transparent), transparent); animation:rqSweep 1.3s ease-in-out infinite; }
+@keyframes rqSweep { from { transform:translateX(-100%); } to { transform:translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { #reqbar.working .rq-track::after { animation:none; } }
+#reqbar .rq-car { display:grid; place-items:center; width:12px; color:var(--muted); transition:transform .15s; }
+#reqbar[open] .rq-car { transform:rotate(90deg); }
+#reqbar summary:hover .rq-car, #reqbar summary:hover > span:not(.rq-track) { color:var(--text); }
+/* open: the full numbered list, readable size, scrolls past ~10 items */
+#reqbar ol { margin:8px 0 4px; padding:8px 12px 8px 36px; max-height:240px; overflow:auto; color:var(--text); font-size:13px; line-height:20px; background:var(--card); border:1px solid var(--line); border-radius:8px; }
+#reqbar li { padding:2px 0; }
+#reqbar .rq-end { all:unset; flex:none; padding:2px 6px; border-radius:6px; color:var(--muted); font-size:12px; line-height:16px; cursor:pointer; transition:color .15s, background-color .15s; }
+#reqbar .rq-end:hover { color:var(--text); background:var(--raised); }
+#reqbar .rq-end[data-sure] { color:#e5484d; }
+#reqbar .rq-end:focus-visible { outline:2px solid var(--claude); outline-offset:1px; }
+#reqbar li .rq-ic { display:inline-grid; place-items:center; width:12px; height:12px; margin:0 8px 0 2px; vertical-align:-1px; box-sizing:border-box; border:1.5px solid var(--muted); border-radius:50%; opacity:.6; }
+#reqbar li.done .rq-ic { border:0; opacity:1; color:var(--claude); }
+#reqbar li.done .rq-ic svg { width:12px; height:12px; stroke-width:2.5; }
+#reqbar li.now .rq-ic, #reqbar.working:not(:has(li.now)) li.next .rq-ic { opacity:1; border-color:var(--raised); border-top-color:var(--claude); animation:rqSpin .8s linear infinite; }
+@keyframes rqSpin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #reqbar .rq-ic { animation:none !important; } }
+/* what an agent is on: name, a small bar and its % */
+#reqbar .rq-now { flex:none; color:var(--muted); font-variant-numeric:tabular-nums; }
+/* the one number that matters: accent, a step bigger, tabular so it doesn't jitter while it climbs */
+#reqbar .rq-pct { flex:none; min-width:4ch; color:var(--claude); font-size:13px; font-weight:500; font-variant-numeric:tabular-nums; text-align:right; }
+#reqbar .rq-lbl { flex:none; color:var(--text-2); }
+#reqbar .rq-cnt { flex:none; color:var(--muted); font-variant-numeric:tabular-nums; }
+#reqbar .rq-track { min-width:120px; }
+#reqbar .rq-now b, #reqbar .rq-who b { font-weight:500; }
+#reqbar li.now > span:first-child { color:var(--text); }
+#reqbar .rq-who { display:inline-flex; align-items:center; gap:8px; margin-left:12px; font-size:12px; color:var(--muted); vertical-align:middle; }
+#reqbar .rq-mini { display:block; width:64px; height:4px; border-radius:2px; background:var(--raised); overflow:hidden; }
+#reqbar .rq-mini i { display:block; height:100%; background:var(--claude); transition:width .3s; }
+#reqbar li::marker { color:var(--muted); font-variant-numeric:tabular-nums; }
+#reqbar li.done { color:var(--muted); text-decoration:line-through; }
+.ch-main > #spend { order:3; height:auto; min-height:28px; flex-wrap:wrap; white-space:normal; pointer-events:none; }
+.ch-main > #spend > * { pointer-events:auto; }
+.ch-main > #rchip { order:4; }
+.ch-main > #limits { order:4; }
+.ch-main > .cbar { order:5; }
+.ch-main { position:relative; min-height:0; }
+#log { min-height:0; overflow-x:hidden; } /* no sideways scroll: wide content wraps or scrolls in its own box */
+#log pre { max-width:100%; overflow-x:auto; }
+#rchip { flex-wrap:nowrap; margin-bottom:0; }
+#rchip b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#rchip button { flex:none; }
+#rchip .reply-preview { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cbar textarea { min-height:48px; }
+.cbar textarea::placeholder { color:var(--text-2); }
+.msg .hd { flex-wrap:wrap; }
+.msg .body { overflow-wrap:anywhere; }
+.atts img { max-width:100%; }
+#queueCount { order:4; padding:0 16px 6px; color:var(--muted); font-size:12px; }
+.q-head { margin-bottom:3px; }
+.q-item { display:flex; align-items:center; gap:8px; min-width:0; padding:3px 7px; border:1px solid var(--line); border-radius:7px; background:var(--card); }
+.q-item + .q-item { margin-top:3px; }
+.q-preview { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+.q-send { flex:none; border:0; border-radius:5px; padding:4px 8px; background:var(--raised); color:var(--text); font:inherit; font-size:11px; cursor:pointer; }
+.q-send:hover { background:var(--line-strong); }
+.q-send:disabled { opacity:.5; cursor:wait; }
+.q-item { gap:0; padding:0 0 0 7px; align-items:stretch; overflow:hidden; }
+.q-item > .q-content, .q-item > .q-editor { margin:3px 8px 3px 0; align-self:center; }
+.q-item > .q-send { display:flex; align-items:center; justify-content:center; border:0; border-left:1px solid var(--line); border-radius:0; padding:0 12px; background:var(--raised); }
+.q-item > .q-edit { color:var(--antigravity); }
+.q-item > .q-go { color:var(--claude); }
+.q-item > .q-delete { color:#d9534f; }
+.q-item > .q-send:hover { background:var(--line-strong); }
+.queue-toggle { display:inline-flex; align-items:center; gap:6px; height:32px; box-sizing:border-box; padding:0 9px; border-radius:999px; background:var(--raised); font-size:12px; line-height:18px; color:var(--text-2); white-space:nowrap; cursor:pointer; }
+.queue-toggle:hover { background:var(--line-strong); color:var(--text); }
+.queue-toggle:focus-within { outline:none; }
+.cbar .queue-toggle input { display:block; width:13px; height:13px; margin:0; accent-color:var(--text); cursor:pointer; }
+.cb-tools { flex-wrap:wrap; column-gap:6px; row-gap:8px; }
+
+/* Image lightbox */
+.lb { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:48px; background:rgba(0,0,0,.86); cursor:zoom-out; animation:cx-fade .16s var(--ease) both; }
+.lb img { max-width:100%; max-height:100%; border-radius:8px; animation:cx-zoom .2s var(--ease) both; }
+@keyframes cx-zoom { from { opacity:0; transform:scale(.97); } }
+.tile.img img, .atts img { cursor:zoom-in; }
+.tile .x { z-index:1; }
+@media (prefers-reduced-motion: reduce) { .lb, .lb img { animation:none; } }
+
+/* Keep provider availability in its own row below the chat title. */
+#chat > #limits { position:static; flex:none; margin:0; padding:8px 24px; min-height:32px; border-bottom:1px solid var(--line); background:var(--deep); gap:8px; }
+#chat.on .ch-head { min-height:56px; padding:0 0 0 24px; }
+#chName { font-size:16px; font-weight:500; line-height:24px; }
