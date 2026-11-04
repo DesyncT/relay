@@ -86,6 +86,10 @@ async function asks(responses, initial) {
   await check(['Forgot again.', 'Still missing.'], true, dispatchTaggedRequest());
   // Requirements written before tool calls, missing from the final message (Codex and Claude both do this)
   await check([{ text: 'Read the files.', said: ['[req: Show requirements before editing]', 'Read the files.'] }]);
+  // Supercode replies put the tags after the @mention, and restate them in the final message (real Codex/Claude output)
+  await check(['@claude [req: Show requirements before editing] [pass @claude]']);
+  await check([{ text: '1. [req: Show requirements before editing]', said: ['@claude [req: Show requirements before editing]\nRead the files.', '1. [req: Show requirements before editing]'] }]);
+  await check(['Each on its own [req: ...] line.\n- [req: Show requirements before editing]']);
   await asks(['1. Which page? 2. Which colours? [ask-user!]'], { items: [] });
   await asks(['Restarted, all good.'], null); // after a wrap-up there is no checklist to write
   console.log(`Requirement gate: ${cases} cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).`);

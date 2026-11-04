@@ -363,7 +363,8 @@ function reqNote(sid, who) {
 function applyReqTags(sid, text, who) {
   const r = reqsOf(sid); if (!r) return text;
   const items = r.items.map((i) => ({ ...i })), cap = r.target || 30;
-  text = text.replace(/^[ \t]*(?:[-*•]|\d+[.)])?[ \t]*\[req:\s*([^\]\n]+?)\s*\][ \t]*$/gim, (_, t) => { if (items.length < cap) items.push({ t: t.slice(0, 200), done: false }); return ''; })
+  // anywhere in a line: supercode replies start with "@claude [req: ...]"; skip the "[req: ...]" placeholder and repeats (agents restate them in the final message)
+  text = text.replace(/(^[ \t]*(?:[-*•]|\d+[.)])[ \t]*)?\[req:\s*([^\]\n]+?)\s*\]/gim, (_, b, t) => { t = t.slice(0, 200); if (!/^(\.\.\.|…)$/.test(t) && items.length < cap && !items.some((i) => i.t === t)) items.push({ t, done: false }); return ''; })
     .replace(/\s*\[req-now:\s*(\d+)(?:\s+(\d{1,3})\s*%)?\s*\]/gi, (_, n, p) => { const it = items[n - 1]; if (it && !it.done) Object.assign(it, { by: who || it.by, pct: Math.min(99, +p || it.pct || 0) }); return ''; }) // what an agent is on, and how far
     .replace(/\s*\[req-done:\s*([\d,\s]+)\]/gi, (_, ns) => { for (const n of ns.split(/[,\s]+/).map(Number)) if (items[n - 1]) Object.assign(items[n - 1], { done: true, pct: 100 }); return ''; })
     .replace(/\n{3,}/g, '\n\n');
