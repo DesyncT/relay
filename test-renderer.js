@@ -77,10 +77,18 @@ app.whenReady().then(async () => {
     usage.innerHTML = '<div class="u-hd u-heat-head"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div><div id="uheat"></div>';
     renderHeat({[new Date().toISOString().slice(0,10)]:1200}, 'daily');
     const head = usage.querySelector('.u-heat-head').getBoundingClientRect(), controls = usage.querySelector('#uheatseg').getBoundingClientRect();
-    return {insideHeading:controls.top >= head.top && controls.bottom <= head.bottom, fits:controls.right <= usage.getBoundingClientRect().right};
+    const grid = usage.querySelector('#uheat'), cell = grid.querySelector('i[data-d]:last-of-type');
+    grid.onmouseover({target:cell});
+    const tip = document.querySelector('#heatTip'), tr = tip.getBoundingClientRect(), cr = cell.getBoundingClientRect();
+    return {insideHeading:controls.top >= head.top && controls.bottom <= head.bottom, fits:controls.right <= usage.getBoundingClientRect().right,
+      outsideScrollBox:tip.parentElement === document.body, fixed:getComputedStyle(tip).position === 'fixed', insideViewport:tr.left >= 0 && tr.right <= innerWidth && tr.top >= 0 && tr.bottom <= innerHeight, aboveCell:tr.bottom <= cr.top};
   })()`);
   assert.equal(heatmap.insideHeading, true, 'Heatmap modes must align with their heading');
   assert.equal(heatmap.fits, true, 'Heatmap mode controls must fit within the usage panel');
+  assert.equal(heatmap.outsideScrollBox, true, 'Heatmap tooltip must escape the scrolling grid');
+  assert.equal(heatmap.fixed, true, 'Heatmap tooltip must use viewport positioning');
+  assert.equal(heatmap.insideViewport, true, 'Heatmap tooltip must stay inside viewport edges');
+  assert.equal(heatmap.aboveCell, true, 'Heatmap tooltip must open above its hovered day');
   await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   fs.writeFileSync(path.join(output, 'heatmap.png'), (await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`document.querySelector('#usage').classList.remove('on'); document.querySelector('#chat').classList.add('on')`);

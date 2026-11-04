@@ -88,6 +88,7 @@
   .u-chart svg { display:block; width:100%; height:260px; }
   .u-mb { max-width:100%; }
   .u-tip { position:absolute; pointer-events:none; display:none; background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:8px 10px; font-size:13px; line-height:18px; white-space:nowrap; z-index:2; animation:u-tip-in .15s ease-out; }
+  #heatTip { position:fixed; z-index:9999; pointer-events:none; }
   @keyframes u-tip-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
   @media (prefers-reduced-motion: reduce) { .u-tip { animation:none; } }
   .u-totals { display:grid; grid-template-columns:repeat(5, 1fr); gap:24px; margin:16px 0 56px; }
@@ -806,6 +807,7 @@ const usageSkeleton = () => `
 function renderHeat(days = {}, mode = 'daily') {
   const grid = $('#uheat'), seg = $('#uheatseg');
   if (!grid) return;
+  document.querySelector('#heatTip')?.remove();
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -829,19 +831,20 @@ function renderHeat(days = {}, mode = 'daily') {
   grid.innerHTML = `<div class="hm-grid" style="grid-template-rows:repeat(7,auto)">${cells.map(c =>
     `<i style="background:${c.v ? `rgba(59,130,246,${(0.15 + 0.85 * c.v / max).toFixed(2)})` : 'rgba(128,128,128,.15)'}" data-d="${c.date}" data-t="${ftok(Math.round(days[c.date] || 0))}" data-m="${mode === 'daily' ? '' : ftok(Math.round(c.v))}"></i>`
   ).join('')}</div><div class="hm-grid hm-months">${months.map(m => `<span>${m}</span>`).join('')}</div>`;
-  grid.style.position = 'relative';
   const tip = document.createElement('div');
-  tip.className = 'u-tip';
-  grid.append(tip);
+  tip.id = 'heatTip'; tip.className = 'u-tip';
+  document.body.append(tip);
   grid.onmouseover = (e) => {
     const c = e.target.closest('i[data-d]');
     if (!c) return tip.style.display = 'none';
     const label = mode === 'weekly' ? '7-day' : 'cumulative';
     tip.innerHTML = `<div class="muted">${dayLabel(c.dataset.d)}</div><div><b>${c.dataset.t}</b> tokens</div>` + (c.dataset.m ? `<div class="muted">${label}: ${c.dataset.m}</div>` : '');
     tip.style.display = 'block';
-    const r = c.getBoundingClientRect(), g = grid.getBoundingClientRect();
-    tip.style.left = Math.min(Math.max(0, r.left - g.left + r.width / 2 - tip.offsetWidth / 2), g.width - tip.offsetWidth) + 'px';
-    tip.style.top = (r.top - g.top - tip.offsetHeight - 8) + 'px';
+    const r = c.getBoundingClientRect(), pad = 8;
+    const left = Math.min(Math.max(pad, r.left + r.width / 2 - tip.offsetWidth / 2), innerWidth - tip.offsetWidth - pad);
+    const above = r.top - tip.offsetHeight - pad;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${above >= pad ? above : Math.min(innerHeight - tip.offsetHeight - pad, r.bottom + pad)}px`;
   };
   grid.onmouseleave = () => tip.style.display = 'none';
   if (seg) seg.querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.v === mode); b.onclick = () => renderHeat(days, b.dataset.v); });
