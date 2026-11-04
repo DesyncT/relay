@@ -249,7 +249,7 @@ function validTaskWorkspace(workspace, assignment) {
       const worktrees = gitText(workspace.repo, ['worktree', 'list', '--porcelain']);
       const listedPaths = worktrees.split(/\r?\n/).filter(line => line.startsWith('worktree ')).map(line => path.resolve(line.slice(9)));
       if (!listedPaths.includes(taskPath)) return false;
-    } else if (gitText(taskPath, ['rev-parse', 'HEAD']) !== workspace.baselineCommit) return false;
+    } else runGit(taskPath, ['merge-base', '--is-ancestor', workspace.baselineCommit, 'HEAD']); // workers may commit: HEAD may advance, but only from the baseline (throws otherwise)
     return true;
   } catch { return false; }
 }

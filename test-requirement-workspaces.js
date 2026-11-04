@@ -46,6 +46,32 @@ try {
     assert.equal(validTaskWorkspace(saved, assignment), false, 'deleted temporary workspaces fail recovery validation');
   }
 
+  // A non-Git project falls back to isolated shared snapshots; a worker commit there still recovers and collects only its scope.
+  {
+    const project = path.join(tempRoot, 'plain-commit'); fs.mkdirSync(path.join(project, 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'tracked.txt'), 'base\n'); fs.writeFileSync(path.join(project, 'nested', 'owned.txt'), 'owned base\n');
+    const result = createTaskWorkspaces(project, 'plain-session', [{ id: 'p', requirementIndex: 0, files: ['nested/owned.txt'] }]);
+    assert.equal(result.mode, 'shared'); assert.equal(result.isolated, true);
+    const task = result.tasks[0], saved = { ...task, cleanup:result.cleanup[0] }, assignment = { id:'p', files:['nested/owned.txt'] };
+    assert.equal(validTaskWorkspace(saved, assignment), true, 'fresh shared snapshot validates');
+    fs.writeFileSync(path.join(task.path, 'nested', 'owned.txt'), 'worker commit\n');
+    fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'out of scope\n');
+    git(task.path, 'add', '-A'); git(task.path, 'commit', '-qm', 'worker');
+    assert.notEqual(git(task.path, 'rev-parse', 'HEAD'), task.baselineCommit);
+    assert.equal(validTaskWorkspace(saved, assignment), true, 'shared snapshot HEAD may advance past its baseline');
+    assert.equal(validTaskWorkspace({ ...saved, files:['tracked.txt'] }, assignment), false, 'tampered shared scope is rejected');
+    assert.equal(validTaskWorkspace({ ...saved, baselineCommit:git(task.path, 'rev-parse', 'HEAD') }, assignment), false, 'tampered shared baseline is rejected');
+    const branch = git(task.path, 'rev-parse', '--abbrev-ref', 'HEAD');
+    git(task.path, 'checkout', '-q', '--orphan', 'unrelated'); git(task.path, 'commit', '-qm', 'unrelated');
+    assert.equal(validTaskWorkspace(saved, assignment), false, 'shared HEAD that does not descend from the baseline is rejected');
+    git(task.path, 'checkout', '-q', branch);
+    const changes = collectTaskChanges(task);
+    assert.deepEqual(changes.paths, ['nested/owned.txt'], 'collection includes only assigned paths');
+    assert.match(changes.patch.toString('utf8'), /worker commit/);
+    assert.doesNotMatch(changes.patch.toString('utf8'), /out of scope/);
+    cleanupTaskWorkspaces(result); assert.equal(fs.existsSync(task.path), false);
+  }
+
   // Dirty tracked state, staged and unstaged edits, and untracked files are part of the captured baseline.
   {
     const project = repo('dirty');
