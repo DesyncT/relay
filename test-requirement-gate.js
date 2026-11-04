@@ -40,6 +40,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
   const events = [];
   const context = {
     answeredQuestions:()=>5, sid: 'test', who: 'claude', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
+    supercodeOn:() => false,
     msgs: () => [{ from: 'user', text: 'Fix the new request', at: 2 }], WRAP: /^wrap up$/i,
     reqsOf: () => reqs,
     setReqs: (_, value) => { reqs = value; },
@@ -73,7 +74,7 @@ async function asks(responses, initial, count = 5) {
   cases += 1;
   let reqs = initial, runs = 0, expectedRuns = responses.length;
   await vm.runInNewContext(`${parser}\n(async () => { let r, rd, prov, usage; ${gate} })()`, {
-    answeredQuestions:()=>count, sid: 'test', who: 'codex', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
+    answeredQuestions:()=>count, sid: 'test', who: 'codex', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false, supercodeOn:() => false,
     msgs: () => [{ from: 'user', text: 'wrap up', at: 2 }], WRAP: /^wrap up$/i,
     reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; }, promptFor: () => '', addUsage: () => null,
     post: () => assert.fail('nothing should be posted'),

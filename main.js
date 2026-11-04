@@ -12,6 +12,9 @@ const { isLimitError, parseReset } = require('./limits');
 const registerPanels = require('./panels-main');
 const models = require('./models');
 const { fullAccessArgs } = require('./permissions');
+const { createAssignments, nextEscalation } = require('./requirement-workflow');
+const { createTaskWorkspaces, collectTaskChanges } = require('./requirement-workspaces');
+const { createRequirementCoordinator } = require('./requirement-coordinator');
 const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
@@ -293,9 +296,14 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
   for (let i = 0; ; i++) {
     const enhanced = supercodeOn(sid);
     // Normal chats always run on the provider you picked (no silent swaps), like using Claude Code / Codex directly
-    const prov = enhanced ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat;
+    const prov = c.routeOverride?.provider || (enhanced ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat);
     if (!prov) throw bothErr();
     const rd = routeFor(prov, phase);
+    if (c.routeOverride) {
+      const route = { model: c.routeOverride.model, effort: c.routeOverride.effort };
+      rd.extra = argsFor(prov, phase, { [prov]: { [phase]: route } }, settings[prov + 'Args']);
+      rd.meta = { phase, ...route };
+    }
     let cm = null;
     // Your routing settings (rd) are the model. A hard/escalated run may only move UP a tier, never swap to a weaker or different-tier model.
     if (c.escalate && !splitArgs(settings[prov + 'Args']).some((x) => /^(?:-m|--model)(?:=|$)/.test(x))) {
@@ -316,6 +324,11 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
       cm = models.resolve(settings, model);
       if (cm) { rd.extra = cm.args; rd.meta = { phase, model: cm.model, effort: null }; } // connected model: runs on its connection's engine
     } else if ((cm = models.resolve(settings, sessOf(sid)?.chatModels?.[prov]))) { rd.extra = cm.args; rd.meta = { phase, model: cm.model, effort: null }; } // team on a connected model
+    if (c.routeOverride) {
+      const route = { model:c.routeOverride.model, effort:c.routeOverride.effort };
+      rd.extra = argsFor(prov, phase, { [prov]: { [phase]: route } }, settings[prov + 'Args']);
+      rd.meta = { phase, ...route }; cm = null;
+    }
     // Normal chats continue the CLI's own session (full memory, tools and context, like the terminal); supercode rebuilds the prompt each turn
     const ck = cm ? prov + ':' + cm.conn.id : prov; // CLI session id is kept per connection
     const resumeId = !enhanced && !c.sub && !c.conversation && prov !== 'antigravity' ? sessOf(sid)?.cli?.[ck] : null;
@@ -346,6 +359,72 @@ ipcMain.handle('skills:list', (_e, sid) => {
 // session.reqs = { items: [{ t, done }], target: n | null }. Kept at the end of the prompt so the cached prefix stays stable.
 const reqsOf = (sid) => sessOf(sid)?.reqs || null;
 function setReqs(sid, reqs) { try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs }); }
+const requirementCoordinators = new Map();
+async function startRequirementWorkflow(sid, owner, trigger, epoch) {
+  const rt = RT(sid), existing = requirementCoordinators.get(sid);
+  if (existing) return existing.promise;
+  const checklist = reqsOf(sid)?.items || [];
+  const available = AGENT_NAMES.filter(p => !isDown(p) && settings.routes?.[p]?.coding);
+  const planPrompt = `Plan parallel implementation tasks for this completed checklist. Return ONLY a JSON array. Each entry has requirementIndex (zero-based checklist index), task (concrete worker instruction), provider (one of ${available.join(', ')}), model, effort, and files (exact repository-relative paths owned by this task). Assign exactly one entry per actionable requirement. Assign disjoint paths when possible; do not invent paths or include preservation-only constraints. Checklist: ${JSON.stringify(checklist)}`;
+  let plan = [];
+  try {
+    const planned = await seatRun(sid, owner, 'coding', () => planPrompt, trigger, { quiet: true, requirementsOnly: true });
+    const raw = planned.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) plan = parsed;
+  } catch {}
+  if (epoch !== rt.epoch) return null;
+  const routes = settings.routes || {};
+  const assignments = createAssignments(checklist, plan, routes, available);
+  for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
+  let workspaces;
+  try { workspaces = createTaskWorkspaces(cwdFor(sid), sid, assignments); }
+  catch (error) { workspaces = { mode:'shared', tasks: assignments.map(a => ({ id:a.id, path:cwdFor(sid), taskPath:cwdFor(sid), files:a.files, mode:'shared' })), reason:error.message }; }
+  const byId = new Map(workspaces.tasks.map(w => [w.assignmentId || w.id, w]));
+  for (const a of assignments) Object.assign(a, { workspace: byId.get(a.id) || { path:cwdFor(sid), mode:'shared', files:a.files }, workspaceMode:workspaces.mode });
+  const providerOrder = available.length ? available : [owner];
+  const coordinator = createRequirementCoordinator({
+    limit: 3, workspaceMode: workspaces.mode,
+    persist: current => setReqs(sid, { ...reqsOf(sid), assignments: current.map(a => ({ ...a, workspace: a.workspace && { ...a.workspace } })) }),
+    emit: ({ assignments: current }) => send('reqs:update', { sid, reqs:reqsOf(sid), assignments:current }),
+    nextRoute: a => nextEscalation(a, routes, available),
+    runTask: async a => {
+      if (epoch !== rt.epoch) throw new Error('Workflow cancelled');
+      const ws = a.workspace;
+      const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.`;
+      const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
+      let changes = { paths:[], patch:Buffer.alloc(0) };
+      if (ws.mode !== 'shared') changes = collectTaskChanges(ws);
+      const paths = ws.mode === 'shared' ? [...new Set((result.activity || []).filter(x => ['create','edit','delete'].includes(x.kind)).map(x => x.file || x.abs).filter(Boolean))] : changes.paths;
+      a.patch = changes.patch?.toString('base64') || '';
+      let checkEvidence = 'No package test script was available.';
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(path.join(ws.path, 'package.json'), 'utf8'));
+        if (packageJson.scripts?.test) checkEvidence = (await run('requirement check', 'npm', ['test'], '', null, { cwd:ws.path, sid, sub:a.id })).slice(-5000);
+      } catch (error) { if (fs.existsSync(path.join(ws.path, 'package.json'))) checkEvidence = `Automated check failed: ${String(error.message || error).slice(-1500)}`; }
+      return { paths, evidence:result.text, checkEvidence, activity:result.activity || [], usage:result.usage };
+    },
+    reviewTask: async (a, work) => {
+      const outcomes = await Promise.all(providerOrder.slice(0, judgeCount('reviewerCount')).map(async (provider, index) => {
+        const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
+        const effort = 'low';
+        const route = { extra:argsFor(provider,'other',{ [provider]:{ other:{ model, effort } } },''), meta:{ phase:'review', model, effort } };
+        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; an unavailable check is UNKNOWN. Do not edit files or trust the worker report. Return exactly VERDICT: PASS, FAIL, or UNKNOWN on line 1, then EVIDENCE: specific observations. For FAIL include FILE, LINE, ACTUAL and EXPECTED fields. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
+        try {
+          const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
+          let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
+          if (verdict === 'FAIL' && !['FILE','LINE','ACTUAL','EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(result.text))) verdict = 'UNKNOWN';
+          return { verdict, evidence:result.text.slice(0,1800), provider, model, effort };
+        } catch (error) { return { verdict:'UNKNOWN', evidence:String(error.message), provider, model, effort }; }
+      }));
+      const verdict = outcomes.some(x => x.verdict === 'FAIL') ? 'FAIL' : outcomes.every(x => x.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
+      return { verdict, reviewers:outcomes, evidence:outcomes.map(x => `${x.provider}: ${x.verdict} — ${x.evidence}`).join('\n') };
+    },
+  });
+  const promise = coordinator.start(assignments).finally(() => requirementCoordinators.delete(sid));
+  requirementCoordinators.set(sid, { coordinator, promise, workspaces });
+  return promise;
+}
 function reqNote(sid, who) {
   const r = reqsOf(sid); if (!r) return '';
   if (!supercodeOn(sid)) return r.items.length
@@ -519,6 +598,10 @@ async function ask(sid, who, trigger, isLead) {
       }
       if (!reqsOf(sid)?.items?.length) throw new Error('Could not start this task: the agent did not write requirements. Send the request again to retry.');
       const checklist = post(sid, who, reqsOf(sid).items.map((i, n) => `${n + 1}. ${i.t}`).join('\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
+      if (supercodeOn(sid)) {
+        await startRequirementWorkflow(sid, who, checklist, ep);
+        return { next:[], msg:checklist, ended:true };
+      }
       r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'The requirements are now written and shown in the chat. Continue the user task, satisfying them.', s), checklist, { lead: isLead, tag, ...(lockEdits && { requirementsOnly: true }) });
       rd = r.rd; prov = r.prov; usage = addUsage(usage, r.usage);
     }
