@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
     assert.equal(metrics.count, 3);
     assert.equal(metrics.stacked, true);
     assert.equal(metrics.overflow, false);
-    assert.equal(metrics.focus, 'solid');
+    assert.equal(metrics.focus, 'none');
     assert.equal(metrics.idleHidden, true);
     assert.doesNotMatch(metrics.text, /ask-user/);
     fs.writeFileSync(path.join(output, label + '.png'), (await win.webContents.capturePage()).toPNG());
@@ -52,6 +52,25 @@ app.whenReady().then(async () => {
   calls = await win.webContents.executeJavaScript(`api.call('test:calls')`);
   assert.equal(calls.filter(c => c[0] === 'chat:send').at(-1)[2], 'SMS notifications');
   assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.opts').length`), 1);
+  const observation = await win.webContents.executeJavaScript(`(async () => {
+    const root = document.createElement('div'); root.style.cssText = 'height:100px;overflow:auto';
+    const row = document.createElement('div');
+    for (let i=0; i<1000; i++) row.append(document.createElement('span'));
+    root.append(row); document.body.append(root);
+    const originalObserve = ResizeObserver.prototype.observe, originalStyle = window.getComputedStyle;
+    let observed = 0, styled = 0;
+    ResizeObserver.prototype.observe = function(node, ...args) { if (node === root || root.contains(node)) observed++; return originalObserve.call(this,node,...args); };
+    window.getComputedStyle = function(node,...args) { if (node === root || root.contains(node)) styled++; return originalStyle.call(this,node,...args); };
+    try {
+      followContent(root);
+      for (let i=0; i<30; i++) row.children[i].textContent = 'Streaming message update';
+      await new Promise(resolve => setTimeout(resolve,150));
+      return {observed, styled};
+    } finally { ResizeObserver.prototype.observe = originalObserve; window.getComputedStyle = originalStyle; root.remove(); }
+  })()`);
+  assert.equal(observation.observed, 2, 'Observe only the root and its message row, never every nested element');
+  assert.equal(observation.styled, 0, 'Content updates must not scan computed styles across the conversation');
+  console.log('Large-message observer regression:', JSON.stringify(observation));
   assert.deepEqual(errors, []);
   console.log('Renderer layout, tag recovery, focus, choice and custom-answer checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();

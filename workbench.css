@@ -347,7 +347,7 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 
 /* Focused conversation layout. unslop by @heydamir, CC BY 4.0. */
 :root { --negative:#f0787c; }
-:focus-visible { outline:2px solid var(--text-2) !important; outline-offset:3px; }
+*:focus, *:focus-visible, *:focus-within { outline:none !important; box-shadow:none !important; }
 #chat #log > .msg.grp { padding-top:20px; padding-bottom:12px; }
 #chat #log > .msg .body { max-width:80ch; }
 #chat #log > .msg .hd { min-height:24px; margin-bottom:4px; flex-wrap:wrap; }
@@ -361,7 +361,6 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 .opt-copy small { color:var(--text-2); font-size:13px; line-height:20px; font-weight:400; }
 #chat .msg.ask .opts .opt:disabled { opacity:1; color:var(--muted); border-color:var(--line); }
 #chat .msg.ask .wait { margin-top:12px; color:var(--text-2); font-size:12px; line-height:20px; }
-#chat .msg.ask .opts :is(button,input):focus { outline:2px solid var(--text-2) !important; outline-offset:3px; }
 #chat #reqbar { background:var(--deep); box-shadow:none; border-bottom:1px solid var(--line); }
 #reqbar .rq-pct { color:var(--text-2); font-variant-numeric:tabular-nums; }
 #reqbar.working:not(.has) .rq-track { display:none; }

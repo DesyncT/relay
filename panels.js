@@ -276,7 +276,6 @@
       const meta = h('div', { style: 'font-size:12px;line-height:16px;color:var(--muted)', textContent: (name.split('.').pop() || 'file').toUpperCase() });
       const card = h('button', { type: 'button', style: 'all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;width:100%;max-width:432px;padding:12px;border-radius:8px;background:var(--card);border:1px solid var(--line);cursor:pointer;transition:background-color .15s var(--ease)' });
       card.onmouseenter = () => { card.style.background = 'var(--raised)'; }; card.onmouseleave = () => { card.style.background = 'var(--card)'; };
-      card.onfocus = () => { card.style.outline = '2px solid var(--claude)'; card.style.outlineOffset = '2px'; }; card.onblur = () => { card.style.outline = ''; };
       const ico = svg(isImg ? 'img' : /\.(html?|js|ts|json|css|py|md)$/i.test(name) ? 'code' : 'file'); ico.style.cssText = 'display:block;width:20px;height:20px;flex:none;color:var(--muted)';
       const info = h('div', { style: 'min-width:0;flex:1' }, h('div', { style: 'color:var(--text);font-size:14px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', textContent: name }), meta);
       if (isImg) { const im = h('img', { alt: name, loading: 'lazy', style: 'display:block;max-width:100%;max-height:240px;border-radius:4px;object-fit:contain;align-self:flex-start' }); im.onerror = () => im.remove(); card.append(im); card._img = im; }

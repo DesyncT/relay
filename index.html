@@ -639,28 +639,36 @@ function followContent(root) {
       frame = null;
       if (!root.isConnected) { resize.disconnect(); mutations.disconnect(); return; }
       if (!root.clientHeight) return;
-      // Include nested scroll panes, such as review details and dialog bodies.
-      for (const pane of [root, ...root.querySelectorAll('*')]) {
-        if (pane === root || /^(auto|scroll)$/.test(getComputedStyle(pane).overflowY)) pane.scrollTop = pane.scrollHeight;
-      }
+      root.scrollTop = root.scrollHeight;
       if (root.id === 'log') updateScrollButton();
     });
   };
   const resize = new ResizeObserver(schedule);
-  const observeContent = () => {
-    resize.disconnect();
-    resize.observe(root);
-    root.querySelectorAll('*').forEach(node => resize.observe(node));
+  // Observe message rows once. Their size includes nested text, images and code.
+  // Reattaching every descendant on every mutation caused repeated layout work.
+  resize.observe(root);
+  for (const child of root.children) resize.observe(child);
+  const mutations = new MutationObserver(records => {
+    for (const record of records) if (record.target === root) {
+      for (const node of record.removedNodes) if (node.nodeType === 1) resize.unobserve(node);
+      for (const node of record.addedNodes) if (node.nodeType === 1) resize.observe(node);
+    }
     schedule();
-  };
-  const mutations = new MutationObserver(observeContent);
-  mutations.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
+  });
+  mutations.observe(root, { childList: true, subtree: true, characterData: true });
   root.addEventListener('load', schedule, true);
-  observeContent();
+  schedule();
 }
 followContent($('#log'));
-const discoverDialogs = () => document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]').forEach(followContent);
-new MutationObserver(discoverDialogs).observe(document.body, { childList: true, subtree: true });
+const dialogSelector = 'dialog, [role="dialog"], [role="alertdialog"]';
+const discoverDialogs = () => document.querySelectorAll(dialogSelector).forEach(followContent);
+new MutationObserver(records => {
+  for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) {
+    if (node.matches(dialogSelector)) followContent(node);
+    // Chat messages cannot introduce application dialogs.
+    if (!node.closest('#log')) node.querySelectorAll(dialogSelector).forEach(followContent);
+  }
+}).observe(document.body, { childList: true, subtree: true });
 discoverDialogs();
 // Start at the newest message and repeat after layout.
 function scrollLogToBottom() {
