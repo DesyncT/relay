@@ -90,9 +90,12 @@ async function checkAntigravity(now = Date.now()) {
 }
 
 // Same endpoint Claude Code's /usage reads, with the local OAuth token. Returns real provider percentages.
+// It rate-limits hard (429), so ask at most every 2 minutes, back off after a failure, and keep showing the last real answer meanwhile.
 let officialCache = null, officialUntil = 0;
+const lastOfficial = () => officialCache && { ...officialCache, stale: Date.now() - officialCache.at > 5 * 60000 };
 async function checkClaudeOfficial(now = Date.now()) {
-  if (officialCache && now < officialUntil) return officialCache;
+  if (now < officialUntil) return lastOfficial();
+  officialUntil = now + 5 * 60000; // failure backoff; success shortens it below
   try {
     const creds = JSON.parse(await fs.readFile(path.join(os.homedir(), '.claude', '.credentials.json'), 'utf8'));
     const token = (creds.claudeAiOauth || creds).accessToken;
@@ -101,7 +104,7 @@ async function checkClaudeOfficial(now = Date.now()) {
       headers: { Authorization: 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20' },
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) { const ra = Number(res.headers.get('retry-after')); if (ra > 0) officialUntil = now + Math.min(ra, 3600) * 1000; return lastOfficial(); }
     const j = await res.json();
     const windows = [['five_hour', 300], ['seven_day', 10080]].flatMap(([key, minutes]) => {
       const w = j[key];
@@ -109,12 +112,12 @@ async function checkClaudeOfficial(now = Date.now()) {
       const reset = Date.parse(w.resets_at);
       return [{ used: w.utilization, remaining: Math.max(0, 100 - w.utilization), minutes, reset: Number.isFinite(reset) ? reset : now }];
     });
-    if (!windows.length) return null;
+    if (!windows.length) return lastOfficial();
     officialCache = { at: now, account: 'claude', windows };
-    officialUntil = now + 60000;
+    officialUntil = now + 2 * 60000;
     return officialCache;
   } catch {}
-  return null;
+  return lastOfficial();
 }
 
 // ponytail: estimate rolling 5h quota from Claude session transcripts (fallback when the endpoint is unreachable)

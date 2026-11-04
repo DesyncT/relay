@@ -1538,7 +1538,7 @@ function showApp() { const w = BrowserWindow.getAllWindows()[0]; if (!w) return 
 async function trayMenu() {
   if (!tray) return;
   const q = await require('./quota').readQuota().catch(() => ({}));
-  const pct = (p) => { const x = q?.[p]?.windows?.[0]; return x && x.used <= 100 ? x.used + '%' : 'unknown'; };
+  const pct = (p) => { const x = q?.[p]?.windows?.[0]; return x && !x.budget ? Math.round(x.used) + '%' : 'unknown'; };
   const busy = [...rts.values()].filter((rt) => Object.values(rt.lanes).some((l) => l.busy)).length;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Relay', click: showApp },

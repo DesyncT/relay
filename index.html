@@ -144,10 +144,12 @@
   #chat.on { display:flex; flex-direction:column; height:calc(100vh - 64px); position:relative; font-family:"gg sans", "Noto Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
   /* Keep the overall chat surface unchanged; tint only the message pane and its lower breathing room. */
   .b[hidden] { display:none; }
-  .ch-head { flex:none; display:flex; align-items:center; gap:0; height:48px; padding:0; border-bottom:1px solid var(--line); }
+  .ch-head { flex:none; display:flex; align-items:center; gap:8px; height:48px; padding:0 12px 0 0; border-bottom:1px solid var(--line); }
   .ch-head h2 { flex:none; max-width:40%; margin:0; padding-left:16px; font-size:16px; line-height:24px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .skchips { flex:1; min-width:0; display:flex; align-items:center; gap:4px; margin-left:8px; overflow:hidden; }
-  .skchips .sk1 { flex:none; display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 8px; border:1px solid var(--line); border-radius:6px; color:var(--text-2); font-size:12px; white-space:nowrap; }
+  .skchips .sk1 { flex:none; display:inline-flex; align-items:center; gap:6px; height:24px; max-width:144px; padding:0 8px; border:1px solid var(--line); border-radius:6px; color:var(--text-2); font-size:12px; line-height:22px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .skchips .sk1 i { flex:none; } .skchips .sk1[hidden] { display:none; } .skchips .sk-n { cursor:help; } .skchips .sk-t { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+
   .skchips .sk1 i { width:6px; height:6px; border-radius:50%; }
   .ch-body { flex:1; min-height:0; display:flex; }
   .ch-main { flex:1; min-width:0; display:flex; flex-direction:column; }
@@ -190,7 +192,7 @@
   .sr-a { all:unset; box-sizing:border-box; height:24px; padding:0 8px; border:1px solid var(--line); border-radius:6px; color:var(--text-2); font-size:12px; line-height:22px; cursor:pointer; transition:background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease); }
   .sr-a:hover { color:var(--text); border-color:var(--line-strong); background:var(--raised); } .sr-a:focus-visible { outline:2px solid var(--claude); outline-offset:1px; } .sr-a:disabled { opacity:.6; cursor:default; }
   .msg.sr-hl { background:var(--raised); transition:background-color .6s var(--ease); }
-  #subsBtn { flex:none; height:28px; padding:0 8px; margin-right:8px; gap:6px; font-size:12px; color:var(--text-2); } #subsBtn .i { width:16px; height:16px; }
+  #subsBtn { flex:none; height:28px; padding:0 8px; gap:6px; font-size:12px; color:var(--text-2); } #subsBtn .i { width:16px; height:16px; }
   .sr-x small { display:block; margin-bottom:2px; color:var(--muted); font-size:12px; }
   #sbMore { all:unset; display:block; margin:4px 0 0; padding:6px 8px; color:var(--muted); font-size:12px; cursor:pointer; border-radius:6px; } #sbMore:hover { color:var(--text); } #sbMore:focus-visible { outline:2px solid var(--claude); }
   @media (prefers-reduced-motion: reduce) { .sr-live { animation:none; } }
@@ -237,7 +239,7 @@
   .ar-diff span { display:block; padding:0 12px; } .ar-diff .dp { background:rgba(111,191,115,.1); color:var(--text); } .ar-diff .dm { background:rgba(212,112,111,.1); color:var(--text); }
   .ar-more { all:unset; cursor:pointer; color:var(--muted); font-size:12px; } .ar-more:hover { color:var(--text); } .ar-more:focus-visible { outline:2px solid var(--claude); }
   .opts { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
-  .opt { all:unset; box-sizing:border-box; display:inline-flex; align-items:center; height:32px; padding:0 12px; border-radius:8px; background:var(--raised); border:1px solid var(--line-strong); color:var(--text); font-size:14px; cursor:pointer; transition:background-color .15s var(--ease), border-color .15s var(--ease); }
+  .opt { all:unset; box-sizing:border-box; display:inline-flex; align-items:center; min-height:32px; padding:6px 12px; line-height:20px; overflow-wrap:anywhere; border-radius:8px; background:var(--raised); border:1px solid var(--line-strong); color:var(--text); font-size:14px; cursor:pointer; transition:background-color .15s var(--ease), border-color .15s var(--ease); }
   .opt:hover { background:color-mix(in srgb, var(--raised) 85%, #fff); } .opt:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
   .opt.pri { background:#ededed; color:#141415; border-color:transparent; } .opt.pri:hover { background:#fff; }
   .opt:disabled { opacity:.5; cursor:default; pointer-events:none; }
@@ -372,8 +374,16 @@
   .cb-tools { display:flex; align-items:center; gap:4px; height:40px; padding:0 8px 8px; box-sizing:content-box; }
   .cb-tools .grow { flex:1; }
   .cb-tools { flex-wrap:wrap; height:auto; min-height:40px; box-sizing:border-box; align-content:center; }
-  #quota { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; max-width:100%; color:var(--text-2); font-size:12px; line-height:18px; font-variant-numeric:tabular-nums; }
-  #quota > span { display:inline-flex; align-items:center; min-height:28px; box-sizing:border-box; padding:4px 9px; border-radius:8px; background:var(--raised); overflow-wrap:anywhere; max-width:100%; cursor:help; }
+  #quota { flex:none; display:flex; align-items:center; gap:4px; font-size:12px; line-height:16px; font-variant-numeric:tabular-nums; }
+  #quota > span { display:inline-flex; align-items:center; gap:8px; height:28px; box-sizing:border-box; padding:0 8px; border:1px solid var(--line); border-radius:8px; white-space:nowrap; cursor:help; transition:border-color .15s var(--ease); }
+  #quota > span:hover { border-color:var(--line-strong); }
+  #quota > span > svg { flex:none; }
+  #quota .q-g { display:inline-flex; align-items:baseline; gap:4px; }
+  #quota .q-v { color:var(--text); } #quota .q-v.hot { color:var(--claude); } #quota .q-v.full { color:var(--negative); }
+  #quota .q-l { color:var(--muted); }
+  #quota .stale .q-v { color:var(--text-2); }
+  @media (max-width:1180px) { #quota .q-r { display:none; } }
+  @media (max-width:980px) { #quota .q-l { display:none; } }
   #quota > span:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
   .queue-toggle { flex:none; display:inline-flex; align-items:center; gap:6px; height:32px; margin:0; padding:0 8px; color:var(--muted); font-size:13px; line-height:20px; white-space:nowrap; }
   .queue-toggle input { display:block; flex:none; margin:0; accent-color:var(--claude); }
@@ -574,8 +584,8 @@
   <section id="chat">
     <div class="ch-head">
       <h2 id="chName">global</h2>
-      <div id="quota" aria-label="Provider usage remaining"><span>Codex · loading</span><span>Claude · loading</span><span>Antigravity · loading</span></div>
       <div class="skchips" id="skChips" aria-label="Skills in use"></div>
+      <div id="quota" aria-label="Provider usage"></div>
       <button class="b ghost" id="subsBtn" type="button" hidden title="Show subagents"><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span id="subsBtnN"></span></button>
       <button class="b ghost danger" id="stop" hidden>Stop</button>
     </div>
@@ -804,17 +814,22 @@ async function refreshQuota() {
   $('#quota').replaceChildren(...activeProviders.map(provider => {
     const s = data?.[provider];
     const name = provider === 'codex' ? 'Codex' : provider === 'claude' ? 'Claude' : 'Antigravity';
-    const icon = provider === 'antigravity' ? logo('antigravity', 12, '#4E88F5') : provider === 'claude' ? logo('claude', 12, '#D97757') : logo('openai', 12, '#fff');
-    const label = w => w.minutes === 10080 ? 'weekly' : w.minutes === 1440 ? 'daily' : w.minutes === 300 ? '5h' : `${w.minutes || '?'}m`;
-    const left = w => w.reset ? (w.reset > Date.now() ? fmtLeft(w.reset - Date.now()) : 'due') : '';
-    const at = w => w.reset ? (w.minutes === 300 ? ` · ${left(w)}` : ` · ${new Date(w.reset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`) : '';
-    const usedOf = w => Math.round(w.used ?? (100 - w.remaining));
-    const windowsText = ws => { const r = ws.find(w => w.reset) ; return ws.map(w => `${label(w)} ${w.budget ? (usedOf(w) > 100 ? 'over est.' : '~' + usedOf(w) + '%') : usedOf(w) + '%'}`).join(' · ') + (r ? ` · resets ${r.reset > Date.now() ? new Date(r.reset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : 'now'}` : ''); };
-    const text = s ? (s.windows?.length ? windowsText(s.windows) + (provider === 'codex' && Date.now() - s.at > 900000 ? ` · as of ${fmtLeft(Date.now() - s.at)} ago` : '') : 'usage not reported') : 'quota unavailable';
-    return el('span', { tabIndex: 0,
-      innerHTML: icon + `<span>${name} · ${text}</span>`,
-      title: s ? (s.account ? `Account: ${s.account}\n` : '') + s.windows?.map(w => `${label(w)} ${usedOf(w)}% used; resets ${new Date(w.reset).toLocaleString()}`).join('\n') + `\nSnapshot: ${new Date(s.at).toLocaleTimeString()}` : `${name}: No fresh provider quota snapshot available. Spend does not indicate remaining subscription usage.`
-    });
+    const icon = provider === 'antigravity' ? logo('antigravity', 14, '#4E88F5') : provider === 'claude' ? logo('claude', 14, '#D97757') : logo('openai', 14, '#fff');
+    const ws = s?.windows || [], est = ws.some((w) => w.budget), pctOf = (w) => Math.round(w.used ?? (100 - w.remaining));
+    const g = (v, l, cls = '') => el('span', { className: 'q-g' }, el('span', { className: 'q-v' + cls, textContent: v }), el('span', { className: 'q-l', textContent: l }));
+    const lvl = (p) => p >= 100 ? ' full' : p >= 80 ? ' hot' : '';
+    const short = (w) => w.minutes === 10080 ? 'week' : w.minutes === 1440 ? 'day' : w.minutes === 300 ? '5h' : `${w.minutes}m`;
+    const parts = !s || !ws.length ? [g('–', s ? 'not reported' : 'no data')]
+      : est ? [g(ftok(ws[0].tokens || 0), 'tokens in 5h')]
+      : ws.map((w) => g(pctOf(w) + '%', short(w), lvl(pctOf(w))));
+    const hot = est ? null : ws.filter((w) => w.reset).sort((a, b) => pctOf(b) - pctOf(a))[0];
+    if (hot && pctOf(hot) >= 50) parts.push(el('span', { className: 'q-l q-r', textContent: hot.reset > Date.now() ? 'resets in ' + (hot.reset - Date.now() >= 1728e5 ? Math.round((hot.reset - Date.now()) / 864e5) + 'd' : fmtLeft(hot.reset - Date.now())) : 'resetting' }));
+    const when = (t) => new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+    const old = s && (s.stale || (provider === 'codex' && Date.now() - s.at > 900000));
+    const tip = [name, ...(!s ? ['No usage data yet'] : est ? ['Anthropic did not report usage, so this counts tokens in your local logs over the last 5 hours. Subscription limits are not published, so there is no percentage'] : ws.map((w) => `${short(w) === 'week' ? 'Weekly' : short(w)} window: ${pctOf(w)}% used${w.reset ? ', resets ' + when(w.reset) : ''}`)),
+      ...(s && old ? [`Last reported ${fmtLeft(Date.now() - s.at)} ago${provider === 'codex' ? ' (updates when Codex runs)' : ''}`] : [])].join('\n');
+    const pill = el('span', { tabIndex: 0, title: tip, ariaLabel: tip, className: old ? 'stale' : '', innerHTML: icon }, ...parts);
+    return pill;
   }));
 }
 refreshQuota(); setInterval(refreshQuota, 10000); setInterval(tickReset, 1000);
@@ -1752,10 +1767,27 @@ async function renderChips(fake) {
   if (!d || sid !== openSid) return;
   const by = new Map(d.forced.map((n) => [n, new Set()]));
   for (const u of d.used) (by.get(u.name) || by.set(u.name, new Set()).get(u.name)).add(u.by);
-  const chip = ([n, who]) => el('span', { className: 'sk1', title: who.size ? `${n} (used by ${[...who].join(', ')})` : n }, ...[...who].map((w) => el('i', { style: `background:var(--${w === 'codex' ? 'codex' : 'claude'})` })), n);
-  const all = [...by], rest = all.slice(5);
-  $('#skChips').replaceChildren(...all.slice(0, 5).map(chip), ...(rest.length ? [el('span', { className: 'sk1', textContent: '+' + rest.length, title: rest.map((r) => r[0]).join(', ') })] : []));
+  const chip = ([n, who]) => el('span', { className: 'sk1', title: who.size ? `${n} (used by ${[...who].join(', ')})` : n }, ...[...who].map((w) => el('i', { style: `background:var(--${w === 'codex' ? 'codex' : 'claude'})` })), el('span', { className: 'sk-t', textContent: n.replace(/^[\w-]+:/, '') }));
+  $('#skChips').replaceChildren(...[...by].map(chip));
+  fitChips();
 }
+// show the chips that fit whole; the rest fold into one +N chip that lists them
+function fitChips() {
+  const box = $('#skChips');
+  box.querySelector('.sk-n')?.remove();
+  const chips = [...box.children];
+  for (const c of chips) c.hidden = false;
+  if (box.scrollWidth <= box.clientWidth) return;
+  const more = el('span', { className: 'sk1 sk-n' });
+  box.append(more);
+  for (let i = chips.length - 1; i >= 0 && box.scrollWidth > box.clientWidth; i--) {
+    chips[i].hidden = true;
+    const off = chips.filter((c) => c.hidden);
+    more.textContent = (off.length === chips.length ? '' : '+') + off.length + (off.length === chips.length ? ' skills' : '');
+    more.title = off.map((c) => c.title).join('\n');
+  }
+}
+new ResizeObserver(() => fitChips()).observe($('#skChips'));
 api.on('skills:changed', (d) => { if (d.sid === openSid) renderChips(); });
 // ---------- subagents panel (right of the log) ----------
 let subs = [], subsOpen = true, subsAll = false; const subsExp = new Set();

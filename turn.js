@@ -62,7 +62,9 @@ function parseTurn(raw0, who, trigger) {
   const tag = m ? (/^ask-user/i.test(m[1]) ? 'ask-user' : m[1].toLowerCase()) : '';
   // [ask-user: A | B | C], each optionally "Label :: what picking it does"
   const picks = m && m[4] ? m[4].split('|').map((o) => o.split('::')).filter(([l]) => l.trim()).slice(0, 4) : [];
-  const options = picks.map(([l]) => l.trim().slice(0, 40)), optionInfo = picks.map(([, d]) => (d || '').trim().slice(0, 160));
+  // labels are what gets sent as the answer, so keep them whole; only a runaway label is cut, at a word
+  const clip = (s, n) => s.length <= n ? s : s.slice(0, n).replace(/\s+\S*$/, '');
+  const options = picks.map(([l]) => clip(l.trim(), 160)), optionInfo = picks.map(([, d]) => (d || '').trim().slice(0, 160));
   let next = mentions(text);
   if (tag === 'ask-user' || tag === 'done') next = [];
   else if (tag.startsWith('pass') && !next.includes(m[2].toLowerCase())) next.push(m[2].toLowerCase());
