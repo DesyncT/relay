@@ -477,6 +477,10 @@ async function ask(sid, who, trigger, isLead) {
   try {
     const notes = [lockEdits && `Tracker: you may not edit files yet because @${mate} hasn't weighed in. Read what you need, then post your plan in chat with who does what (@${mate}: X, me: Y) and end with [pass @${mate}].`,
       rt.forgot?.[who] && `Tracker: your last message did not @mention @${mate}. Start this one with "@${mate}".`].filter(Boolean).join('\n');
+    const request = msgs().findLast((m) => m.from === 'user');
+    if (request && !WRAP.test(request.text || '') && reqsOf(sid)?.requestAt !== request.at) {
+      setReqs(sid, { items: [], target: null, requestAt: request.at });
+    }
     const writingChecklist = !reqsOf(sid)?.items?.length;
     r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, notes, s), trigger, { lead: isLead, tag, ...((lockEdits || writingChecklist) && { readonly: true }) }); rd = r.rd; prov = r.prov; usage = r.usage;
     if (writingChecklist) {
@@ -1000,7 +1004,7 @@ function dispatchUser(sid, { text, files, reply }) {
     const requirements = (text.match(/\[req:\s*([^\]\n]+?)\s*\]/gi) || []).map((tag) => tag.replace(/^\[req:\s*|\s*\]$/gi, '').trim()).filter(Boolean);
     const items = fresh ? requirements.slice(0, n || 3).map((t) => ({ t: t.slice(0, 200), done: false })) : [...cur.items, ...requirements.map((t) => ({ t: t.slice(0, 200), done: false }))].slice(0, cur.target || 30);
     if (fresh || requirements.length) {
-      setReqs(sid, { items, target: n || (fresh ? null : cur.target) });
+      setReqs(sid, { items, target: n || (fresh ? null : cur.target), requestAt: m.at });
       post(sid, 'system', items.length ? `Requirements (0/${items.length} done):\n${items.map((item, i) => `${i + 1}. [ ] ${item.t}`).join('\n')}` : 'Waiting for the agent to write concrete, checkable requirements before starting work.', null, null, { muted: true });
     }
   }
