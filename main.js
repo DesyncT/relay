@@ -995,7 +995,14 @@ function dispatchUser(sid, { text, files, reply }) {
   else {
     // a new request (or a finished checklist, or the user naming a count like "just 1 requirement") starts a fresh checklist
     const cur = reqsOf(sid), cnt = REQ_COUNT.exec(text)?.[1], n = cnt && (/^\d+$/.test(cnt) ? Math.max(1, Math.min(30, +cnt)) : 1);
-    if (!cur || n || (cur.items.length && cur.items.every((i) => i.done))) setReqs(sid, { items: [], target: n || null });
+    const fresh = !cur || n || (cur.items.length && cur.items.every((i) => i.done));
+    // The provider's first reply is not a reliable enforcement point. Publish requirements before dispatching any work.
+    const requirements = (text.match(/\[req:\s*([^\]\n]+?)\s*\]/gi) || []).map((tag) => tag.replace(/^\[req:\s*|\s*\]$/gi, '').trim()).filter(Boolean);
+    const items = fresh ? (requirements.length ? requirements.slice(0, n || 3) : [`Complete the user's request: ${text.trim().slice(0, 170) || 'deliver the requested result'}`]).map((t) => ({ t: t.slice(0, 200), done: false })) : [...cur.items, ...requirements.map((t) => ({ t: t.slice(0, 200), done: false }))].slice(0, cur.target || 30);
+    if (fresh || requirements.length) {
+      setReqs(sid, { items, target: n || (fresh ? null : cur.target) });
+      post(sid, 'system', `Requirements (${items.filter((i) => i.done).length}/${items.length} done):\n${items.map((item, i) => `${i + 1}. [${item.done ? 'x' : ' '}] ${item.t}`).join('\n')}`, null, null, { muted: true });
+    }
   }
   if (!supercodeOn(sid) && !WRAP.test(text)) { rt.requests = [...(rt.requests || []), text].slice(-20); if (!rt.reviewRequestAt) rt.reviewRequestAt = m.at; }
   rt.turns = 0; rt.restarts = 0; rt.reviewRequest = (rt.requests || []).join('\n\n') || text; rt.idle = 0; rt.escalations = 0; rt.paused = false; rt.autoN = 0;
