@@ -90,6 +90,11 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
 }
 
 const integrationRuns = new WeakMap();
+function selectIndependentReviewers(availableProviders, integratorProvider, limit = Infinity) {
+  const cap = Number.isFinite(Number(limit)) ? Math.max(0, Math.floor(Number(limit))) : Infinity;
+  return [...new Set(Array.isArray(availableProviders) ? availableProviders : [])]
+    .filter(provider => provider && provider !== integratorProvider).slice(0, cap);
+}
 async function runRequirementIntegration(input, { integrate, review, nextRoute = () => null, persist = () => {} } = {}) {
   const assignments = Array.isArray(input) ? input : [];
   if (!assignments.length || assignments.some(a => a.actionable !== false && a.status !== 'passed'))
@@ -142,4 +147,4 @@ async function runRequirementIntegration(input, { integrate, review, nextRoute =
   return promise;
 }
 
-module.exports = { createRequirementCoordinator, runRequirementIntegration };
+module.exports = { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers };

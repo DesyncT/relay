@@ -8,6 +8,7 @@
 - Added `reviewIntegratedResult` in `main.js`. It calls configured provider reviewers with native read-only flags, inspects current project files and all requirements/preservation constraints, validates structured verdicts, and requires every reviewer to PASS. The final review is repeated after each stronger-route retry.
 - Only final PASS marks checklist requirements done. Failed/incomplete task assignments skip integration, leave requirements open, and clean up their temporary workspaces. Existing no-assignment/manual wrap-up code was not changed.
 - Added coordinator tests for early integration prevention, one integrator across passed patches, Buffer conversion, exclusion of non-actionable assignment data, duplicate-call prevention, check/review gates, stronger-route retry/fresh review, and exhausted concrete findings.
+- Final-review selection excludes the integration provider. If no independent provider is available, review returns `UNKNOWN`, leaving the requirements open. A regression test covers the single-provider case.
 
 ## Verification
 
@@ -22,4 +23,4 @@
 
 - The integrated behavior is protected by an injected coordinator helper test suite; provider invocation and Electron `main.js` behavior are covered by syntax checks and code inspection, not a live-provider end-to-end run.
 - Full checks are considered successful when the configured `npm test` script exists and the app's `run()` helper resolves it with exit code zero. Projects without a test script remain open with a concrete check-unavailable finding.
-- The configured reviewers are called using provider-native `readonly:true` and `safeReview:true`; when alternate providers are available, the integration provider is excluded from the final reviewer set. If only one provider is available, it receives a separate read-only reviewer call.
+- The configured reviewers are called using provider-native `readonly:true` and `safeReview:true`. A separate invocation of the same provider is not treated as independent review; with no alternate provider, the integration remains open with `UNKNOWN`.

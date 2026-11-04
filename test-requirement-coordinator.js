@@ -91,6 +91,7 @@ async function unscopedFallbackNeverStarts() {
   await singleIntegrationRequiresAllPassAndFinalGates();
   await integrationNeedsChecksAndIndependentReview();
   await finalFailEscalatesAndCeilingReportsFindings();
+  await sameProviderCannotFinalReview();
   console.log('requirement coordinator tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 
@@ -131,4 +132,18 @@ async function finalFailEscalatesAndCeilingReportsFindings() {
   assert.equal(routes.length, 2, 'final FAIL retries integration with a stronger route');
   assert.equal(routes[1], 'gpt-6.1-sol');
   assert.equal(r.status, 'open'); assert.match(r.blocker, /exhaust/); assert.match(r.findings, /still wrong/);
+}
+
+async function sameProviderCannotFinalReview() {
+  const { runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
+  const reviewers = selectIndependentReviewers(['claude'], 'claude', 2);
+  assert.deepEqual(reviewers, [], 'integrator provider cannot review its own integration');
+  const assignments = [task('1')]; assignments[0].status = 'passed';
+  const result = await runRequirementIntegration(assignments, {
+    integrate:async()=>({checksPassed:true}),
+    review:async integrator => selectIndependentReviewers([integrator.provider], integrator.provider, 2).length
+      ? { verdict:'PASS' } : { verdict:'UNKNOWN', evidence:'No independent reviewer provider is available.' },
+  });
+  assert.equal(result.status, 'open', 'a same-provider verdict cannot complete requirements');
+  assert.match(result.findings, /No independent reviewer/);
 }

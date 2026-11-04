@@ -14,7 +14,7 @@ const models = require('./models');
 const { providerArgs } = require('./permissions');
 const { createAssignments, nextEscalation } = require('./requirement-workflow');
 const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces } = require('./requirement-workspaces');
-const { createRequirementCoordinator, runRequirementIntegration } = require('./requirement-coordinator');
+const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
 const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
@@ -476,8 +476,8 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
 async function reviewIntegratedResult(sid, integrator, changes, epoch) {
   const rt = RT(sid), available = AGENT_NAMES.filter(p => !isDown(p));
   if (!available.length) return { verdict:'UNKNOWN', evidence:'No independent reviewer provider is available.' };
-  const independent = available.filter(provider => provider !== integrator.provider);
-  const reviewers = (independent.length ? independent : available).slice(0, judgeCount('reviewerCount'));
+  const reviewers = selectIndependentReviewers(available, integrator.provider, judgeCount('reviewerCount'));
+  if (!reviewers.length) return { verdict:'UNKNOWN', evidence:'No independent reviewer provider is available.' };
   const results = await Promise.all(reviewers.map(async (provider, index) => {
     const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
     const effort = 'low';
