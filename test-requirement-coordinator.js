@@ -107,6 +107,7 @@ async function recoveringReviewDoesNotRerunWorker() {
   await integrationNeedsChecksAndIndependentReview();
   await finalFailEscalatesAndCeilingReportsFindings();
   await sameProviderCannotFinalReview();
+  await inFlightReviewIsNotRelaunched();
   console.log('requirement coordinator tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 
@@ -161,4 +162,19 @@ async function sameProviderCannotFinalReview() {
   });
   assert.equal(result.status, 'open', 'a same-provider verdict cannot complete requirements');
   assert.match(result.findings, /No independent reviewer/);
+}
+
+// A task mid-review must not be relaunched when a sibling finishes (it would be reviewed twice and take a second slot)
+async function inFlightReviewIsNotRelaunched() {
+  const reviews = {}, runs = {};
+  const c = createRequirementCoordinator({
+    persist: () => {}, emit: () => {}, limit: 3,
+    runTask: async a => { runs[a.id] = (runs[a.id] || 0) + 1; return { paths: a.files }; },
+    reviewTask: async a => { reviews[a.id] = (reviews[a.id] || 0) + 1; await new Promise(resolve => setTimeout(resolve, a.id === '2' ? 60 : 5)); return { verdict: 'PASS' }; },
+  });
+  const assignments = [task('1'), task('2')];
+  await c.start(assignments);
+  assert.deepEqual(reviews, { 1: 1, 2: 1 }, 'each task is reviewed exactly once');
+  assert.deepEqual(runs, { 1: 1, 2: 1 }, 'each worker runs exactly once');
+  assert.ok(assignments.every(x => x.status === 'passed'));
 }

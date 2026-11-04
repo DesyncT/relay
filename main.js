@@ -475,9 +475,12 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
       let hasFullCheck = false;
       try {
         const packageJson = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf8'));
-        if (packageJson.scripts?.test) { hasFullCheck = true; checkEvidence = await run('requirement integration check', 'npm', ['test'], '', null, { cwd:projectPath, sid, sub:'req-integration-check' }); }
-      } catch (error) { checkEvidence = `Full project check failed: ${String(error.message || error)}`; }
-      // run() resolves only on exit code zero; output wording is project-specific and is not a verdict signal.
+        if (packageJson.scripts?.test) { checkEvidence = await run('requirement integration check', 'npm', ['test'], '', null, { cwd:projectPath, sid, sub:'req-integration-check' }); hasFullCheck = true; }
+      } catch (error) {
+        // run() also rejects a silent exit 0; the exit code, not the output wording, is the verdict
+        hasFullCheck = error?.code === 0;
+        checkEvidence = hasFullCheck ? 'npm test exited 0 with no output.' : `Full project check failed: ${String(error.message || error)}`;
+      }
       const checksPassed = hasFullCheck;
       return { checksPassed, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
     },
