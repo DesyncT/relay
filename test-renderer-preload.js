@@ -3,11 +3,14 @@ const { contextBridge } = require('electron');
 const calls = [];
 const savedSessions = new Map();
 let appearanceTree=null,themeFails=false;
+const listeners=new Map();
 contextBridge.exposeInMainWorld('api', {
-  on() {},
+  on(channel,fn) {const list=listeners.get(channel) || [];list.push(fn);listeners.set(channel,list);},
   call(channel, ...args) {
     calls.push([channel, ...args]);
     if (channel === 'test:calls') return Promise.resolve(calls);
+    if(channel==='test:emit'){for(const listener of listeners.get(args[0]) || [])listener(args[1]);return Promise.resolve();}
+    if(channel==='subagents:retry' || channel==='subagents:stop')return Promise.resolve(true);
     if (channel === 'test:appearance-tree') {appearanceTree=args[0];return Promise.resolve();}
     if (channel === 'test:theme-fails') {themeFails=args[0];return Promise.resolve();}
     if (channel === 'themes:generate') {

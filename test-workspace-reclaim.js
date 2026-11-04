@@ -14,7 +14,7 @@ const store = {
   listSessions: (pid) => Object.keys(sessions).filter((sid) => sessions[sid].projectId === pid).map((id) => ({ id })),
 };
 const reqsOf = (sid) => sessions[sid]?.reqs || null;
-const env = new Function('store', 'reqsOf', 'send', 'cleanupTaskWorkspaces', `${code}\nreturn { setReqs, requirementCoordinators };`)(store, reqsOf, () => {}, cleanupTaskWorkspaces);
+const env = new Function('store', 'reqsOf', 'send', 'cleanupTaskWorkspaces','requirementSubagents','supercodeOn', `${code}\nreturn { setReqs, requirementCoordinators };`)(store, reqsOf, () => {}, cleanupTaskWorkspaces,require('./requirement-subagents').requirementSubagents,()=>true);
 
 const project = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-reclaim-test-'));
 try {

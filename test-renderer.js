@@ -85,7 +85,7 @@ app.whenReady().then(async () => {
     return {text, compact, recovered, overflow:finalRows.some(row=>row.scrollWidth>row.clientWidth), details:finalRows.map(row=>row.querySelector('.rq-assignment')?.getBoundingClientRect().right <= row.getBoundingClientRect().right+1)};
   })()`);
   assert.equal(assignments.text.length, 6);
-  for (const label of ['queued','running','reviewing','passed','escalated','blocked','codex · gpt-6.1-terra-with-a-very-long-model-name high','37%','review 2','review-unknown']) {
+  for (const label of ['queued','running','reviewing','passed','escalated','blocked','codex · gpt-6.1-terra-with-a-very-long-model-name high','37%','review 2','needs verification']) {
     assert.ok(assignments.text.join(' ').toLowerCase().includes(label.toLowerCase()), `Assignment UI should show ${label}`);
   }
   assert.equal(assignments.overflow, false, 'Long assignment metadata must fit compact rows');
@@ -101,6 +101,17 @@ app.whenReady().then(async () => {
   })()`);
   assert.ok(retryButtons.count>=2,'Failed checklist rows expose retry controls');
   assert.equal(retryButtons.same,true);assert.equal(retryButtons.alternate,true);
+  const subagent=await win.webContents.executeJavaScript(`(async()=>{
+    await api.call('test:emit','subagent:update',{id:'req:ui:a',sid:openSid,assignmentId:'a',requirementIndex:0,kind:'requirement',owner:'codex',title:'Fix header',task:'Fix the header',model:'gpt-6-luna',status:'failed',stateLabel:'Needs verification',result:'Could not reach staging'});
+    subsExp.add('req:ui:a');openSubs();renderSubs();
+    const row=document.querySelector('.sr[data-id="req:ui:a"]');
+    const buttons=[...row.querySelectorAll('.sr-a')];
+    const retry=buttons.find(button=>button.textContent==='Try another model');await retry.onclick({currentTarget:retry});
+    const calls=await api.call('test:calls');
+    const result={text:row.textContent,alternate:calls.some(call=>call[0]==='subagents:retry' && call[1]==='req:ui:a' && call[2]===true)};
+    await api.call('test:emit','subagent:removed',{sid:openSid,id:'req:ui:a'});result.removed=!document.querySelector('.sr[data-id="req:ui:a"]');return result;
+  })()`);
+  assert.match(subagent.text,/Needs verification/);assert.equal(subagent.alternate,true);assert.equal(subagent.removed,true);
   const persistedRecovery = await win.webContents.executeJavaScript(`(async () => {
     const sid = 'persisted-assignment-recovery';
     await api.call('test:save-session', sid, {title:'Persisted recovery', reqs:{items:[{t:'Saved running',done:false},{t:'Saved reviewing',done:false}], assignments:[

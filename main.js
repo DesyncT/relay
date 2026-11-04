@@ -15,6 +15,7 @@ const { providerArgs } = require('./permissions');
 const { createAssignments, scopeCovers } = require('./requirement-workflow');
 const { initialWorkerRoutes, balanceWorkers, nextWorkerRoute } = require('./worker-routing');
 const { normalPrompt } = require('./normal-code');
+const { requirementSubagents } = require('./requirement-subagents');
 const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
 const { recoverRequirementAssignments, canCleanupRequirementWorkspaces } = require('./requirement-recovery');
@@ -382,7 +383,11 @@ ipcMain.handle('skills:list', (_e, sid) => {
 const reqsOf = (sid) => sessOf(sid)?.reqs || null;
 function setReqs(sid, reqs) {
   const before = savedWorkspaceRoots(sid);
+  const previous=requirementSubagents(sid,reqsOf(sid));
   try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs });
+  const workers=supercodeOn(sid) ? requirementSubagents(sid,reqs) : [];
+  for(const worker of workers) send('subagent:update',worker);
+  for(const worker of previous) if(!workers.some(current=>current.id===worker.id)) send('subagent:removed',{sid,id:worker.id});
   reclaimWorkspaces(sid, before);
 }
 const requirementCoordinators = new Map();
@@ -486,7 +491,8 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
       if (isDown(a.provider)) throw new Error(`${a.provider} is unavailable; replacing this worker`);
       const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.`;
       const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
-      if (epoch !== rt.epoch) throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
+      if (epoch !== rt.epoch || a.blocker==='cancelled') throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
+      a.usage=addUsage(a.usage,result.usage);
       let changes = { paths:[], patch:Buffer.alloc(0) };
       if (ws.mode !== 'shared' || ws.isolated) {
         if (!ws.files?.length) throw new Error('Task cannot collect changes without an explicit assigned file scope');
@@ -505,12 +511,12 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
       const outcomes=[], failures=[];
       const reviewers=providerOrder.filter(provider=>!isDown(provider)).sort((left,right)=>Number(left===a.provider)-Number(right===a.provider));
       for (const [index,provider] of reviewers.entries()) {
-        if (epoch !== rt.epoch) throw Object.assign(new Error('Review cancelled'),{cancelled:true});
-        if (outcomes.length >= judgeCount('reviewerCount')) break;
+        if (epoch !== rt.epoch || a.blocker==='cancelled') throw Object.assign(new Error('Review cancelled'),{cancelled:true});
+        if (outcomes.filter(outcome=>outcome.verdict!=='UNKNOWN').length >= judgeCount('reviewerCount')) break;
         const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
         const effort = 'low';
         const route = { extra:argsFor(provider,'other',{ [provider]:{ other:{ model, effort } } },''), meta:{ phase:'review', model, effort } };
-        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; an unavailable check is UNKNOWN. Do not edit files or trust the worker report. Return exactly VERDICT: PASS, FAIL, or UNKNOWN on line 1, then EVIDENCE: specific observations. For FAIL include FILE, LINE, ACTUAL and EXPECTED fields. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
+        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. Verify the actual acceptance criteria through source inspection, relevant commands, or live staging/browser evidence. Return UNKNOWN only when the requirement cannot be verified by any relevant method. Do not edit files or trust the worker report. Return exactly VERDICT: PASS, FAIL, or UNKNOWN on line 1, then EVIDENCE: specific observations. For FAIL include FILE, LINE, ACTUAL and EXPECTED fields. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
         try {
           const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
           let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
@@ -519,7 +525,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
         } catch (error) { if(error.cancelled || epoch!==rt.epoch) throw Object.assign(error,{cancelled:true}); if (isLimitError(error.message)) markDown(provider,error.message); failures.push(`${provider}: ${error.message}`); }
       }
       if (!outcomes.length) return {verdict:'UNKNOWN',reviewers:[],evidence:failures.join('\n') || 'No reviewer provider is available.'};
-      const verdict = outcomes.some(x => x.verdict === 'FAIL') ? 'FAIL' : outcomes.every(x => x.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
+      const verdict = outcomes.some(x => x.verdict === 'FAIL') ? 'FAIL' : outcomes.filter(x => x.verdict === 'PASS').length >= Math.min(judgeCount('reviewerCount'),reviewers.length) ? 'PASS' : 'UNKNOWN';
       return { verdict, reviewers:outcomes, evidence:outcomes.map(x => `${x.provider}: ${x.verdict} — ${x.evidence}`).join('\n') };
     },
   });
@@ -530,7 +536,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     const latest = reqsOf(sid) || {};
     if (result.status === 'passed') {
       setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true })), assignments:completed });
-      post(sid, owner, `Integrated the passed requirement tasks. Full project checks and independent final review passed; all ${latest.items?.length || 0} requirements are complete.`, trigger, null, { muted:true });
+      post(sid, owner, `Integrated the passed requirement tasks. Independent verification passed; all ${latest.items?.length || 0} requirements are complete.`, trigger, null, { muted:true });
     } else {
       setReqs(sid, { ...latest, assignments:completed });
       post(sid, owner, `Integration remains open: ${result.findings || result.blocker}. Requirements are still unchecked.`, trigger, null, { muted:true });
@@ -560,12 +566,15 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
       if (epoch !== rt.epoch) throw Object.assign(new Error('Integration cancelled'),{cancelled:true});
       let checkEvidence = 'No full project check could be run.';
       let hasFullCheck = false;
+      let checkUnavailable=false;
       try {
         const packageJson = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf8'));
         if (packageJson.scripts?.test) { checkEvidence = await run('requirement integration check', 'npm', ['test'], '', null, { cwd:projectPath, sid, sub:'req-integration-check' }); hasFullCheck = true; }
+        else {checkUnavailable=true;checkEvidence='No npm test script is defined. Independent verification of the actual acceptance criteria is required.';}
       } catch (error) {
         // run() also rejects a silent exit 0; the exit code, not the output wording, is the verdict
         hasFullCheck = error?.code === 0;
+        checkUnavailable=error?.code==='ENOENT';
         checkEvidence = hasFullCheck ? 'npm test exited 0 with no output.' : `Full project check failed: ${String(error.message || error)}`;
       }
       const scopes = changes.flatMap(c => c.scope);
@@ -573,9 +582,11 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
       if (outside.length) checkEvidence = `The integration edited files outside the passed tasks' scopes: ${outside.join(', ')}. Revert those edits; only the task scopes may change.
 ${checkEvidence}`;
       const checksPassed = hasFullCheck && !outside.length;
-      return { checksPassed, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
+      let manualVerification=null;
+      if(!checksPassed && checkUnavailable && !outside.length) manualVerification=await reviewIntegratedResult(sid,integrator,{changes,text:integrated.text,checks:`No automated npm check is available. Verify the actual requirements independently using source, relevant checks, or live staging/browser evidence. Do not treat a missing npm script as a defect. ${checkEvidence}`},epoch);
+      return { checksPassed:checksPassed || manualVerification?.verdict==='PASS', manualVerification, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
     },
-    review: (integrator, changes, integrated) => reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
+    review: (integrator, changes, integrated) => integrated.manualVerification || reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
   });
 }
 async function reviewIntegratedResult(sid, integrator, changes, epoch) {
@@ -1216,9 +1227,27 @@ function stopSub(r) {
   drainUserQueue(r.sid);
 }
 const stopSubs = (sid) => subsOf(sid).forEach(stopSub);
-ipcMain.handle('subagents:list', (_e, sid) => subsOf(sid).map((r) => ({ ...r })));
-ipcMain.handle('subagents:retry', (_e, id) => { for (const s of store.listSessions()) { const r = subsOf(s.id).find((x) => x.id === id); if (r) return spawnSubs(r.sid, r.owner, [{ title: r.title, task: r.task }]); } });
-ipcMain.handle('subagents:stop', (_e, id) => { for (const s of store.listSessions()) { const r = subsOf(s.id).find((x) => x.id === id); if (r) return stopSub(r); } });
+ipcMain.handle('subagents:list', (_e, sid) => [...subsOf(sid).map((r) => ({ ...r })),...(supercodeOn(sid) ? requirementSubagents(sid,reqsOf(sid)) : [])]);
+ipcMain.handle('subagents:retry', (_e, id, alternate=false) => {
+  for(const session of store.listSessions()) {
+    const worker=requirementSubagents(session.id,reqsOf(session.id)).find(worker=>worker.id===id);
+    if(worker) return retryRequirement(session.id,worker.assignmentId,alternate);
+    const legacy=subsOf(session.id).find(worker=>worker.id===id);
+    if(legacy) return spawnSubs(legacy.sid,legacy.owner,[{title:legacy.title,task:legacy.task}]);
+  }
+  throw new Error('This subagent no longer exists.');
+});
+ipcMain.handle('subagents:stop', (_e, id) => {
+  for(const session of store.listSessions()) {
+    const worker=requirementSubagents(session.id,reqsOf(session.id)).find(worker=>worker.id===id);
+    if(worker) {
+      requirementCoordinators.get(session.id)?.coordinator.stopTask(worker.assignmentId);
+      for(const process of procs.values()) if(process.sid===session.id && (process.sub===worker.assignmentId || String(process.sub).startsWith(`req-review-${worker.assignmentId}-`))) killProc(process);
+      return true;
+    }
+    const legacy=subsOf(session.id).find(worker=>worker.id===id);if(legacy)return stopSub(legacy);
+  }
+});
 
 // sidebar spinner: which chats have an agent running right now
 const workingIds = () => [...rts].filter(([, rt]) => Object.values(rt.lanes).some((l) => l.busy)).map(([sid]) => sid);
@@ -1501,9 +1530,10 @@ ipcMain.handle('chat:retry', async (_e, sid, targetProv) => {
   for (const who of first) enqueue(sid, who, lastUser, after, who === lead);
   return true;
 });
-ipcMain.handle('chat:requirement-retry', async (_e,sid,assignmentId,alternate=false) => {
+async function retryRequirement(sid,assignmentId,alternate=false) {
   if (!supercodeOn(sid)) throw new Error('Checklist retries are available in EasyCode.');
-  if (chatBusy(sid)) throw new Error('Wait for the current work to finish, or stop it before retrying.');
+  const workflow=requirementCoordinators.get(sid);
+  if (!workflow && chatBusy(sid)) throw new Error('A new request is starting. Retry this subagent in a moment.');
   const session=store.getSession(sid), saved=session.reqs?.assignments || [];
   const original=saved.find(assignment=>assignment.id===assignmentId);
   if (!original) throw new Error('This task no longer exists.');
@@ -1533,7 +1563,13 @@ ipcMain.handle('chat:requirement-retry', async (_e,sid,assignmentId,alternate=fa
       retry.workspace={...workspace,...(spaces.cleanup?.[0] && {cleanup:spaces.cleanup[0]})}; retry.workspaceMode=spaces.mode;
       if(retry.status==='reviewing') retry.status='queued';
     }
-    const assignments=saved.map(assignment=>assignment.id===assignmentId ? retry : {...assignment});
+    if(workflow && requirementCoordinators.get(sid)===workflow) {
+      const accepted=workflow.coordinator.queueRetry(retry);
+      if(!accepted) throw new Error('The workflow is finishing. Retry this subagent in a moment.');
+      Object.assign(workflow.workspaces,workspacesFromAssignments(workflow.coordinator.assignments));
+      return true;
+    }
+    const assignments=(reqsOf(sid)?.assignments || saved).map(assignment=>assignment.id===assignmentId ? retry : {...assignment});
     if(original.status==='passed' && original.integrationStatus==='open') {
       const first=assignments.find(assignment=>assignment.status==='passed');
       if(first) first.integrationRoute=retry.integrationRoute;
@@ -1543,7 +1579,8 @@ ipcMain.handle('chat:requirement-retry', async (_e,sid,assignmentId,alternate=fa
     await startRequirementWorkflow(sid,retry.owner || session.lead || 'codex',trigger,epoch,{assignments,workspaces:workspacesFromAssignments(assignments)});
     return true;
   } finally {requirementRetries.delete(sid);drainUserQueue(sid);}
-});
+}
+ipcMain.handle('chat:requirement-retry',(_e,...args)=>retryRequirement(...args));
 ipcMain.handle('chat:bypass', (_e, sid, on) => { on ? bypass.add(sid) : bypass.delete(sid); send('chat:mode', { sid, mode: modeOf(sid), bypass: bypass.has(sid) }); }); // the renderer shows the confirm dialog first
 ipcMain.handle('chat:stop', (_e, sid) => {
   const rt = RT(sid);

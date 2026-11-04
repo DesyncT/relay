@@ -1721,7 +1721,7 @@ function renderReqs(r) {
   const next = items.findIndex((i) => !i.done), assignmentByIndex = new Map((r.assignments || []).map((a) => [Number(a.requirementIndex), a]));
   const assignmentDetails = (a) => {
     const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', blocked:'Blocked', open:'Open', escalated:'Escalated' };
-    const state = a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
+    const state = a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
     const displayedRoute=a.integrationRoute || a;
     const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
     const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
@@ -1746,7 +1746,7 @@ function renderReqs(r) {
       el('span', { className:'rq-assignment-progress', title:`Progress ${progress}%` }, el('span', { className:'rq-assignment-track' }, el('i', { style:`width:${progress}%` })), el('span', { textContent:`${progress}%` })),
       ...(review ? [el('span', { className:'rq-assignment-review', title:evidence.map(x => x.evidence || x.verdict || '').filter(Boolean).join('\n'), textContent:review })] : []),
       ...(a.workerFailures?.length ? [el('span',{className:'rq-assignment-review',textContent:`${a.workerFailures.length} failed attempt${a.workerFailures.length===1 ? '' : 's'}`,title:a.workerFailures.map(failure=>`${failure.provider} · ${failure.model}: ${failure.error}`).join('\n')})] : []),
-      ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || a.blocker, textContent:`Blocked · ${a.blocker}` })] : []),
+      ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || evidence.map(review=>review.evidence).filter(Boolean).join('\n') || a.blocker, textContent:a.blocker==='review-unknown' ? 'Review could not verify the result' : `Blocked · ${a.blocker}` })] : []),
       ...(retryable ? [retryControls] : [])];
   };
   const list = el('ol', {}, ...items.map((i, n) => {
@@ -1833,9 +1833,10 @@ api.on('skills:changed', (d) => { if (d.sid === openSid) renderChips(); });
 // ---------- subagents panel (right of the log) ----------
 let subs = [], subsOpen = true, subsAll = false; const subsExp = new Set();
 const subEnd = (r) => r.status !== 'running' && r.status !== 'queued';
-const subTime = (r) => r.status === 'running' ? dur(Date.now() - r.started) : r.status === 'queued' ? 'Queued' : r.status === 'done' ? 'Done' : r.status === 'failed' ? 'Failed' : 'Stopped';
+const subTime = (r) => r.stateLabel || (r.status === 'running' ? dur(Date.now() - r.started) : r.status === 'queued' ? 'Queued' : r.status === 'done' ? 'Done' : r.status === 'failed' ? 'Failed' : 'Stopped');
 function renderSubs() {
   const box = $('#subs'), has = subs.length > 0;
+  if(!has) $('#sbList').replaceChildren();
   box.hidden = !subsOpen || !has;
   renderSubsToggle();
   if (box.hidden) return;
@@ -1866,9 +1867,16 @@ function subDetail(r, end) {
   const act = (t, f) => el('button', { className: 'sr-a', type: 'button', textContent: t, onclick: f });
   const acts = [];
   if (!end) acts.push(act('Stop', () => api.call('subagents:stop', r.id)));
-  if (end) acts.push(act('Run again', async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Queued'; try { await api.call('subagents:retry', r.id); } catch { b.textContent = 'Could not queue'; } }));
+  if (end && (r.kind!=='requirement' || r.status!=='done')) {
+    for(const [label,alternate] of (r.kind==='requirement' ? [['Retry',false],['Try another model',true]] : [['Run again',false]])) acts.push(act(label,async(event)=>{
+      const button=event.currentTarget;button.disabled=true;button.textContent='Queuing…';
+      try{await api.call('subagents:retry',r.id,alternate);button.textContent='Queued';}
+      catch(error){button.disabled=false;button.textContent=label;alert(error.message);}
+    }));
+  }
   if (r.result) acts.push(act('Copy result', (e) => { const b = e.currentTarget; navigator.clipboard?.writeText(r.result).then(() => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy result'; }, 1200); }); }));
-  if (r.status === 'done') acts.push(act('Show in chat', () => showSubInChat(r)));
+  if(r.kind==='requirement') acts.push(act('Show requirement',()=>{$('#reqbar').open=true;$('#reqbar ol')?.children[r.requirementIndex]?.scrollIntoView({block:'nearest'});}));
+  else if (r.status === 'done') acts.push(act('Show in chat', () => showSubInChat(r)));
   const outcome = r.result ? [el('small', { textContent: r.status === 'failed' ? 'Error' : 'Result' }), el('p', { textContent: r.result })]
     : r.status === 'stopped' ? [el('small', { textContent: 'Result' }), el('p', { className: 'muted', textContent: `Stopped${r.ended ? ' after ' + dur(r.ended - r.started) : ''} before it reported back` })]
     : r.status === 'queued' ? [el('p', { className: 'muted', textContent: 'Waiting for a free slot' })] : [];
@@ -1900,6 +1908,7 @@ api.on('subagent:update', (d) => {
   if (first) subsOpen = true; // auto-open on the first subagent
   renderSubs();
 });
+api.on('subagent:removed',d=>{if(d.sid===openSid){subs=subs.filter(worker=>worker.id!==d.id);subsExp.delete(d.id);renderSubs();}});
 // only one right-side dock at a time: Panels (terminal/changes/browser/files/viewer) vs the subagents column
 const pnOpen = () => { const a = document.querySelector('.ch-body > aside.pn'); return !!a && !a.hidden; };
 new MutationObserver(() => { if (pnOpen() && subsOpen) { subsOpen = false; renderSubs(); } }).observe($('.ch-body'), { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });

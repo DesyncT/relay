@@ -41,26 +41,34 @@ assert.notEqual(effortOnly.model,failed.model);
 console.log('requirement retry checks passed');
 // Exercise the real IPC retry path with saved task state and no live provider calls.
 const source=require('node:fs').readFileSync(require.resolve('./main'),'utf8');
-const handlerSource=source.slice(source.indexOf("ipcMain.handle('chat:requirement-retry'"),source.indexOf("ipcMain.handle('chat:bypass'"));
+const handlerSource=source.slice(source.indexOf('async function retryRequirement('),source.indexOf("ipcMain.handle('chat:bypass'"));
 (async()=>{
   let handler,started;
   const done={...failed,id:'done',status:'passed',blocker:null,patch:'passed patch',files:['done.js']};
   const target={...failed,id:'failed',owner:'codex',requirementIndex:1,workspace:{path:'owned-workspace'}};
   const session={lead:'codex',messages:[{from:'user',text:'Implement both',at:1}],reqs:{items:[{t:'First'},{t:'Second'}],assignments:[done,target]}};
-  const retrying=new Set();
-  require('node:vm').runInNewContext(handlerSource,{
-    ipcMain:{handle:(_channel,fn)=>{handler=fn;}},supercodeOn:()=>true,chatBusy:()=>false,
+  const retrying=new Set(), workflows=new Map();
+  const context={
+    ipcMain:{handle:(_channel,fn)=>{handler=fn;}},supercodeOn:()=>true,chatBusy:()=>workflows.size>0,requirementCoordinators:workflows,reqsOf:()=>session.reqs,
     store:{getSession:()=>session},AGENT_NAMES:['codex','claude'],down:{},isDown:()=>false,
     initialWorkerRoutes:require('./worker-routing').initialWorkerRoutes,settings:{routes},require,
     RT:()=>({epoch:0}),requirementRetries:retrying,validTaskWorkspace:()=>true,
     setReqs:(_sid,reqs)=>{session.reqs=reqs;},workspacesFromAssignments:()=>({mode:'worktree',tasks:[]}),
     startRequirementWorkflow:async(_sid,_owner,_trigger,_epoch,recovery)=>{started=recovery.assignments;},drainUserQueue:()=>{},
-  });
+  };
+  require('node:vm').runInNewContext(handlerSource,context);
   await handler(null,'session','failed',true);
   assert.equal(started[0].status,'passed','Retry preserves completed siblings');
   assert.equal(started[0].patch,'passed patch','Retry preserves completed patches');
   assert.equal(started[1].status,'queued');
   assert.equal(started[1].provider,'claude','Alternate-model retry switches the failing Codex worker');
   assert.equal(retrying.size,0);
+  let queued;
+  session.reqs.assignments=[done,target];
+  workflows.set('session',{coordinator:{queueRetry:replacement=>{queued=replacement;return true;},assignments:session.reqs.assignments},workspaces:{}});
+  started=null;
+  await handler(null,'session','failed',false);
+  assert.equal(queued.id,'failed','A busy sibling does not block retry of this worker');
+  assert.equal(started,null,'Live retry reuses the existing coordinator');
   console.log('Requirement retry IPC preservation checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

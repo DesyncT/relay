@@ -17,6 +17,7 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
   const inFlight = new Set(); // ids whose execute() is running; only a recovered 'reviewing' task (not in flight) resumes
   let settled;
   let cancelled=false;
+  const pendingRetries=new Map(), stoppedTasks=new Set();
   function save(assignment) {
     persist(assignments);
     emit({ assignments, assignment });
@@ -47,11 +48,14 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
     for (const a of ready) {
       if (active >= max) break;
       if (inFlight.has(a.id)) continue;
-      inFlight.add(a.id); active++; if (a.status !== 'reviewing') { a.status = 'running'; a.progress = 0; } save(a);
+      inFlight.add(a.id); active++; if (a.status !== 'reviewing') { a.status = 'running'; a.progress = 0; } a.started=a.started || Date.now(); save(a);
       Promise.resolve().then(() => execute(a)).catch(error => {
+        if(cancelled || stoppedTasks.has(a.id)) return;
         a.status = 'blocked'; a.blocker = 'worker-failed'; a.error = String(error?.message || error); a.ended = Date.now(); save(a);
       }).finally(() => {
         inFlight.delete(a.id); active--;
+        const replacement=pendingRetries.get(a.id);
+        if(replacement && !cancelled) {pendingRetries.delete(a.id);stoppedTasks.delete(a.id);Object.assign(a,replacement);save(a);}
         launch();
         if (active === 0 && !assignments.some(x => x.status === 'queued' || x.status === 'running' || x.status === 'reviewing')) {
           const done = settled; settled = null; done?.(assignments);
@@ -63,7 +67,7 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
     }
   }
   async function execute(a) {
-    while (!cancelled && (a.status === 'running' || a.status === 'reviewing')) {
+    while (!cancelled && !stoppedTasks.has(a.id) && (a.status === 'running' || a.status === 'reviewing')) {
       a.started = a.started || Date.now();
       let work;
       if (a.status === 'reviewing') {
@@ -72,12 +76,12 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
         a.attemptedRoutes = [...(a.attemptedRoutes || []), {provider:a.provider,model:a.model,effort:a.effort,at:Date.now()}];
         try { work = await runTask(a); }
         catch (error) {
-          if (cancelled) return;
+          if (cancelled || stoppedTasks.has(a.id)) return;
           a.workerFailures = [...(a.workerFailures || []), {provider:a.provider,model:a.model,error:String(error?.message || error),at:Date.now()}];
           if (retry(a,'worker-failed',error)) continue;
           a.status = 'blocked'; a.blocker = error?.cancelled ? 'cancelled' : 'worker-failed'; a.error = String(error?.message || error); a.ended = Date.now(); save(a); return;
         }
-        if (cancelled) return;
+        if (cancelled || stoppedTasks.has(a.id)) return;
         a.changedPaths = [...new Set(Array.isArray(work?.paths) ? work.paths : [])];
         a.workerEvidence = work?.evidence ?? work?.text ?? '';
         a.checkEvidence = work?.checkEvidence || '';
@@ -86,7 +90,7 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
       let review;
       try { review = await reviewTask(a, work); }
       catch (error) { review = { verdict: 'UNKNOWN', evidence: String(error?.message || error) }; }
-      if (cancelled) return;
+      if (cancelled || stoppedTasks.has(a.id)) return;
       const verdict = ['PASS', 'FAIL', 'UNKNOWN'].includes(String(review?.verdict).toUpperCase()) ? String(review.verdict).toUpperCase() : 'UNKNOWN';
       a.reviewAttempts = (a.reviewAttempts || 0) + 1;
       a.reviewEvidence = [...(a.reviewEvidence || []), { verdict, evidence: review?.evidence ?? review?.reason ?? '', at: Date.now(), reviewers: review?.reviewers || [] }];
@@ -99,6 +103,7 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
     if (settled) return Promise.reject(new Error('Requirement workflow is already running'));
     assignments = Array.isArray(input) ? input : [];
     cancelled=false;
+    pendingRetries.clear();stoppedTasks.clear();
     for (const assignment of assignments) if (!hasExplicitScope(assignment)) {
       assignment.status = 'blocked'; assignment.blocker = 'missing-file-scope'; assignment.coordinatorOwned = true;
     }
@@ -112,12 +117,27 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
   }
   function cancel() {
     cancelled=true;
+    pendingRetries.clear();
     for(const assignment of assignments) if(['queued','running','reviewing'].includes(assignment.status)) {
       Object.assign(assignment,{status:'blocked',blocker:'cancelled',ended:Date.now()});
     }
     persist(assignments); emit({assignments,assignment:null}); launch();
   }
-  return { start, cancel, get assignments() { return assignments; }, get workspaceMode() { return workspaceMode; } };
+  function queueRetry(replacement) {
+    if(!settled || cancelled) return false;
+    const assignment=assignments.find(a=>a.id===replacement.id);
+    if(!assignment || !['blocked','open'].includes(assignment.status)) throw new Error('This subagent is already running or has completed.');
+    if(!hasExplicitScope(replacement)) throw new Error('This subagent needs an explicit file scope.');
+    if(inFlight.has(assignment.id)) pendingRetries.set(assignment.id,replacement);
+    else {stoppedTasks.delete(assignment.id);Object.assign(assignment,replacement);save(assignment);launch();}
+    return true;
+  }
+  function stopTask(id) {
+    const assignment=assignments.find(a=>a.id===id);
+    if(!assignment || !['queued','running','reviewing'].includes(assignment.status)) return false;
+    stoppedTasks.add(id);pendingRetries.delete(id);Object.assign(assignment,{status:'blocked',blocker:'cancelled',ended:Date.now()});save(assignment);launch();return true;
+  }
+  return { start, cancel, queueRetry, stopTask, get assignments() { return assignments; }, get workspaceMode() { return workspaceMode; } };
 }
 
 const integrationRuns = new WeakMap();

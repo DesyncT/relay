@@ -1,6 +1,34 @@
 const assert = require('node:assert/strict');
 const { createRequirementCoordinator } = require('./requirement-coordinator');
 const { createAssignments } = require('./requirement-workflow');
+async function stopOneWorkerKeepsSiblingRunning() {
+  const gates={},reviews=[];
+  const first=task('first'),second=task('second');
+  const coordinator=createRequirementCoordinator({limit:2,runTask:async a=>{await new Promise(resolve=>{gates[a.id]=resolve;});return {paths:a.files};},reviewTask:async a=>{reviews.push(a.id);return {verdict:'PASS'};}});
+  const completion=coordinator.start([first,second]);await Promise.resolve();
+  assert.ok(first.started>0,'Published running subagents have a real start time');
+  assert.equal(coordinator.stopTask('first'),true);gates.first();
+  assert.equal(second.status,'running');gates.second();await completion;
+  assert.equal(first.blocker,'cancelled');assert.equal(second.status,'passed');assert.deepEqual(reviews,['second']);
+}
+async function retryFailedWorkerWhileSiblingRuns() {
+  let release,blocked,passed,attempts=0;
+  const blockedReady=new Promise(resolve=>{blocked=resolve;}), retried=new Promise(resolve=>{passed=resolve;});
+  const failed=task('failed'), sibling=task('sibling');
+  const c=createRequirementCoordinator({limit:2,
+    persist:()=>{if(failed.status==='blocked')blocked();if(failed.status==='passed')passed();},
+    runTask:async a=>{if(a.id==='failed'){if(++attempts===1)throw new Error('temporary error');}else await new Promise(resolve=>{release=resolve;});return {paths:a.files};},
+    reviewTask:async()=>({verdict:'PASS'}),
+  });
+  const completion=c.start([failed,sibling]);
+  await blockedReady;
+  assert.equal(c.queueRetry({...failed,status:'queued',blocker:null,error:null}),true);
+  await retried;
+  assert.equal(sibling.status,'running','Retry is independent of a running sibling');
+  assert.equal(attempts,2);
+  release();await completion;
+  assert.ok(c.assignments.every(a=>a.status==='passed'));
+}
 
 const task = (id, files = [`${id}.js`]) => ({ id, requirementIndex: Number(id), task: id, owner: 'claude', provider: 'claude', model: 'claude-haiku-5-5', effort: 'low', files, fileOwnership: files, status: 'queued', reviewAttempts: 0 });
 async function schedulerPersistsBeforeStartingAndCapsConcurrency() {
@@ -104,6 +132,8 @@ async function recoveringReviewDoesNotRerunWorker() {
 }
 
 (async () => {
+  await retryFailedWorkerWhileSiblingRuns();
+  await stopOneWorkerKeepsSiblingRunning();
   await schedulerPersistsBeforeStartingAndCapsConcurrency();
   await sharedFolderSerializesOverlappingPaths();
   await reviewEvidenceUnknownAndFailEscalation();
