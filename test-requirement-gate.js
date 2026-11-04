@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require.resolve('./main.js'), 'utf8');
 const parser = source.slice(source.indexOf('function applyReqTags('), source.indexOf('// A wrap-up'));
 const gate = source.slice(source.indexOf('    const request = msgs()'), source.indexOf('    if (supercodeOn(sid) && /\\[escalate'));
-const askGate = source.slice(source.indexOf('  let asked = 0;'), source.indexOf('  const notes = [resumed'));
+const askGate = source.slice(source.indexOf('  let asked = answeredQuestions'), source.indexOf('  const notes = [resumed'));
 const dispatch = source.slice(source.indexOf('const WRAP ='), source.indexOf("ipcMain.handle('chat:queue',"));
 
 function dispatchTaggedRequest() {
@@ -30,7 +30,7 @@ let cases = 0;
 // Round 1 asks the user questions, round 2 (the turn after an agent question) writes the list
 function gateFor(messages, reqs = { items: [] }, writeNow) {
   cases += 1;
-  return vm.runInNewContext(`${askGate}; checklistGate`, { sid: 'test', sess: { messages }, reqsOf: () => reqs, writeNow, MAX_QUESTIONS: 4 });
+  return vm.runInNewContext(`${askGate}; checklistGate`, { sid: 'test', messages, sess: { messages }, reqsOf: () => reqs, writeNow, answeredQuestions: require('./turn').answeredQuestions });
 }
 
 async function check(responses, fails = false, initial = { items: [] }) {
@@ -39,7 +39,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
   const prose = String(responses[0].text ?? responses[0]).includes('Here is the plan.');
   const events = [];
   const context = {
-    sid: 'test', who: 'claude', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
+    answeredQuestions:()=>5, sid: 'test', who: 'claude', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
     msgs: () => [{ from: 'user', text: 'Fix the new request', at: 2 }], WRAP: /^wrap up$/i,
     reqsOf: () => reqs,
     setReqs: (_, value) => { reqs = value; },
@@ -69,17 +69,17 @@ async function check(responses, fails = false, initial = { items: [] }) {
 }
 
 // The gate must let the reply through without writing or failing
-async function asks(responses, initial) {
+async function asks(responses, initial, count = 5) {
   cases += 1;
-  let reqs = initial, runs = 0;
+  let reqs = initial, runs = 0, expectedRuns = responses.length;
   await vm.runInNewContext(`${parser}\n(async () => { let r, rd, prov, usage; ${gate} })()`, {
-    sid: 'test', who: 'codex', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
+    answeredQuestions:()=>count, sid: 'test', who: 'codex', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
     msgs: () => [{ from: 'user', text: 'wrap up', at: 2 }], WRAP: /^wrap up$/i,
     reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; }, promptFor: () => '', addUsage: () => null,
     post: () => assert.fail('nothing should be posted'),
     seatRun: async (_, who) => { runs += 1; return { text: responses.shift(), rd: { meta: {} }, prov: who }; },
   });
-  assert.equal(runs, 1);
+  assert.equal(runs, expectedRuns);
 }
 
 (async () => {
@@ -98,6 +98,7 @@ async function asks(responses, initial) {
   await check([{ text: '1. [req: Show requirements before editing]', said: ['@claude [req: Show requirements before editing]\nRead the files.', '1. [req: Show requirements before editing]'] }]);
   await check(['Each on its own [req: ...] line.\n- [req: Show requirements before editing]']);
   await asks(['1. Which page? 2. Which colours? [ask-user!]'], { items: [] });
+  await asks(['[req: Premature checklist]', 'How should matching work? [ask-user!: All filters | Weighted scoring | Rules]'], {items:[]}, 3);
   await asks(['Restarted, all good.'], null); // after a wrap-up there is no checklist to write
   const user = { from: 'user', text: 'Build it' }, ask = { from: 'claude', text: 'Which page?', askUser: true }, said = { from: 'claude', text: 'Done.' };
   assert.match(gateFor([user]), /one question at a time/); // first run asks one question
@@ -116,11 +117,12 @@ async function asks(responses, initial) {
   const prompt = source.slice(source.indexOf('function promptFor('), source.indexOf('\nfunction post('));
   const fullBrief = vm.runInNewContext(`${prompt}; promptFor('test','claude','',false)`, {
     RT: () => ({}), store:{getSession:()=>({messages:[{from:'user',text:original,at:1},{from:'claude',text:'Which URL?',askUser:true,at:2},{from:'user',text:'Use the existing URL',at:3}]})},
-    supercodeOn:()=>true, pastNote:()=>'', reqNote:()=>'', reqsOf:()=>({items:[]}), forcedLine:()=>'', ACCESS_NOTE:'Full access',
+    answeredQuestions:require('./turn').answeredQuestions, supercodeOn:()=>true, pastNote:()=>'', reqNote:()=>'', reqsOf:()=>({items:[]}), forcedLine:()=>'', ACCESS_NOTE:'Full access',
   });
   assert.ok(fullBrief.includes(original), 'Preserve the entire original task even when it exceeds the recent-message truncation limit');
   assert.ok(fullBrief.includes('Use the existing URL'));
   assert.match(fullBrief, /end-to-end flows/);
+  assert.match(fullBrief, /at least five substantive product questions/);
   let detailed = {items:[]};
   const longRequirement = 'Preserve the complete acceptance criterion: ' + 'specific behavior '.repeat(20);
   vm.runInNewContext(`${parser}; applyReqTags('test', tags, 'claude')`, {

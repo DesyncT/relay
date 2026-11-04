@@ -4,6 +4,15 @@
 const NAMES = ['claude', 'codex'];
 const mentions = (text) => NAMES.filter((a) => new RegExp(`@${a}\\b`, 'i').test(text));
 const otherOf = (who) => (who === 'claude' ? 'codex' : 'claude');
+function answeredQuestions(messages) {
+  let count = 0;
+  for (let u = messages.findLastIndex(m => m.from === 'user'); u > 0; count++) {
+    const a = messages.slice(0,u).findLastIndex(m => m.from !== 'user' && m.from !== 'system');
+    if (a < 0 || !messages[a].askUser) break;
+    u = messages.slice(0,a).findLastIndex(m => m.from === 'user');
+  }
+  return count;
+}
 
 // Common conversational replies need no model call. Keep matches anchored so a
 // greeting followed by a work request still reaches the normal task flow.
@@ -223,7 +232,7 @@ function formatFailureInfo(errText, provider = 'claude') {
   };
 }
 
-const exported = { parseTurn, parseSubs, mentions, route, stale, isGo, otherOf, isConversation, conversationReply, NAMES, cleanErrorMessage, formatFailureInfo };
+const exported = { parseTurn, parseSubs, mentions, route, stale, isGo, otherOf, answeredQuestions, isConversation, conversationReply, NAMES, cleanErrorMessage, formatFailureInfo };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = exported;
 }

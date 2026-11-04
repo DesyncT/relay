@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { parseTurn, route, isConversation, conversationReply } = require('./turn');
+const { parseTurn, route, isConversation, conversationReply, answeredQuestions } = require('./turn');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { fullAccessArgs } = require('./permissions');
@@ -26,6 +26,9 @@ for (const building of [false, true]) {
   assert.deepEqual(route('@codex @claude ask me questions', 'claude', building, () => 0, true), { first: ['claude'], after: null, lead: 'claude' });
 }
 assert.equal(route('Build it', 'claude', true).first.length, 2);
+const interview = [{from:'user',text:'Build a product selector'}];
+for(let i=0;i<5;i++) interview.push({from:'claude',askUser:true},{from:'user',text:'Answer '+i});
+assert.equal(answeredQuestions(interview),5);
 for (const text of ['hello', 'hey!', 'are u done', 'are you done?', 'what is React', 'How does this work?', 'Any updates?', 'How do I deploy this?', 'Explain React hooks', 'Tell me about CSS', 'can u explain react', 'do you know TypeScript', 'why is the sky blue']) assert.equal(isConversation(text), true, text);
 for (const text of ['Build a portal', 'Can you fix the layout?', 'What should we build?', 'ask me some questions', 'hello, fix the UI', 'yes', 'no', 'okay', 'do it', 'can u polish this', 'How do I deploy this and then you run it?']) assert.equal(isConversation(text), false, text);
 for (const text of ['hi there!', 'hey relay', 'how r u?', 'how’s it going?', 'thx', 'thank you very much', 'what can u do?', 'who are you?', 'status', 'done yet?', 'u done?', 'is it ready?', 'still working?', 'what’s left?']) assert.notEqual(conversationReply(text), null, text);

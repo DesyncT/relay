@@ -496,7 +496,7 @@
       <div id="normalEffortMenu" role="menu" hidden></div>
       <div id="leadMenu" role="menu" hidden></div>
       <div id="modeMenu" role="dialog" aria-label="Mode" hidden></div>
-      <textarea id="input" rows="1" placeholder="Message #global  ·  / for commands" aria-label="Message #global"></textarea>
+      <textarea id="input" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Message #global  ·  / for commands" aria-label="Message #global"></textarea>
       <div id="pend"></div>
       <div class="cb-tools">
       <button class="plus" id="plus" aria-label="Upload a file"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
@@ -1094,13 +1094,15 @@ function replyTo(m) {
 const ftok = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
 const fcost = (c) => '$' + (c < 0.1 ? c.toFixed(3) : c.toFixed(2));
   // spend strip: summed from the messages in the log, so it follows whatever chat is loaded
-  const shown = {}, tween = {};
+  const shown = {}; let spendTotals = {}, spendSignature = null;
   const spendTxt = (s) => (s && s.cost > 0 ? `${fcost(s.cost)} · ` : '') + `${ftok(Math.round(s?.tokens || 0))} tokens`;
   function renderSpend(live) {
-    const sum = {};
-    for (const r of $('#log').children) { const u = r._m?.usage; if (!u) continue; const k = r._m.via || r._m.from.split(':')[0], a = sum[k] ||= { tokens: 0, cost: 0, input: 0, output: 0, cached: 0, model: '' }; a.tokens += u.tokens; a.cost += u.cost; a.input += u.input; a.output += u.output; a.cached += u.cached; a.model = u.model; }
+    const sum = spendTotals;
     const run = (k) => Object.keys(act).some((w) => w.split(':')[0] === k);
     const keys = ['claude', 'codex', 'antigravity', 'auto'].filter((k) => sum[k] || run(k));
+    const signature = JSON.stringify([sum, keys.map(k => [k, run(k)])]);
+    if (signature === spendSignature) return;
+    spendSignature = signature;
     const cur = (k) => shown[k] || { tokens: 0, cost: 0 };
     $('#spend').replaceChildren(...keys.flatMap((k, i) => {
       const a = sum[k] || { tokens: 0, cost: 0, input: 0, output: 0, cached: 0, model: '' }, c = cur(k);
@@ -1108,11 +1110,7 @@ const fcost = (c) => '$' + (c < 0.1 ? c.toFixed(3) : c.toFixed(2));
       const e = el('span', { className: 'sp', title: `${a.model || k}\ninput ${ftok(a.input)} · output ${ftok(a.output)} · cached ${ftok(a.cached)}${a.cost > 0 ? `\nest. cost ${fcost(a.cost)}` : ''}` }, el('span', { innerHTML: k === 'auto' ? svgI('<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>') : logo(k === 'claude' ? 'claude' : k === 'antigravity' ? 'antigravity' : 'openai', 14, k === 'claude' ? '#D97757' : k === 'antigravity' ? '#4E88F5' : '#fff') }), el('b', { textContent: k }), n, ...(run(k) ? ['running'] : []));
       e.dataset.k = k;
       const from = cur(k), to = { tokens: a.tokens, cost: a.cost };
-      if (!live) { shown[k] = to; n.textContent = spendTxt(to); } else if (from.tokens !== to.tokens || from.cost !== to.cost) { // tween the numbers over 400ms, ease-out
-        cancelAnimationFrame(tween[k]); const t0 = performance.now();
-        const step = (t) => { const p = Math.min(1, (t - t0) / 400), q = 1 - (1 - p) ** 3; shown[k] = { tokens: from.tokens + (to.tokens - from.tokens) * q, cost: from.cost + (to.cost - from.cost) * q }; const live = document.querySelector(`#spend [data-k=${k}] > .sn`); if (live) live.textContent = spendTxt(shown[k]); if (p < 1) tween[k] = requestAnimationFrame(step); };
-        tween[k] = requestAnimationFrame(step);
-      }
+      shown[k] = to; n.textContent = spendTxt(to);
       return [...(i ? [el('span', { textContent: '·' })] : []), e];
     }));
   }
@@ -1306,6 +1304,12 @@ function addMsg(m, live, batch = false) {
     log.append(el('div',{className:'msg review-context-row'},reviewContextNode({request:related?.text,requestAt:related?.at,round},true)));
   }
   row._m = m;
+  if (m.usage) {
+    const k = m.via || m.from.split(':')[0], u = m.usage;
+    const total = spendTotals[k] ||= {tokens:0,cost:0,input:0,output:0,cached:0,model:''};
+    for (const field of ['tokens','cost','input','output','cached']) total[field] += u[field] || 0;
+    total.model = u.model || total.model;
+  }
   if (m.from === 'auto') row.classList.add('dim');
   if (live) { // fade + rise; parts of a split reply stagger by 60ms
     liveN = Date.now() - liveT < 800 ? liveN + 1 : 0; liveT = Date.now();
@@ -1541,7 +1545,7 @@ const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 6
 function renderTyping() {
   const ws = Object.keys(act), sep = () => el('span', { textContent: '·' });
   $('#reqbar').classList.toggle('working', ws.length > 0); // live shimmer on the progress bar while agents run
-  if (!ws.length) return $('#busy').replaceChildren();
+  if (!ws.length) { const busy = $('#busy'); if (busy.hasChildNodes()) busy.replaceChildren(); return; }
   const dots = el('span', { className: 'dots', style: `color:${nameColor(ws[0])}` }, el('i'), el('i'), el('i'));
   const nm = (w) => el('b', { textContent: w, style: `color:${nameColor(w)}` });
   if (ws.length > 1 && ws.every((w) => act[w].status === 'typing')) return $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [i === ws.length - 1 ? ' and ' : ', '] : []), nm(w)]), ' are typing…');
@@ -1852,7 +1856,7 @@ async function openSession(id, show = true) {
   act = actBy[openSid] ||= {};
   replying = null; renderChip(); pend = []; renderPend();
   $('#input').value = loadDraft(openSid); grow();
-  $('#log').innerHTML = ''; for (const k in shown) delete shown[k]; prev = null; waitFor = null;
+  $('#log').innerHTML = ''; spendTotals = {}; spendSignature = null; for (const k in shown) delete shown[k]; prev = null; waitFor = null;
   const lg = $('#log'); lg.classList.remove('sw-in'); void lg.offsetWidth; lg.classList.add('sw-in'); // replay the open animation
   $('#chat').classList.toggle('ro', !openSid);
   openTitle = info ? info.title : '';

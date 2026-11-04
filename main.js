@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { scan, cost } = require('./usage');
-const { parseTurn, mentions, route, stale, isGo, otherOf, isConversation, conversationReply, cleanErrorMessage, formatFailureInfo } = require('./turn');
+const { parseTurn, mentions, route, stale, isGo, otherOf, answeredQuestions, isConversation, conversationReply, cleanErrorMessage, formatFailureInfo } = require('./turn');
 const { createSessions, registerIpc } = require('./sessions');
 const activity = require('./activity');
 const { phaseFor, argsFor, mergeRoutes, resolved, modelFromArgs } = require('./routing');
@@ -404,19 +404,17 @@ function promptFor(sid, who, note, stand, writeNow) {
   const past = (!resumed || firstAfter) && pastNote(sess);
   // this run only writes the checklist; all runs retain full access; telling it to start the task made agents report "blocked / plan mode" to the user
   // questions come one per message with clickable options; each answer is a new user message, so count the agent questions answered in a row (a typed "N requirements" skips them)
-  let asked = 0;
-  for (let u = sess.messages.findLastIndex((m) => m.from === 'user'); u > 0; asked++) {
-    const a = sess.messages.slice(0, u).findLastIndex((m) => m.from !== 'user' && m.from !== 'system');
-    if (a < 0 || !sess.messages[a].askUser) break;
-    u = sess.messages.slice(0, a).findLastIndex((m) => m.from === 'user');
-  }
+  let asked = answeredQuestions(messages);
   const askNext = !writeNow && !reqsOf(sid)?.target;
+  const discoveryMinimum = askNext && asked < 5
+    ? `Mandatory discovery: only ${asked} questions have been answered. Ask at least five substantive product questions, one per turn, before writing any requirements. Ask the next unresolved app-specific question now; do not emit [req:] tags or start implementation yet. Cover user flows, recommendation or business logic, seller/admin controls, data and integrations, and acceptance criteria where relevant. Do not repeat answered questions just to fill the count.`
+    : '';
   const checklistGate = askNext
     ? `Requirements: this step only collects what the user wants, one question at a time. ${asked ? 'The user answered your earlier question above. ' : ''}Act as a professional requirements interviewer. Use the request and previous answers; never ask for information already supplied. Ask only the single highest-value unanswered question, then wait for the answer before asking another. First inspect the relevant project instructions, existing app code, data and available UI using tools that do not modify the project. Learn what the app actually does before asking about it. Ask about substantive product decisions: user roles, screens, end-to-end flows, business rules, validation, data, integrations, states and acceptance criteria. Ask only about unresolved decisions that affect this task; do not ask generic preference questions, trivial naming questions, or facts you can discover in the project. There is no fixed question limit. Continue one question at a time until the app behavior and task scope are sufficiently defined. Do not ask several questions in one sentence, ask whether to ask questions, or offer an all-at-once interview. Before writing the checklist, silently map each part of the original request and each answer to an acceptance criterion; ask about important missing behavior instead of inventing it. Each requirement must name an actor or trigger and an observable result. Do not bundle an entire multi-step flow into a single item. When you know enough, write a complete checklist: one separately verifiable requirement per meaningful behavior or constraint, covering the entire original request plus all later answers. Complexity determines the count; never compress a whole app or workflow into one vague requirement. Include explicit exclusions and preservation constraints. Do not treat the latest correction as a replacement for the original task. A question is one short sentence with no numbering and no list, and ends with [ask-user!: Option A | Option B | Option C] listing 3 or 4 concrete, clearly different answers to that one question (labels under 40 characters, optionally followed by :: and a brief explanation). Use concise, neutral, professional language and specific outcomes instead of vague choices such as Keep current behavior. Do not add a Something else option: the interface already provides a custom answer field. Never yes/no, never only two options; the user can also type their own answer. The tag is interface metadata: put it last, without backticks, quotes, or code fences. You may inspect the project and existing app to ground the interview. Do not edit files, implement changes or present a plan during this stage.`
     : `Requirements: this step only writes the requirements. Write ${reqsOf(sid)?.target ? `exactly ${reqsOf(sid).target}` : 'as many as the full task needs'} concrete, checkable requirements the finished work HAS to meet (use the user's answers if they gave any), each on its own [req: ...] line, then stop: no questions, no tools, no work on the task yet, no plan, and no remarks about permissions. Cover every requested flow, feature, integration, state, validation rule, explicit exclusion and acceptance check as separate testable items where appropriate. Do not pad the list with invented features, implementation chores or generic polish. Include the original task, not just the last clarification. Your next run has full permissions and does the work.`;
   const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, reqNote(sid, who), !reqsOf(sid)?.items?.length && checklistGate].filter(Boolean).join('\n\n');
   if (reqsOf(sid) && !reqsOf(sid).items.length) {
-    return `${forcedLine()}${ACCESS_NOTE}\nYou are the requirements interviewer speaking directly to the user. This stage overrides previous teamwork and implementation instructions. Do not address, mention, delegate to, or hand off to another agent. Do not carry out or mark the task complete. Preserve the entire active task: later answers and corrections refine it rather than replace it.\nFull active user brief:\n${messages.filter(m => m.from === 'user' && !m.direct).map(m => [m.text || '', ...(m.attachments || []).map(a => `Attached: ${a.path}`)].join('\n')).join('\n\n')}\nRecent conversation:\n${recent.join('\n\n')}\n\n${checklistGate}`;
+    return `${forcedLine()}${ACCESS_NOTE}\nYou are the requirements interviewer speaking directly to the user. This stage overrides previous teamwork and implementation instructions. Do not address, mention, delegate to, or hand off to another agent. Do not carry out or mark the task complete. Preserve the entire active task: later answers and corrections refine it rather than replace it.\nFull active user brief:\n${messages.filter(m => m.from === 'user' && !m.direct).map(m => [m.text || '', ...(m.attachments || []).map(a => `Attached: ${a.path}`)].join('\n')).join('\n\n')}\nRecent conversation:\n${recent.join('\n\n')}\n\n${checklistGate}\n\n${discoveryMinimum}`;
   }
   // Resumed CLI session: it already has the whole conversation, so send just what's new, exactly like typing in the terminal
   if (resumed) {
@@ -504,6 +502,11 @@ async function ask(sid, who, trigger, isLead) {
     }
     const writingChecklist = !!reqsOf(sid) && !reqsOf(sid).items.length, saidOf = (x) => x.said?.join('\n\n') || x.text;
     r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, notes, s), trigger, { lead: isLead, tag, ...((lockEdits || writingChecklist) && { requirementsOnly: true }) }); rd = r.rd; prov = r.prov; usage = r.usage;
+    if (writingChecklist && !reqsOf(sid).target && answeredQuestions(msgs()) < 5 && !/\[ask-user/i.test(r.text)) {
+      const retry = await seatRun(sid, who, phase, s => promptFor(sid, who, '', s) + '\nYour previous response ended discovery too early. Ask the next substantive product question now and end with [ask-user!: Option A | Option B | Option C]. Do not write a checklist yet.', trigger, {lead:isLead, tag, requirementsOnly:true});
+      usage = addUsage(usage, retry.usage); r = retry; rd = r.rd; prov = r.prov;
+      if (!/\[ask-user/i.test(r.text)) throw new Error('Discovery needs at least five answered product questions before implementation. Please retry the question.');
+    }
     if (writingChecklist && /\[ask-user/i.test(r.text)) {
       // Publish the interview question and wait for the user's next message before continuing the requirements gate.
       // Leave the question in `r`; the normal turn parser below publishes its controls and routes the next reply.

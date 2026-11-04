@@ -4,9 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const output = process.env.RELAY_TEST_OUTPUT || path.join(app.getPath('temp'), 'relay-ui-check');
+// Hidden test windows must use foreground frame scheduling for input latency.
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-features','CalculateNativeWinOcclusion');
 app.whenReady().then(async () => {
   fs.mkdirSync(output, { recursive: true });
-  const win = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { preload: path.join(__dirname, 'test-renderer-preload.js'), contextIsolation: true } });
+  const win = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { preload: path.join(__dirname, 'test-renderer-preload.js'), contextIsolation: true, backgroundThrottling:false } });
   const errors = [];
   win.webContents.on('console-message', (_event, level, message) => { if (level === 3 && !message.includes('Electron Security Warning')) errors.push(message); });
   await win.loadFile(path.join(process.env.RELAY_TEST_APP || __dirname, 'index.html'));
@@ -117,9 +121,29 @@ app.whenReady().then(async () => {
     clearTimeout(draftTimer);
     return {short,tall,reset,slash};
   })()`);
-  assert.ok(sizing.tall > sizing.short && sizing.tall <= 200);
+  assert.equal(sizing.tall, sizing.short, 'Typing additional lines must not resize the transcript');
   assert.equal(sizing.reset, sizing.short);
   assert.equal(sizing.slash, true, 'Slash commands still work with the lightweight input handler');
+  const stableSpend = await win.webContents.executeJavaScript(`(() => {
+    act = {codex:{status:'thinking',since:Date.now()}}; renderSpend();
+    const first = document.querySelector('#spend').firstChild;
+    for(let i=0;i<100;i++) { act.codex.status = 'reading file '+i; renderSpend(); }
+    return first === document.querySelector('#spend').firstChild;
+  })()`);
+  assert.equal(stableSpend,true,'Status updates must not rebuild unchanged usage totals');
+  // Measure a visible, focused editor: hidden Windows windows intentionally
+  // throttle compositor frames to ~1 Hz even with timer throttling disabled.
+  win.show(); win.focus();
+  await win.webContents.executeJavaScript(`document.querySelector('#input').focus({preventScroll:true}); window.nativePaintDelays=[]; document.querySelector('#input').addEventListener('input', () => { const start=performance.now(); requestAnimationFrame(()=>nativePaintDelays.push(performance.now()-start)); });`);
+  for (let i=0;i<30;i++) {
+    await win.webContents.debugger.sendCommand('Input.insertText', {text:i%6 ? 'typing ' : '\n'});
+    await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => { renderTyping(); renderSpend(); resolve(); }))`);
+  }
+  const latency = await win.webContents.executeJavaScript(`({count:nativePaintDelays.length,maxMs:Math.round(Math.max(...nativePaintDelays)),spellcheck:document.querySelector('#input').spellcheck})`);
+  assert.equal(latency.count,30);
+  assert.equal(latency.spellcheck,false);
+  console.log('Native input-to-frame with background updates:',JSON.stringify(latency));
+  assert.ok(latency.maxMs < 250,'Native typing should paint without long stalls while status updates are active');
   assert.deepEqual(errors, []);
   console.log('Renderer layout, tag recovery, focus, choice and custom-answer checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();
