@@ -88,5 +88,47 @@ async function unscopedFallbackNeverStarts() {
   await reviewEvidenceUnknownAndFailEscalation();
   await exhaustedFailureStaysOpen();
   await unscopedFallbackNeverStarts();
+  await singleIntegrationRequiresAllPassAndFinalGates();
+  await integrationNeedsChecksAndIndependentReview();
+  await finalFailEscalatesAndCeilingReportsFindings();
   console.log('requirement coordinator tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+async function singleIntegrationRequiresAllPassAndFinalGates() {
+  const { runRequirementIntegration } = require('./requirement-coordinator');
+  const assignments = [task('1'), task('2')];
+  assignments[0].status = 'passed'; assignments[0].patch = Buffer.from('one').toString('base64');
+  assignments[1].status = 'running'; assignments[1].patch = Buffer.from('two').toString('base64');
+  assignments.push({ ...task('3'), actionable:false, status:'blocked', patch:Buffer.from('must not apply').toString('base64') });
+  let integrations = 0;
+  const opts = { integrate: async (_integrator, changes) => { integrations++; return { changes, checksPassed:true }; }, review: async () => ({ verdict:'PASS' }), nextRoute:()=>null };
+  const early = await runRequirementIntegration(assignments, opts);
+  assert.equal(early.status, 'open'); assert.equal(integrations, 0, 'no integrator runs before all actionable assignments pass');
+  assignments[1].status = 'passed';
+  const result = await runRequirementIntegration(assignments, opts);
+  assert.equal(result.status, 'passed'); assert.equal(integrations, 1, 'one integrator handles all passed task changes');
+  assert.deepEqual(result.changes.map(x => x.assignmentId), ['1','2']);
+  assert.ok(result.changes.every(x => Buffer.isBuffer(x.patch)), 'base64 patches are converted to Buffers');
+  const again = await Promise.all([runRequirementIntegration(assignments, opts), runRequirementIntegration(assignments, opts)]);
+  assert.ok(again.every(x => x.status === 'passed')); assert.equal(integrations, 1, 'parallel duplicate calls share one successful integration');
+}
+
+async function integrationNeedsChecksAndIndependentReview() {
+  const { runRequirementIntegration } = require('./requirement-coordinator');
+  const assignments = [task('1')]; assignments[0].status = 'passed'; assignments[0].patch = '';
+  let reviews = 0;
+  let r = await runRequirementIntegration(assignments, { integrate:async()=>({checksPassed:false}), review:async()=>{reviews++; return {verdict:'PASS'}}, nextRoute:()=>null });
+  assert.equal(r.status, 'open'); assert.equal(reviews, 0, 'review is not run when full checks fail');
+  r = await runRequirementIntegration(assignments, { integrate:async()=>({checksPassed:true}), review:async()=>{reviews++; return {verdict:'UNKNOWN'}}, nextRoute:()=>null });
+  assert.equal(r.status, 'open'); assert.equal(reviews, 1, 'full checks still require independent review');
+}
+
+async function finalFailEscalatesAndCeilingReportsFindings() {
+  const { runRequirementIntegration } = require('./requirement-coordinator');
+  const assignments = [task('1')]; assignments[0].status = 'passed';
+  const routes = [];
+  const r = await runRequirementIntegration(assignments, { integrate:async(integrator)=>{routes.push(integrator.model); return {checksPassed:true};}, review:async()=>routes.length===1 ? {verdict:'FAIL',evidence:'FILE: app.js\nLINE: 9\nACTUAL: wrong\nEXPECTED: right'} : {verdict:'FAIL',evidence:'FILE: app.js\nLINE: 10\nACTUAL: still wrong\nEXPECTED: right'}, nextRoute: a=>a.retryCount ? null : {provider:'codex',model:'gpt-6.1-sol',effort:'medium'} });
+  assert.equal(routes.length, 2, 'final FAIL retries integration with a stronger route');
+  assert.equal(routes[1], 'gpt-6.1-sol');
+  assert.equal(r.status, 'open'); assert.match(r.blocker, /exhaust/); assert.match(r.findings, /still wrong/);
+}

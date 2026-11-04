@@ -13,8 +13,8 @@ const registerPanels = require('./panels-main');
 const models = require('./models');
 const { providerArgs } = require('./permissions');
 const { createAssignments, nextEscalation } = require('./requirement-workflow');
-const { createTaskWorkspaces, collectTaskChanges } = require('./requirement-workspaces');
-const { createRequirementCoordinator } = require('./requirement-coordinator');
+const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces } = require('./requirement-workspaces');
+const { createRequirementCoordinator, runRequirementIntegration } = require('./requirement-coordinator');
 const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
@@ -426,9 +426,73 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch) {
       return { verdict, reviewers:outcomes, evidence:outcomes.map(x => `${x.provider}: ${x.verdict} — ${x.evidence}`).join('\n') };
     },
   });
-  const promise = coordinator.start(assignments).finally(() => requirementCoordinators.delete(sid));
+  const promise = coordinator.start(assignments).then(async completed => {
+    if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) {
+      cleanupTaskWorkspaces(workspaces);
+      return completed;
+    }
+    const result = await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner);
+    if (epoch !== rt.epoch) { cleanupTaskWorkspaces(workspaces); return completed; }
+    const latest = reqsOf(sid) || {};
+    if (result.status === 'passed') {
+      setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true })), assignments:completed });
+      post(sid, owner, `Integrated the passed requirement tasks. Full project checks and independent final review passed; all ${latest.items?.length || 0} requirements are complete.`, trigger, null, { muted:true });
+    } else {
+      setReqs(sid, { ...latest, assignments:completed });
+      post(sid, owner, `Integration remains open: ${result.findings || result.blocker}. Requirements are still unchecked.`, trigger, null, { muted:true });
+    }
+    cleanupTaskWorkspaces(workspaces);
+    return completed;
+  }).finally(() => requirementCoordinators.delete(sid));
   requirementCoordinators.set(sid, { coordinator, promise, workspaces });
   return promise;
+}
+async function integrateRequirementTasks(sid, assignments, trigger, epoch, workspaces, routes, available, owner) {
+  const rt = RT(sid), projectPath = cwdFor(sid);
+  return runRequirementIntegration(assignments, {
+    nextRoute: assignment => nextEscalation(assignment, routes, available),
+    persist: current => setReqs(sid, { ...reqsOf(sid), assignments:current.map(a => ({ ...a, workspace:a.workspace && { ...a.workspace } })) }),
+    integrate: async (integrator, changes) => {
+      if (epoch !== rt.epoch) throw new Error('Integration cancelled');
+      const conflicts = [];
+      if (!integrator.retryCount) for (const change of changes) if (change.patch.length) conflicts.push(...applyTaskChanges(projectPath, change));
+      const assigned = assignments.filter(a => a.status === 'passed').map(a => ({ id:a.id, task:a.task, requirement:a.requirementIndex, files:a.changedPaths || [], patchIncluded:changes.some(c => c.assignmentId === a.id && c.patch.length) }));
+      const prompt = `${ACCESS_NOTE}\nYou are the single integration agent for the passed requirement tasks. Inspect the active project and integrate/reconcile their combined work, resolving overlaps and preserving existing user changes. Task summaries and patch application state: ${JSON.stringify(assigned)}\nPatch conflicts or scope errors: ${JSON.stringify(conflicts).slice(0,5000)}\n${integrator.previousFindings ? `Previous final-review findings to repair: ${integrator.previousFindings}` : ''}\nRequirements, including preservation constraints: ${JSON.stringify(reqsOf(sid)?.items || [])}\nOnly make changes needed to combine these passed tasks. Run the full project checks and report the exact command and result. Do not claim checks passed if they could not run.`;
+      const integrated = await seatRun(sid, integrator.owner || owner, 'coding', () => prompt, trigger, { quiet:true, cwd:projectPath, sub:'req-integration', routeOverride:{ provider:integrator.provider, model:integrator.model, effort:integrator.effort } });
+      if (epoch !== rt.epoch) throw new Error('Integration cancelled');
+      let checkEvidence = 'No full project check could be run.';
+      let hasFullCheck = false;
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf8'));
+        if (packageJson.scripts?.test) { hasFullCheck = true; checkEvidence = await run('requirement integration check', 'npm', ['test'], '', null, { cwd:projectPath, sid, sub:'req-integration-check' }); }
+      } catch (error) { checkEvidence = `Full project check failed: ${String(error.message || error)}`; }
+      // run() resolves only on exit code zero; output wording is project-specific and is not a verdict signal.
+      const checksPassed = hasFullCheck;
+      return { checksPassed, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
+    },
+    review: (integrator, changes, integrated) => reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
+  });
+}
+async function reviewIntegratedResult(sid, integrator, changes, epoch) {
+  const rt = RT(sid), available = AGENT_NAMES.filter(p => !isDown(p));
+  if (!available.length) return { verdict:'UNKNOWN', evidence:'No independent reviewer provider is available.' };
+  const independent = available.filter(provider => provider !== integrator.provider);
+  const reviewers = (independent.length ? independent : available).slice(0, judgeCount('reviewerCount'));
+  const results = await Promise.all(reviewers.map(async (provider, index) => {
+    const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
+    const effort = 'low';
+    const route = { extra:argsFor(provider, 'other', { [provider]:{ other:{ model, effort } } }, ''), meta:{ phase:'review', model, effort } };
+    const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. Return VERDICT: PASS, FAIL, or UNKNOWN on line 1 and concrete EVIDENCE. For FAIL include FILE, LINE, ACTUAL, EXPECTED.`;
+    try {
+      const result = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:`req-final-review-${index}`, route });
+      let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
+      if (verdict === 'FAIL' && !['FILE','LINE','ACTUAL','EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(result.text))) verdict = 'UNKNOWN';
+      return { verdict, evidence:result.text.slice(0,1800), provider, model, effort };
+    } catch (error) { return { verdict:'UNKNOWN', evidence:String(error.message || error), provider, model, effort }; }
+  }));
+  if (epoch !== rt.epoch) return { verdict:'UNKNOWN', evidence:'Final review cancelled.' };
+  const verdict = results.some(r => r.verdict === 'FAIL') ? 'FAIL' : results.every(r => r.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
+  return { verdict, reviewers:results, evidence:results.map(r => `${r.provider}: ${r.verdict} — ${r.evidence}`).join('\n') };
 }
 function reqNote(sid, who) {
   const r = reqsOf(sid); if (!r) return '';

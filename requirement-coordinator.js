@@ -89,4 +89,57 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
   return { start, get assignments() { return assignments; }, get workspaceMode() { return workspaceMode; } };
 }
 
-module.exports = { createRequirementCoordinator };
+const integrationRuns = new WeakMap();
+async function runRequirementIntegration(input, { integrate, review, nextRoute = () => null, persist = () => {} } = {}) {
+  const assignments = Array.isArray(input) ? input : [];
+  if (!assignments.length || assignments.some(a => a.actionable !== false && a.status !== 'passed'))
+    return { status:'open', blocker:'assignments-not-passed' };
+  const existing = integrationRuns.get(assignments);
+  if (existing) return existing;
+  const promise = (async () => {
+    const passed = assignments.filter(a => a.actionable !== false && a.status === 'passed');
+    const changes = passed.map(a => ({ assignmentId:a.id, paths:[...(a.changedPaths || [])], scope:[...(a.fileOwnership || a.files || [])], patch:Buffer.from(a.patch || '', 'base64') }));
+    let integrator = { ...passed[0], retryCount:0 }, findings = '';
+    for (const a of passed) a.integrationStatus='integrating';
+    persist(assignments);
+    for (;;) {
+      let integrated;
+      try { integrated = await integrate(integrator, changes); }
+      catch (error) { integrated = { checksPassed:false, evidence:String(error?.message || error) }; }
+      if (!integrated?.checksPassed) {
+        findings = integrated?.evidence || 'Full project checks did not pass.';
+      } else {
+        let finalReview;
+        try { finalReview = await review(integrator, changes, integrated); }
+        catch (error) { finalReview = { verdict:'UNKNOWN', evidence:String(error?.message || error) }; }
+        const verdict = String(finalReview?.verdict || 'UNKNOWN').toUpperCase();
+        if (verdict === 'PASS') {
+          const result = { status:'passed', integrator, changes, checks:integrated, review:finalReview };
+          for (const a of passed) { a.integrationStatus='passed'; a.blocker=null; }
+          persist(assignments); return result;
+        }
+        findings = finalReview?.evidence || `Final review returned ${verdict}.`;
+        if (verdict === 'UNKNOWN') break;
+      }
+      if (!integrated?.checksPassed || String(integrated?.verdict || '').toUpperCase() === 'FAIL') {
+        // Check failures may be repaired on a stronger integration route too.
+      }
+      const route = nextRoute(integrator);
+      if (!route) break;
+      integrator = { ...integrator, ...route, retryCount:(integrator.retryCount || 0) + 1, integrationStatus:'retrying', previousFindings:findings };
+      for (const a of passed) a.integrationStatus='retrying';
+      persist(assignments);
+      // Every retry returns through integrate(), which reruns the complete check suite before a fresh review.
+    }
+    for (const a of passed) { a.integrationStatus='open'; a.blocker='integration-exhausted'; a.integrationFindings=findings; }
+    persist(assignments);
+    return { status:'open', blocker:'integration-exhausted', findings, integrator, changes };
+  })().then(result => {
+    if (result.status !== 'passed') integrationRuns.delete(assignments);
+    return result;
+  });
+  integrationRuns.set(assignments, promise);
+  return promise;
+}
+
+module.exports = { createRequirementCoordinator, runRequirementIntegration };
