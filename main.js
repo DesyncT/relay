@@ -1213,6 +1213,17 @@ ipcMain.handle('usage:scan', (_e, fresh) => {
 ipcMain.handle('usage:quota', () => require('./quota').readQuota());
 
 ipcMain.handle('chat:history', (_e, sid) => store.getSession(sid).messages);
+ipcMain.handle('chat:export', async (event, sid) => {
+  const session = store.getSession(sid);
+  const markdown = require('./chat-export')(session);
+  const filename = String(session.title || 'Relay chat').replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/g, '').slice(0,100) || 'Relay chat';
+  const result = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender), {
+    title:'Export chat as Markdown', defaultPath:filename+'.md', filters:[{name:'Markdown',extensions:['md']}],
+  });
+  if (result.canceled || !result.filePath) return {canceled:true};
+  await fs.promises.writeFile(result.filePath, markdown, 'utf8');
+  return {canceled:false};
+});
 // per-session settings the chat header needs: title, lead (falls back to the global default), project
 ipcMain.handle('chat:info', (_e, sid) => {
   const s = store.getSession(sid), p = store.listProjects().find((x) => x.id === s.projectId);

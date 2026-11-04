@@ -20,6 +20,23 @@ npm start
 
 Build the installer: `npm run dist`. Publish a release (needs `GH_TOKEN`): `npm run release`.
 
+## Keyboard shortcuts and chat tools
+
+- `Ctrl+Shift+P`: search actions in the command palette (also available from **Actions** in the chat header).
+- `Ctrl+K`: find and switch sessions by title or project.
+- `Ctrl+F`: search the current chat and jump to a message.
+- `Ctrl+L`: focus the message composer.
+- `Ctrl+N`: create a session in the current project.
+- `/export`: save a Markdown copy of the active chat with a native Save dialog. Attachment names are included; attachment contents are not copied.
+- `/find` and `/switch`: open chat search and the session switcher.
+
+Use Command instead of Ctrl on macOS. The palette supports arrow keys, Enter, and Escape.
+
+## Contributors
+
+- [DesyncT](https://github.com/DesyncT) — project author and maintainer.
+- Codex (OpenAI) — AI-assisted implementation, debugging, and verification, directed by the maintainer.
+
 ## License
 
 MIT

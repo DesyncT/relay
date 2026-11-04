@@ -586,6 +586,7 @@
       <h2 id="chName">global</h2>
       <div class="skchips" id="skChips" aria-label="Skills in use"></div>
       <div id="quota" aria-label="Provider usage"></div>
+      <button class="b ghost" id="quickBtn" type="button" title="Command palette (Ctrl+Shift+P)" aria-haspopup="dialog">Actions</button>
       <button class="b ghost" id="subsBtn" type="button" hidden title="Show subagents"><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span id="subsBtnN"></span></button>
       <button class="b ghost danger" id="stop" hidden>Stop</button>
     </div>
@@ -679,6 +680,7 @@
 <script src="routing-ui.js"></script>
 <script src="panels.js"></script>
 <script src="skills-ui.js"></script>
+<script src="quick-actions.js"></script>
 <script>
 const finishBoot = () => { const b = document.getElementById('boot'); if (!b) return; b.classList.add('off'); setTimeout(() => b.remove(), 300); };
 const bootTimer = setTimeout(finishBoot, 8000);
@@ -1598,6 +1600,9 @@ const chead = (t) => el('div', {}, el('b', { textContent: t }));
 const sessSpend = () => { const sum = {}; for (const r of $('#log').children) { const u = r._m?.usage; if (!u) continue; const a = sum[r._m.via || r._m.from.split(':')[0]] ||= { tokens: 0, cost: 0 }; a.tokens += u.tokens; a.cost += u.cost; } return sum; };
 const sessTab = (t) => () => showTab(t);
 const CMDS = [
+  { n: 'find', d: 'Search messages in this chat', run: () => QuickActions.open('find') },
+  { n: 'export', d: 'Save this chat as Markdown', run: () => QuickActions.exportChat() },
+  { n: 'switch', d: 'Find and switch sessions', run: () => QuickActions.open('sessions') },
   { n: 'usage', d: 'Spend in this session and all time', run: async () => {
     const s = sessSpend(), ks = Object.keys(s), body = card(chead('This session'), ...(ks.length ? ks.map((k) => cline(k, `${ftok(Math.round(s[k].tokens))} chat tokens`)) : ['No spend yet']), chead('All time')), wait = el('div', { textContent: 'Scanning…' });
     body.append(wait);
@@ -2423,6 +2428,7 @@ $('#saveSettings').onclick = saveSettings;
 $('#discardSettings').onclick = () => loadSettings();
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && $('#settings').classList.contains('on')) { e.preventDefault(); if (!$('#setBar').hidden) saveSettings(); } });
 
+QuickActions.mount({sid:()=>openSid, tab:showTab, session:openSession, newSession:()=>CMDS.find(c=>c.n==='new').run()});
 (async () => {
   window._initialLogScrollPending = true;
   Panels.mount($('#chat .ch-body'), () => ({ sid: openSid }));

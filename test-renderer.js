@@ -115,6 +115,59 @@ app.whenReady().then(async () => {
   win.setSize(1280, 900);
   await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   fs.writeFileSync(path.join(output, 'assignments-desktop.png'), (await win.webContents.capturePage()).toPNG());
+  const workflow = await win.webContents.executeJavaScript(`(async () => {
+    const key = (key, extra = {}) => document.dispatchEvent(new KeyboardEvent('keydown', {key, ctrlKey:true, bubbles:true, ...extra}));
+    key('p', {shiftKey:true});
+    const dialog = document.querySelector('#quickActions');
+    const opened = dialog.open;
+    const closeKey = new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});
+    dialog.querySelector('header button').dispatchEvent(closeKey);
+    const closeKeyUntouched = !closeKey.defaultPrevented && dialog.open;
+    const input = dialog.querySelector('input');
+    input.value = 'settings'; input.dispatchEvent(new Event('input'));
+    const filtered = [...dialog.querySelectorAll('.quick-result')].map(x=>x.textContent);
+    dialog.querySelector('.quick-result').click();
+    await Promise.resolve();
+    const settings = document.querySelector('#settings').classList.contains('on');
+    showTab('chat');
+    addMsg({from:'user', text:'Unique search needle <script>literal</script>', at:Date.now()});
+    key('f'); input.value = 'Unique search needle'; input.dispatchEvent(new Event('input'));
+    const matches = dialog.querySelectorAll('.quick-result').length;
+    dialog.querySelector('.quick-result').click();
+    await Promise.resolve();
+    const highlighted = !!document.querySelector('#log .search-hit');
+    key('l'); const focused = document.activeElement.id;
+    await QuickActions.exportChat();
+    const calls = await api.call('test:calls');
+    return {opened, closeKeyUntouched, filtered, settings, matches, highlighted, focused, exported:calls.some(x=>x[0]==='chat:export' && x[1]===openSid)};
+  })()`);
+  assert.equal(workflow.opened, true, 'Command palette shortcut opens a modal');
+  assert.equal(workflow.closeKeyUntouched, true, 'Enter on Close must retain native button behavior');
+  assert.equal(workflow.filtered.length, 1, 'Palette filters commands');
+  assert.equal(workflow.settings, true, 'Palette executes navigation');
+  assert.equal(workflow.matches, 1, 'Chat search finds the requested message');
+  assert.equal(workflow.highlighted, true, 'Search selection jumps to a highlighted message');
+  assert.equal(workflow.focused, 'input', 'Focus shortcut targets the composer');
+  assert.equal(workflow.exported, true, 'Export uses the active session');
+  const switching = await win.webContents.executeJavaScript(`(async () => {
+    await QuickActions.open('sessions');
+    const dialog = document.querySelector('#quickActions'), input = dialog.querySelector('input');
+    input.value = 'Persisted recovery'; input.dispatchEvent(new Event('input'));
+    const count = dialog.querySelectorAll('.quick-result').length;
+    dialog.querySelector('.quick-result').click();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    return {count, sid:openSid, title:document.querySelector('#chName').textContent};
+  })()`);
+  assert.equal(switching.count, 1, 'Session switcher filters saved sessions by title');
+  assert.equal(switching.sid, 'persisted-assignment-recovery');
+  assert.equal(switching.title, 'Persisted recovery');
+  for (const width of [860,1280]) {
+    win.setSize(width,900);
+    await win.webContents.executeJavaScript(`QuickActions.open()`);
+    await win.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+    fs.writeFileSync(path.join(output, 'palette-'+width+'.png'), (await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript(`document.querySelector('#quickActions').close()`);
+  }
   const spin = await win.webContents.executeJavaScript(`(() => {
     renderReqs({items:[{t:'Active requirement',done:false,by:'claude',pct:40}]});
     const icon = document.querySelector('#reqbar li.now .rq-ic');
@@ -122,6 +175,18 @@ app.whenReady().then(async () => {
   })()`);
   if (spin.reduced) assert.equal(spin.name, 'none');
   else assert.equal(spin.name, 'rqSpin', 'Active requirement icons must keep spinning when motion is enabled');
+  const fallbackSpin = await win.webContents.executeJavaScript(`(() => {
+    renderReqs({items:[{t:'Waiting for worker',done:false}]});
+    document.querySelector('#reqbar').classList.add('working');
+    const icon = document.querySelector('#reqbar li.next .rq-ic');
+    const result = {border:getComputedStyle(icon).borderTopColor, animation:getComputedStyle(icon).animationName,
+      ring:getComputedStyle(icon, '::after').animationName};
+    document.querySelector('#reqbar').classList.remove('working');
+    return result;
+  })()`);
+  assert.equal(fallbackSpin.border, 'rgba(0, 0, 0, 0)', 'Fallback loader must not show a stationary ring beneath its spinner');
+  assert.equal(fallbackSpin.animation, 'none', 'Only the outer loader ring should rotate');
+  assert.equal(fallbackSpin.ring, spin.reduced ? 'none' : 'rqSpin');
   const heatmap = await win.webContents.executeJavaScript(`(() => {
     const usage = document.querySelector('#usage');
     document.querySelector('#chat').classList.remove('on'); usage.classList.add('on');
