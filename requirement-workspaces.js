@@ -111,7 +111,21 @@ function collectTaskChanges(workspace) {
   const namesArgs = ['diff', '--cached', '--name-only', '-z', baseline, '--'];
   if (scope.length) namesArgs.push(...scope);
   const paths = runGit(workspace.path, namesArgs).toString('utf8').split('\0').filter(Boolean).sort();
-  return { paths, patch, baselineCommit: baseline, baselineRef: workspace.baselineRef, assignmentId: workspace.assignmentId, requirementIndex: workspace.requirementIndex };
+  return { paths, patch, scope: [...scope], baselineCommit: baseline, baselineRef: workspace.baselineRef, assignmentId: workspace.assignmentId, requirementIndex: workspace.requirementIndex };
+}
+
+function readPatchPaths(cwd, patch) {
+  const output = runGit(cwd, ['apply', '--numstat', '-z', '--binary', '-'], patch);
+  const records = output.toString('utf8').split('\0');
+  const paths = [];
+  for (const record of records) {
+    if (!record) continue;
+    const firstTab = record.indexOf('\t');
+    const secondTab = record.indexOf('\t', firstTab + 1);
+    if (firstTab < 0 || secondTab < 0 || secondTab === record.length - 1) throw new Error('Patch contains unsupported or ambiguous path metadata');
+    paths.push(record.slice(secondTab + 1));
+  }
+  return [...new Set(paths)].sort();
 }
 
 function applyTaskChanges(projectPath, changes) {
@@ -125,6 +139,14 @@ function applyTaskChanges(projectPath, changes) {
   try {
     const candidate = path.join(temp, 'candidate'); fs.mkdirSync(candidate);
     copyProjectSnapshot(project, candidate);
+    const actualPaths = readPatchPaths(candidate, patch);
+    const declared = new Set(paths);
+    const scope = normalizeOwnedPaths(changes.scope);
+    const outsideDeclared = actualPaths.filter(p => !declared.has(p));
+    const outsideScope = scope.length ? actualPaths.filter(p => !scope.includes(p)) : [];
+    if (outsideDeclared.length || outsideScope.length) {
+      return [{ paths: [...new Set([...outsideDeclared, ...outsideScope])], error: 'Patch paths exceed the reviewed or assigned scope' }];
+    }
     runGit(candidate, ['apply', '--binary', '--whitespace=nowarn', '-'], patch);
   } catch (error) {
     return [{ paths, error: error.stderr ? error.stderr.toString('utf8') : error.message }];

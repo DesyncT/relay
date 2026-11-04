@@ -86,6 +86,24 @@ try {
     cleanupTaskWorkspaces(result);
   }
 
+  // A patch cannot smuggle an unrelated file by claiming only an allowed path.
+  {
+    const project = repo('scope-smuggling');
+    const result = createTaskWorkspaces(project, 'scope-session', [{ id: 'scoped', requirementIndex: 0, files: ['tracked.txt'] }]);
+    const task = result.tasks[0];
+    fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'allowed worker change\n');
+    fs.writeFileSync(path.join(task.path, 'nested', 'owned.txt'), 'unrelated worker change\n');
+    task.files = []; // Forge a patch broader than the assignment, as a compromised worker could.
+    const changes = collectTaskChanges(task);
+    changes.paths = ['tracked.txt'];
+    changes.scope = ['tracked.txt'];
+    const conflicts = applyTaskChanges(project, changes);
+    assert.ok(conflicts.length, 'mismatched patch scope must conflict');
+    assert.equal(read(project, 'tracked.txt'), 'base\n');
+    assert.equal(read(project, 'nested/owned.txt'), 'owned base\n');
+    cleanupTaskWorkspaces(result);
+  }
+
   // Non-Git projects safely fall back to shared mode; cleanup refuses paths outside owned roots.
   {
     const project = path.join(tempRoot, 'plain'); fs.mkdirSync(project); fs.writeFileSync(path.join(project, 'file.txt'), 'keep');
