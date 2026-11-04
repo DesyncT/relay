@@ -52,6 +52,14 @@ app.whenReady().then(async () => {
   calls = await win.webContents.executeJavaScript(`api.call('test:calls')`);
   assert.equal(calls.filter(c => c[0] === 'chat:send').at(-1)[2], 'SMS notifications');
   assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.opts').length`), 1);
+  const checklist = await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('#reqbar');
+    renderReqs({items:[{t:'First requirement',done:false}]}); box.open = true;
+    renderReqs({items:[]}); const hidden = box.hidden && box.children.length === 0;
+    renderReqs({items:[{t:'Next requirement',done:false}]});
+    return {hidden, visible:!box.hidden, expanded:box.open};
+  })()`);
+  assert.deepEqual(checklist, {hidden:true, visible:true, expanded:true});
   const observation = await win.webContents.executeJavaScript(`(async () => {
     const root = document.createElement('div'); root.style.cssText = 'height:100px;overflow:auto';
     const row = document.createElement('div');

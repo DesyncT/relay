@@ -1550,8 +1550,9 @@ function renderTyping() {
 // Requirements checklist progress (main.js reqs): bar + count, click to see the list
 function renderReqs(r) {
   const box = $('#reqbar'), items = r?.items || [];
-  box.hidden = !r || (!!r.idle && !items.length); box.classList.toggle('has', items.length > 0); // shine only while requirements are being written
-  if (!r) return box.replaceChildren();
+  box.hidden = !items.length; box.classList.toggle('has', items.length > 0);
+  // Keep the expanded state so a temporarily empty checklist reappears as before.
+  if (!items.length) return box.replaceChildren();
   // the bar counts partial progress of requirements an agent is on ([req-now: 3 60%]), the label counts finished ones
   const done = items.filter((i) => i.done).length, part = (i) => i.done ? 100 : i.by ? i.pct || 0 : 0;
   const pct = items.length ? Math.round(items.reduce((s, i) => s + part(i), 0) / items.length) : 0;
