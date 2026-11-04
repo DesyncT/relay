@@ -16,9 +16,13 @@ function createAssignments(items, plan, routes, availableProviders) {
   const providers = providerSet(availableProviders);
   const actionable = (Array.isArray(items) ? items : []).map((item, index) => ({ item, index })).filter(x => ACTIONABLE(x.item));
   const candidates = Array.isArray(plan) ? plan : [];
+  const actionableIndices = new Set(actionable.map(x => x.index));
   const byIndex = new Map();
   for (const entry of candidates) {
-    const index = entry && Number.isInteger(entry.requirementIndex) ? entry.requirementIndex : -1;
+    if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.requirementIndex) || !actionableIndices.has(entry.requirementIndex)) {
+      throw new Error('Invalid plan entry: requirement index must map to an actionable requirement');
+    }
+    const index = entry.requirementIndex;
     const bucket = byIndex.get(index) || [];
     bucket.push(entry);
     byIndex.set(index, bucket);
