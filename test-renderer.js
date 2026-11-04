@@ -200,7 +200,8 @@ app.whenReady().then(async () => {
     clearTimeout(draftTimer);
     return {short,tall,reset,slash};
   })()`);
-  assert.equal(sizing.tall, sizing.short, 'Typing additional lines must not resize the transcript');
+  assert.ok(sizing.tall > sizing.short, 'The composer must grow with additional lines');
+  assert.ok(sizing.tall <= 240, 'The composer must stop growing at its height limit');
   assert.equal(sizing.reset, sizing.short);
   assert.equal(sizing.slash, true, 'Slash commands still work with the lightweight input handler');
   const stableSpend = await win.webContents.executeJavaScript(`(() => {
