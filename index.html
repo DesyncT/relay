@@ -1543,7 +1543,7 @@ function renderReqs(r) {
   // the bar counts partial progress of requirements an agent is on ([req-now: 3 60%]), the label counts finished ones
   const done = items.filter((i) => i.done).length, part = (i) => i.done ? 100 : i.by ? i.pct || 0 : 0;
   const pct = items.length ? Math.round(items.reduce((s, i) => s + part(i), 0) / items.length) : 0;
-  const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements · written with your next request' : `Writing ${r.target ? r.target + ' ' : ''}requirements…`;
+  const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements · written with your next request' : `Waiting for ${r.target ? r.target + ' ' : ''}requirements…`;
   const who = (i) => el('span', { className: 'rq-who' }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), el('span', { className: 'rq-mini' }, el('i', { style: `width:${i.pct || 0}%` })), el('span', { className: 'mono', textContent: `${i.pct || 0}%` }));
   const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
   // one line: Requirements · 93% (accent) · bar · 1 of 3 done · @claude #1 — full texts live in the dropdown and tooltips

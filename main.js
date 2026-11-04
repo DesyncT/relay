@@ -402,7 +402,8 @@ function promptFor(sid, who, note, stand) {
   const firstAfter = sess.doneAt && messages.filter((m) => m.from === 'user').length <= 1;
   const resumed = !supercodeOn(sid) && sess.cli?.[who];
   const past = (!resumed || firstAfter) && pastNote(sess);
-  const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, reqNote(sid, who)].filter(Boolean).join('\n\n');
+  const checklistGate = `Requirements: first, write 1 to 3 concrete, checkable requirements for this task, each on its own [req: ...] line. Do not inspect or edit files until those lines are written. Then continue the task.`;
+  const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, reqNote(sid, who), !reqsOf(sid)?.items?.length && checklistGate].filter(Boolean).join('\n\n');
   // Resumed CLI session: it already has the whole conversation, so send just what's new, exactly like typing in the terminal
   if (resumed) {
     const lastUser = messages.findLastIndex((m) => m.from === 'user');
@@ -476,7 +477,20 @@ async function ask(sid, who, trigger, isLead) {
   try {
     const notes = [lockEdits && `Tracker: you may not edit files yet because @${mate} hasn't weighed in. Read what you need, then post your plan in chat with who does what (@${mate}: X, me: Y) and end with [pass @${mate}].`,
       rt.forgot?.[who] && `Tracker: your last message did not @mention @${mate}. Start this one with "@${mate}".`].filter(Boolean).join('\n');
-    r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, notes, s), trigger, { lead: isLead, tag, ...(lockEdits && { readonly: true }) }); rd = r.rd; prov = r.prov; usage = r.usage;
+    const writingChecklist = !reqsOf(sid)?.items?.length;
+    r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, notes, s), trigger, { lead: isLead, tag, ...((lockEdits || writingChecklist) && { readonly: true }) }); rd = r.rd; prov = r.prov; usage = r.usage;
+    if (writingChecklist) {
+      let requirements = applyReqTags(sid, r.text, who);
+      if (!reqsOf(sid)?.items?.length) {
+        const retry = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'Your previous response did not write any [req: ...] lines. Write 1 to 3 concrete, checkable requirements now, one per line, before doing anything else.', s), trigger, { lead: isLead, tag, readonly: true });
+        usage = addUsage(usage, retry.usage); r = retry; rd = r.rd; prov = r.prov;
+        requirements = applyReqTags(sid, r.text, who);
+      }
+      if (!reqsOf(sid)?.items?.length) throw new Error('Could not start this task: the agent did not write requirements. Send the request again to retry.');
+      const checklist = post(sid, who, requirements.trim() || reqsOf(sid).items.map((i) => `[req: ${i.t}]`).join('\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
+      r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'The requirements are now written and shown in the chat. Continue the user task, satisfying them.', s), checklist, { lead: isLead, tag, ...(lockEdits && { readonly: true }) });
+      rd = r.rd; prov = r.prov; usage = addUsage(usage, r.usage);
+    }
     if (supercodeOn(sid) && /\[escalate\]/i.test(r.text) && !rt.escalations) {
       rt.escalations = 1;
       const stronger = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'The inexpensive agent needs help with this blocker: ' + r.text.replace(/\[escalate\]/gi, '').slice(-3000) + '\nResolve it and complete the task. This is the only stronger-model call available for this user request.', s), trigger, { escalate: true, lead: isLead });
