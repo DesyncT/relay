@@ -408,9 +408,9 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 
 /* requirements list: numbered rows, status on the first text line, quoted targets as code */
 #reqbar ol { list-style:none; margin:8px 0 4px; padding:4px; max-height:320px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
-#reqbar li { display:grid; grid-template-columns:20px 16px minmax(0,1fr); column-gap:8px; align-items:start; padding:8px; border-radius:8px; }
-#reqbar li + li { box-shadow:inset 0 1px 0 var(--line); }
-#reqbar li.now { background:var(--raised); box-shadow:none; } #reqbar li.now + li { box-shadow:none; }
+#reqbar li { display:grid; grid-template-columns:20px 16px minmax(0,1fr); column-gap:8px; align-items:start; padding:8px; border-top:1px solid var(--line); }
+#reqbar li:first-child { border-top-color:transparent; }
+#reqbar li.now { background:var(--raised); }
 #reqbar .rq-n { color:var(--muted); font:12px/20px var(--mono); font-variant-numeric:tabular-nums; text-align:right; }
 #reqbar li .rq-ic { display:grid; place-items:center; width:14px; height:14px; margin:3px 0 0; border:1.5px solid var(--line-strong); border-radius:50%; opacity:1; }
 #reqbar li.done .rq-ic { border:0; background:color-mix(in srgb, var(--claude) 18%, transparent); color:var(--claude); }
@@ -427,3 +427,7 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 #reqbar .rq-ic svg[aria-hidden] { display:block; }
 #reqbar .rq-wait { flex:1 1 100%; color:var(--muted); }
 @media (prefers-reduced-motion: reduce) { #reqbar li .rq-ic::after { animation:none; } }
+#reqbar .rq-plan { display:inline-flex; align-items:center; gap:8px; color:var(--text-2); }
+#reqbar .rq-plan .rq-ic { position:relative; display:grid; place-items:center; width:16px; height:16px; }
+#reqbar .rq-plan .rq-ic::after { content:''; position:absolute; inset:-1.5px; border:1.5px solid var(--line-strong); border-top-color:var(--claude); border-radius:50%; animation:rqSpin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { #reqbar .rq-plan .rq-ic::after { animation:none; } }

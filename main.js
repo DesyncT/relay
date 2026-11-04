@@ -415,12 +415,14 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
   } else {
     const planPrompt = `Plan parallel implementation tasks for this completed checklist. Return ONLY a JSON array. Each entry has requirementIndex (zero-based checklist index), task (concrete worker instruction), provider (one of ${available.join(', ')}), model, effort, and files (exact repository-relative paths owned by this task). Assign exactly one entry per actionable requirement; skip items marked done:true. Assign disjoint paths when possible; do not invent paths or include preservation-only constraints. Checklist: ${JSON.stringify(checklist)}`;
     let plan = [];
+    setReqs(sid, { ...reqsOf(sid), planning: owner }); // the checklist shows "splitting into tasks" until assignments exist
     try {
       const planned = await seatRun(sid, owner, 'coding', () => planPrompt, trigger, { quiet: true, requirementsOnly: true });
       const raw = planned.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) plan = parsed;
     } catch {}
+    if (reqsOf(sid)?.planning) { const { planning, ...rest } = reqsOf(sid); setReqs(sid, rest); }
     if (epoch !== rt.epoch) return null;
     // finished items (a continued checklist) get no task; a plan entry for one is dropped instead of failing the whole run
     const open = checklist.map((item) => item.done ? { ...item, actionable: false } : item);

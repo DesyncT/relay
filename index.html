@@ -821,12 +821,12 @@ async function refreshQuota() {
     const short = (w) => w.minutes === 10080 ? 'week' : w.minutes === 1440 ? 'day' : w.minutes === 300 ? '5h' : `${w.minutes}m`;
     const parts = !s || !ws.length ? [g('–', s ? 'not reported' : 'no data')]
       : est ? [g(ftok(ws[0].tokens || 0), 'tokens in 5h')]
-      : ws.map((w) => g(pctOf(w) + '%', short(w), lvl(pctOf(w))));
+      : ws.map((w) => g(Math.max(0, 100 - pctOf(w)) + '%', short(w) + ' left', lvl(pctOf(w))));
     const hot = est ? null : ws.filter((w) => w.reset).sort((a, b) => pctOf(b) - pctOf(a))[0];
     if (hot && pctOf(hot) >= 50) parts.push(el('span', { className: 'q-l q-r', textContent: hot.reset > Date.now() ? 'resets in ' + (hot.reset - Date.now() >= 1728e5 ? Math.round((hot.reset - Date.now()) / 864e5) + 'd' : fmtLeft(hot.reset - Date.now())) : 'resetting' }));
     const when = (t) => new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
     const old = s && (s.stale || (provider === 'codex' && Date.now() - s.at > 900000));
-    const tip = [name, ...(!s ? ['No usage data yet'] : est ? ['Anthropic did not report usage, so this counts tokens in your local logs over the last 5 hours. Subscription limits are not published, so there is no percentage'] : ws.map((w) => `${short(w) === 'week' ? 'Weekly' : short(w)} window: ${pctOf(w)}% used${w.reset ? ', resets ' + when(w.reset) : ''}`)),
+    const tip = [name, ...(!s ? ['No usage data yet'] : est ? ['Anthropic did not report usage, so this counts tokens in your local logs over the last 5 hours. Subscription limits are not published, so there is no percentage'] : ws.map((w) => `${short(w) === 'week' ? 'Weekly' : short(w)} window: ${Math.max(0, 100 - pctOf(w))}% left (${pctOf(w)}% used)${w.reset ? ', resets ' + when(w.reset) : ''}`)),
       ...(s && old ? [`Last reported ${fmtLeft(Date.now() - s.at)} ago${provider === 'codex' ? ' (updates when Codex runs)' : ''}`] : [])].join('\n');
     const pill = el('span', { tabIndex: 0, title: tip, ariaLabel: tip, className: old ? 'stale' : '', innerHTML: icon }, ...parts);
     return pill;
@@ -1701,7 +1701,9 @@ function renderReqs(r) {
     ? [el('span', { className: 'rq-lbl', textContent: 'Requirements' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
        el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` })),
        el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done` }),
-       ...now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`))]
+       ...(r.planning && !(r.assignments || []).length
+         ? [el('span', { className: 'rq-now rq-plan', title: `${r.planning} is splitting the checklist into tasks that can run at the same time` }, el('span', { className: 'rq-ic', innerHTML: logo(r.planning === 'claude' ? 'claude' : r.planning === 'antigravity' ? 'antigravity' : 'openai', 10, r.planning === 'claude' ? '#D97757' : r.planning === 'antigravity' ? '#4E88F5' : '#fff') }), 'Splitting into parallel tasks')]
+         : now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`)))]
     : [el('span', { textContent: label }), el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` }))];
   const sum = el('summary', { title: items.length ? 'Show all requirements' : '' }, ...(items.length ? [el('span', { className: 'rq-car', innerHTML: CARET })] : []), ...head);
   sum.setAttribute('aria-label', label);
@@ -1728,7 +1730,7 @@ function renderReqs(r) {
     const ic = i.done ? svgI('<path d="M20 6 9 17l-5-5"/>') : live && worker ? logo(worker === 'claude' ? 'claude' : worker === 'antigravity' ? 'antigravity' : 'openai', 10, worker === 'claude' ? '#D97757' : worker === 'antigravity' ? '#4E88F5' : '#fff') : '';
     // a queued task waits because it edits the same files as a running one; say which
     const blocker = a?.status === 'queued' && (r.assignments || []).find((b) => b !== a && (b.status === 'running' || b.status === 'reviewing') && (b.files || []).some((f) => (a.files || []).some((g) => pathsOverlapUi(f, g))));
-    return el('li', { className: i.done ? 'done' : live ? 'now' : n === next ? 'next' : '' },
+    return el('li', { className: i.done ? 'done' : live ? 'now' : n === next && !r.planning ? 'next' : '' },
       el('span', { className:'rq-n', textContent:String(n + 1).padStart(2, '0') }),
       el('span', { className:'rq-ic', innerHTML:ic, title: live && worker ? `${worker} is working on this` : '' }),
       el('span', { className:'rq-content' }, title, ...(!i.done && i.by && !a ? [who(i)] : []),
