@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+// the defaults of main.js LIMITS
+const limit = (k) => ({ maxRequirements: 10, parallelTasks: 0, discoveryQuestions: 5, reviewRounds: 4, soloMinutes: 4, voterTimeoutSec: 60, debateRounds: 1, autoAnswers: 1, subagents: 3, relayRestarts: 3 })[k];
 const fs = require('node:fs');
 const vm = require('node:vm');
 
@@ -16,7 +18,7 @@ function dispatchTaggedRequest() {
     store: { getSession: () => ({ lead: 'claude' }) }, RT: () => rt,
     post: (_, from, text) => { const m = { from, text, at: 2 }; messages.push(m); return m; },
     reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; },
-    REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => false, isConversation: require('./turn').isConversation,
+    limit, REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => false, isConversation: require('./turn').isConversation,
     onUserText: () => {}, AGENT_NAMES: ['claude', 'codex'], enqueue: () => {},
   });
   assert.equal(reqs.items.length, 0, 'User tags must not populate the agent checklist');
@@ -30,7 +32,7 @@ let cases = 0;
 // Round 1 asks the user questions, round 2 (the turn after an agent question) writes the list
 function gateFor(messages, reqs = { items: [] }, writeNow) {
   cases += 1;
-  return vm.runInNewContext(`${askGate}; checklistGate`, { sid: 'test', messages, sess: { messages }, reqsOf: () => reqs, writeNow, answeredQuestions: require('./turn').answeredQuestions });
+  return vm.runInNewContext(`${askGate}; checklistGate`, { limit, sid: 'test', messages, sess: { messages }, reqsOf: () => reqs, writeNow, answeredQuestions: require('./turn').answeredQuestions });
 }
 
 async function check(responses, fails = false, initial = { items: [] }) {
@@ -39,7 +41,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
   const prose = String(responses[0].text ?? responses[0]).includes('Here is the plan.');
   const events = [];
   const context = {
-    answeredQuestions:()=>5, sid: 'test', who: 'claude', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
+    limit, answeredQuestions:()=>5, sid: 'test', who: 'claude', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
     supercodeOn:() => false,
     msgs: () => [{ from: 'user', text: 'Fix the new request', at: 2 }], WRAP: /^wrap up$/i,
     reqsOf: () => reqs,
@@ -74,7 +76,7 @@ async function asks(responses, initial, count = 5) {
   cases += 1;
   let reqs = initial, runs = 0, expectedRuns = responses.length;
   await vm.runInNewContext(`${parser}\n(async () => { let r, rd, prov, usage; ${gate} })()`, {
-    answeredQuestions:()=>count, sid: 'test', who: 'codex', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false, supercodeOn:() => false,
+    limit, answeredQuestions:()=>count, sid: 'test', who: 'codex', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false, supercodeOn:() => false,
     msgs: () => [{ from: 'user', text: 'wrap up', at: 2 }], WRAP: /^wrap up$/i,
     reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; }, promptFor: () => '', addUsage: () => null,
     post: () => assert.fail('nothing should be posted'),
@@ -118,19 +120,19 @@ async function asks(responses, initial, count = 5) {
   const prompt = source.slice(source.indexOf('function promptFor('), source.indexOf('\nfunction post('));
   const fullBrief = vm.runInNewContext(`${prompt}; promptFor('test','claude','',false)`, {
     RT: () => ({}), store:{getSession:()=>({messages:[{from:'user',text:original,at:1},{from:'claude',text:'Which URL?',askUser:true,at:2},{from:'user',text:'Use the existing URL',at:3}]})},
-    answeredQuestions:require('./turn').answeredQuestions, supercodeOn:()=>true, pastNote:()=>'', reqNote:()=>'', reqsOf:()=>({items:[]}), forcedLine:()=>'', ACCESS_NOTE:'Full access',
+    limit, answeredQuestions:require('./turn').answeredQuestions, supercodeOn:()=>true, pastNote:()=>'', reqNote:()=>'', reqsOf:()=>({items:[]}), forcedLine:()=>'', ACCESS_NOTE:'Full access',
   });
   assert.ok(fullBrief.includes(original), 'Preserve the entire original task even when it exceeds the recent-message truncation limit');
   assert.ok(fullBrief.includes('Use the existing URL'));
   assert.match(fullBrief, /end-to-end flows/);
-  assert.match(fullBrief, /at least five substantive product questions/);
+  assert.match(fullBrief, /at least 5 substantive product questions/);
   let detailed = {items:[]};
   const longRequirement = 'Preserve the complete acceptance criterion: ' + 'specific behavior '.repeat(20);
   vm.runInNewContext(`${parser}; applyReqTags('test', tags, 'claude')`, {
-    reqsOf:()=>detailed, setReqs:(_sid,r)=>{detailed=r;},
+    limit, reqsOf:()=>detailed, setReqs:(_sid,r)=>{detailed=r;},
     tags:Array.from({length:35},(_,i)=>`[req: Workflow ${i}: ${longRequirement}]`).join('\n'),
   });
-  assert.equal(detailed.items.length,35, 'Do not silently discard requirements beyond 30');
+  assert.equal(detailed.items.length,10, 'The checklist stops at the Max requirements setting (default 10)');
   assert.ok(detailed.items[0].t.endsWith(longRequirement.trimEnd()), 'Do not truncate acceptance criteria at 200 characters');
   console.log(`Requirement gate: ${cases} cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

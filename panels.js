@@ -259,6 +259,8 @@
       api.on('panel:open-url', (d) => { if (d?.sid !== sid() || !/^https?:\/\//i.test(d.url)) return; if (mode !== 'browser') show('browser'); modes.browser.go(d.url); });
       api.on('panel:show', (d) => { if (d?.sid !== sid() || !modes[d.mode]) return; if (mode === d.mode) modes[d.mode].show?.(); else show(d.mode); });
     },
+    // hand the right-side dock back (the Subagents column opens in its place)
+    close() { if (mode) hide(); },
     // call when the open session changes
     refresh() { if (mode && mode !== 'viewer') modes[mode].show?.(); },
     async open(p) {

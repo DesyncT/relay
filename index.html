@@ -173,6 +173,24 @@
   .sr-stop:hover { color:var(--negative); background:var(--raised); } .sr-stop:focus-visible { outline:2px solid var(--claude); }
   .sr-x { padding:0 8px 8px 32px; color:var(--text-2); font-size:12px; line-height:16px; }
   .sr-x p { margin:0 0 8px; white-space:pre-wrap; overflow-wrap:anywhere; } .sr-x p:last-child { margin:0; }
+  .sb-h { align-items:center; gap:8px; height:48px; padding:0 8px 0 16px; } .sb-h b { flex:1; }
+  .sb-x { all:unset; flex:none; display:grid; place-items:center; width:28px; height:28px; border-radius:8px; color:var(--muted); cursor:pointer; transition:background-color .15s var(--ease), color .15s var(--ease); }
+  .sb-x:hover { color:var(--text); background:var(--raised); } .sb-x:focus-visible { outline:2px solid var(--claude); outline-offset:-2px; }
+  .sb-x .i, .sr-chev .i { width:16px; height:16px; }
+  .sr-hd { display:flex; align-items:flex-start; gap:4px; padding-right:4px; }
+  .sr-top { flex:1; min-width:0; }
+  .sr-ic { flex:none; display:inline-flex; width:16px; }
+  .sr-chev { flex:none; display:inline-flex; color:var(--muted); transition:transform .15s var(--ease); } .sr.open .sr-chev { transform:rotate(90deg); }
+  .sr-stop { margin:6px 0 0; }
+  .sr-x .muted { color:var(--muted); }
+  .sr-files { display:flex; flex-direction:column; margin:0 0 8px; }
+  .sr-files button { all:unset; box-sizing:border-box; display:block; max-width:100%; padding:2px 0; color:var(--text-2); font:12px/16px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; transition:color .15s var(--ease); }
+  .sr-files button:hover { color:var(--text); } .sr-files button:focus-visible { outline:2px solid var(--claude); border-radius:4px; }
+  .sr-acts { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+  .sr-a { all:unset; box-sizing:border-box; height:24px; padding:0 8px; border:1px solid var(--line); border-radius:6px; color:var(--text-2); font-size:12px; line-height:22px; cursor:pointer; transition:background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease); }
+  .sr-a:hover { color:var(--text); border-color:var(--line-strong); background:var(--raised); } .sr-a:focus-visible { outline:2px solid var(--claude); outline-offset:1px; } .sr-a:disabled { opacity:.6; cursor:default; }
+  .msg.sr-hl { background:var(--raised); transition:background-color .6s var(--ease); }
+  #subsBtn { flex:none; height:28px; padding:0 8px; margin-right:8px; gap:6px; font-size:12px; color:var(--text-2); } #subsBtn .i { width:16px; height:16px; }
   .sr-x small { display:block; margin-bottom:2px; color:var(--muted); font-size:12px; }
   #sbMore { all:unset; display:block; margin:4px 0 0; padding:6px 8px; color:var(--muted); font-size:12px; cursor:pointer; border-radius:6px; } #sbMore:hover { color:var(--text); } #sbMore:focus-visible { outline:2px solid var(--claude); }
   @media (prefers-reduced-motion: reduce) { .sr-live { animation:none; } }
@@ -451,6 +469,74 @@
   .rule-head label .dot:only-of-type { margin-right:16px; }
   .rule-head p { margin:4px 0 0; color:var(--muted); font:12px/16px var(--mono); word-break:break-all; }
   .saved { color:var(--muted); font-size:13px; margin-left:8px; }
+  /* settings */
+  #settings [hidden] { display:none !important; }
+  #settings .page-head { align-items:flex-end; }
+  .set-tools { display:flex; align-items:center; gap:12px; }
+  #setSearch { width:240px; height:36px; padding:0 12px; }
+  .set-wrap { display:grid; grid-template-columns:176px minmax(0,1fr); gap:32px; align-items:start; }
+  .set-nav { position:sticky; top:0; display:flex; flex-direction:column; gap:2px; }
+  .set-nav button { all:unset; box-sizing:border-box; height:32px; padding:0 12px; border-radius:8px; color:var(--text-2); font-size:13px; line-height:32px; cursor:pointer; transition:background-color .15s var(--ease), color .15s var(--ease); }
+  .set-nav button:hover { color:var(--text); background:var(--card); }
+  .set-nav button.on { color:var(--text); background:var(--raised); box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+  .set-nav button:focus-visible { outline:2px solid var(--claude); outline-offset:-2px; }
+  .set-main { min-width:0; max-width:920px; display:flex; flex-direction:column; gap:24px; padding-bottom:32px; }
+  #settingsForm { display:flex; flex-direction:column; gap:24px; }
+  #set-profile:empty { display:none; }
+  #set-profile, .set-sec { scroll-margin-top:24px; }
+  .set-sec { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
+  .set-sh { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:8px; }
+  .set-sh h3 { margin:0; font-size:15px; line-height:24px; font-weight:500; }
+  .set-sh p { margin:2px 0 0; color:var(--muted); font-size:13px; line-height:20px; }
+  .set-row { display:grid; grid-template-columns:minmax(0,224px) minmax(0,1fr); gap:24px; padding:16px 0; border-top:1px solid var(--line); }
+  .set-sh + .set-row { border-top:0; }
+  .set-row:last-child { padding-bottom:0; }
+  .set-lb { display:block; margin:0; color:var(--text); font-size:13px; line-height:20px; }
+  .set-l .hint { margin-top:2px; line-height:16px; }
+  .set-c { min-width:0; }
+  .mono-in { font:400 13px/20px var(--mono); font-variant-ligatures:none; }
+  .set-inline { display:flex; gap:8px; } .set-inline input { flex:1; min-width:0; }
+  .set-provs { display:flex; flex-wrap:wrap; gap:8px; }
+  .set-prov { display:inline-flex; align-items:center; gap:12px; height:36px; padding:0 8px 0 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); font-size:13px; }
+  .set-prov-l { display:inline-flex; align-items:center; gap:8px; margin:0; color:var(--text); cursor:pointer; }
+  .set-prov-l input { width:16px; height:16px; margin:0; accent-color:var(--claude); cursor:pointer; }
+  .set-ic { display:inline-flex; align-items:center; }
+  .set-cli { display:grid; grid-template-columns:132px minmax(0,176px) minmax(0,1fr); gap:8px 12px; align-items:center; }
+  .set-cli-h { color:var(--muted); font-size:12px; line-height:16px; }
+  .set-cli-n { display:flex; align-items:center; gap:8px; color:var(--text); font-size:13px; }
+  .set-modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .set-mode { position:relative; display:flex; flex-direction:column; gap:4px; margin:0; padding:12px 16px; border:1px solid var(--line); border-radius:12px; background:var(--bg); cursor:pointer; transition:border-color .15s var(--ease), background-color .15s var(--ease); }
+  .set-mode:hover { border-color:var(--line-strong); }
+  .set-mode input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+  .set-mode b { color:var(--text); font-size:13px; line-height:20px; font-weight:500; }
+  .set-mode span { color:var(--muted); font-size:12px; line-height:16px; }
+  .set-mode:has(input:checked) { border-color:var(--claude); background:var(--raised); }
+  .set-mode:has(input:focus-visible) { outline:2px solid var(--claude); outline-offset:2px; }
+  .lim-group { margin-top:16px; } .set-sh + .lim-group { margin-top:8px; }
+  .lim-group h4 { margin:0 0 8px; color:var(--text-2); font-size:13px; line-height:20px; font-weight:500; }
+  .lim-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(256px,1fr)); gap:8px; }
+  .lim { display:flex; flex-direction:column; gap:4px; padding:12px 16px; border:1px solid var(--line); border-radius:12px; background:var(--bg); transition:border-color .15s var(--ease); }
+  .lim.changed { border-color:var(--line-strong); }
+  .lim-h { display:flex; align-items:center; gap:8px; min-height:24px; }
+  .lim-h label { flex:1; min-width:0; margin:0; color:var(--text); font-size:13px; line-height:20px; }
+  .lim-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--claude); visibility:hidden; } .lim.changed .lim-dot { visibility:visible; }
+  .lim-reset { all:unset; flex:none; height:24px; padding:0 8px; border-radius:6px; color:var(--muted); font-size:12px; line-height:24px; cursor:pointer; transition:background-color .15s var(--ease), color .15s var(--ease); }
+  .lim-reset:hover { color:var(--text); background:var(--raised); } .lim-reset:focus-visible { outline:2px solid var(--claude); }
+  .lim .hint { margin:0 0 8px; min-height:32px; line-height:16px; }
+  .lim-ctl { display:flex; align-items:center; gap:4px; margin-top:auto; }
+  .lim-step { all:unset; box-sizing:border-box; display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--line); border-radius:8px; background:var(--raised); color:var(--text-2); cursor:pointer; transition:background-color .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease); }
+  .lim-step:hover { color:var(--text); border-color:var(--line-strong); } .lim-step:active { transform:scale(.96); } .lim-step:focus-visible { outline:2px solid var(--claude); outline-offset:1px; }
+  .lim-step .i { width:14px; height:14px; }
+  .lim-in { width:56px; height:32px; padding:0 4px; text-align:center; font:400 13px/20px var(--mono); font-variant-numeric:tabular-nums; appearance:textfield; }
+  .lim-in::-webkit-inner-spin-button, .lim-in::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+  .lim-in:invalid { border-color:var(--negative); }
+  .lim-def { margin-left:auto; color:var(--muted); font:12px/16px var(--mono); font-variant-numeric:tabular-nums; }
+  .set-empty { padding:48px 0; color:var(--muted); text-align:center; }
+  .set-bar { position:sticky; bottom:16px; z-index:5; display:flex; align-items:center; gap:8px; align-self:flex-end; padding:8px 8px 8px 16px; background:var(--raised); border:1px solid var(--line-strong); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.35); }
+  .set-bar > span { margin-right:8px; color:var(--text-2); font-size:13px; }
+  .kc { margin-left:8px; padding:0 4px; border:1px solid currentColor; border-radius:4px; font:11px/16px var(--mono); opacity:.55; }
+  @media (max-width:960px) { .set-wrap { grid-template-columns:1fr; } .set-nav { display:none; } .set-row { grid-template-columns:1fr; gap:8px; } .set-modes { grid-template-columns:1fr; } #setSearch { width:180px; } }
+  @media (max-width:720px) { .set-cli { grid-template-columns:1fr; } .set-cli-h { display:none; } }
   #boot { position:fixed; inset:0; z-index:99; background:#000; display:flex; align-items:center; justify-content:center; gap:12px; color:#85858b; transition:opacity .2s; }
   #boot.off { opacity:0; pointer-events:none; }
   #boot img { width:56px; height:56px; animation:bootp 1.4s ease-in-out infinite; }
@@ -480,6 +566,7 @@
       <h2 id="chName">global</h2>
       <div id="quota" aria-label="Provider usage remaining"><span>Codex · loading</span><span>Claude · loading</span><span>Antigravity · loading</span></div>
       <div class="skchips" id="skChips" aria-label="Skills in use"></div>
+      <button class="b ghost" id="subsBtn" type="button" hidden title="Show subagents"><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span id="subsBtnN"></span></button>
       <button class="b ghost danger" id="stop" hidden>Stop</button>
     </div>
     <div id="limits" role="status" hidden></div>
@@ -514,7 +601,7 @@
       <input type="file" id="fAny" multiple><input type="file" id="fImg" accept="image/*" multiple>
     </div>
     </div>
-    <aside id="subs" hidden aria-label="Subagents"><div class="sb-h"><b>Subagents</b><span id="sbN"></span></div><div id="sbList"></div></aside>
+    <aside id="subs" hidden aria-label="Subagents"><div class="sb-h"><b>Subagents</b><span id="sbN"></span><button class="sb-x" id="sbClose" type="button" aria-label="Hide subagents" title="Hide"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div id="sbList"></div></aside>
     </div>
     <div id="drop">Drop files to upload to #global</div>
   </section>
@@ -554,10 +641,15 @@
   </section>
 
   <section id="settings">
-    <div class="page-head"><div><h2>Settings</h2><p>Commands, workspace, and permissions for local agent runs</p></div></div>
-    <div class="panel form">
-      <div id="settingsForm"></div>
-      <div class="row-actions"><button class="b primary" id="saveSettings">Save settings</button><span id="saved" class="saved"></span></div>
+    <div class="page-head"><div><h2>Settings</h2><p>How Relay runs your agents on this computer</p></div><div class="set-tools"><span id="saved" class="saved" role="status"></span><input id="setSearch" type="search" placeholder="Find a setting" aria-label="Find a setting" spellcheck="false" autocomplete="off"></div></div>
+    <div class="set-wrap">
+      <div class="set-nav" id="setNav" role="navigation" aria-label="Settings sections"></div>
+      <div class="set-main">
+        <div id="set-profile"></div>
+        <div id="settingsForm"></div>
+        <div class="set-empty" id="setEmpty" hidden>No settings match</div>
+        <div class="set-bar" id="setBar" role="region" aria-label="Unsaved changes" hidden><span>Unsaved changes</span><button class="b ghost" id="discardSettings" type="button">Discard</button><button class="b primary" id="saveSettings" type="button">Save<span class="kc">Ctrl S</span></button></div>
+      </div>
     </div>
   </section>
 </main>
@@ -997,7 +1089,9 @@ async function loadProfile() {
   const name = el('input', { id: 's-pname', value: profile.name, maxLength: 32, placeholder: 'you' });
   name.onchange = async () => { await api.call('profile:setName', name.value); loadProfile(); };
   panel.replaceChildren(el('h3', { textContent: 'Profile' }), el('div', { className: 'pf' }, avatar('user'), el('div', { className: 'row-actions', style: 'margin:0' }, change, rm, pick)), el('label', { htmlFor: 's-pname', textContent: 'Display name' }), name);
-  if (!panel.isConnected) $('#settings .page-head').after(panel);
+  const host = $('#set-profile');
+  if (host) { panel.style.marginBottom = '0'; if (panel.parentNode !== host) host.replaceChildren(panel); if ($('#setNav').childElementCount) renderSetNav(); }
+  else if (!panel.isConnected) $('#settings .page-head').after(panel);
   applyProfile();
 }
 const svgI = (d) => `<svg class="i" viewBox="0 0 24 24">${d}</svg>`;
@@ -1485,6 +1579,7 @@ const CMDS = [
     try { const u = await api.call('usage:scan'); wait.replaceWith(cline('Total', `${fcost(u.total.cost)} · ${ftok(u.total.tokens)} tokens`), ...Object.entries(u.models).sort((a, b) => b[1].cost - a[1].cost).slice(0, 3).map(([m, v]) => cline(m, fcost(v.cost)))); } catch { wait.textContent = 'Could not read usage'; }
   } },
   { n: 'clear', d: 'Clear this session’s thread', run: async () => { await api.call('chat:clear', openSid); await openSession(openSid, false); } },
+  { n: 'subs', d: 'Show the subagents panel', run: () => subs.length ? openSubs() : card('No subagents in this session yet') },
   { n: 'stop', d: 'Stop agents and subagents', run: () => { api.call('chat:stop', openSid); card('Stopped agents and subagents.'); } },
   { n: 'end', d: 'End this task: stop, drop the requirements, start fresh (keeps what the agents learned)', run: () => api.call('chat:endTask', openSid) },
   { n: 'lead', a: 'claude|codex|random', d: 'Who answers first', run: (x) => { if (!LEADS.some((l) => l[0] === x)) return card('Usage: /lead claude, codex or random'); setLead(x); card('Lead is now ' + x + '.'); } },
@@ -1659,29 +1754,61 @@ const subTime = (r) => r.status === 'running' ? dur(Date.now() - r.started) : r.
 function renderSubs() {
   const box = $('#subs'), has = subs.length > 0;
   box.hidden = !subsOpen || !has;
+  renderSubsToggle();
   if (box.hidden) return;
-  if (!has) { $('#sbN').textContent = ''; return $('#sbList').replaceChildren(el('div', { className: 'sb-empty', textContent: 'No subagents in this session yet' })); }
   const run = subs.filter((r) => r.status === 'running').length, q = subs.filter((r) => r.status === 'queued').length, dn = subs.filter(subEnd).length;
   $('#sbN').textContent = [run && run + ' running', q && q + ' queued', !run && !q && dn + ' done'].filter(Boolean).join(' · ');
   const live = subs.filter((r) => !subEnd(r)).sort((a, b) => a.started - b.started), old = subs.filter(subEnd).sort((a, b) => b.ended - a.ended);
   const all = [...live, ...old], vis = subsAll ? all : all.slice(0, Math.max(6, live.length));
   const rows = vis.map((r) => {
     const open = subsExp.has(r.id), end = subEnd(r);
-    const top = el('button', { className: 'sr-top' }, el('span', { innerHTML: logo(r.owner === 'claude' ? 'claude' : 'openai', 16, r.owner === 'claude' ? '#D97757' : '#fff') }), el('span', { className: 'sr-t', textContent: r.title, title: r.title }),
-      ...(r.status === 'running' ? [el('span', { className: 'sr-live' })] : []), el('span', { className: 'sr-s' + (r.status === 'running' ? ' tm' : ''), textContent: subTime(r) }));
+    const top = el('button', { className: 'sr-top', type: 'button' }, el('span', { className: 'sr-ic', innerHTML: logo(r.owner === 'claude' ? 'claude' : 'openai', 16, r.owner === 'claude' ? '#D97757' : '#fff') }), el('span', { className: 'sr-t', textContent: r.title, title: r.title }),
+      ...(r.status === 'running' ? [el('span', { className: 'sr-live' })] : []), el('span', { className: 'sr-s' + (r.status === 'running' ? ' tm' : ''), textContent: subTime(r) }), el('span', { className: 'sr-chev', innerHTML: svgI('<path d="m9 6 6 6-6 6"/>') }));
     top.setAttribute('aria-expanded', open);
     top.onclick = () => { open ? subsExp.delete(r.id) : subsExp.add(r.id); renderSubs(); };
-    const row = el('div', { className: `sr ${r.status}${end ? ' end' : ''}${open ? ' open' : ''}` }, top);
+    const hd = el('div', { className: 'sr-hd' }, top);
+    if (!end) { const x = el('button', { className: 'sr-stop', type: 'button', innerHTML: svgI('<rect width="10" height="10" x="7" y="7" rx="1.5"/>'), title: 'Stop' }); x.setAttribute('aria-label', 'Stop ' + r.title); x.onclick = () => api.call('subagents:stop', r.id); hd.append(x); }
+    const row = el('div', { className: `sr ${r.status}${end ? ' end' : ''}${open ? ' open' : ''}` }, hd);
     row.dataset.id = r.id;
-    if (!end) { const x = el('button', { className: 'sr-stop', innerHTML: svgI('<rect width="10" height="10" x="7" y="7" rx="1.5"/>'), title: 'Stop' }); x.setAttribute('aria-label', 'Stop ' + r.title); x.onclick = () => api.call('subagents:stop', r.id); top.after(x); x.style.cssText = 'position:absolute;right:8px;top:6px'; row.style.position = 'relative'; top.querySelector('.sr-s').style.marginRight = '28px'; }
-    const meta = [r.model && r.model.replace(/^claude-/, ''), r.tokensOut ? ftok(r.tokensOut) + ' out' : '', r.cost ? fcost(r.cost) : ''].filter(Boolean).join(' · ') || r.owner;
+    const meta = [r.model && r.model.replace(/^claude-/, ''), end && r.ended ? dur(r.ended - r.started) : '', r.tokensOut ? ftok(r.tokensOut) + ' out' : '', r.cost ? fcost(r.cost) : ''].filter(Boolean).join(' · ') || r.owner;
     row.append(el('div', { className: 'sr-m', textContent: meta }));
-    if (open) row.append(el('div', { className: 'sr-x' }, el('small', { textContent: 'Task' }), el('p', { textContent: r.task }), ...(r.result ? [el('small', { textContent: r.status === 'failed' ? 'Error' : 'Result' }), el('p', { textContent: r.result })] : [])));
+    if (open) row.append(subDetail(r, end));
     return row;
   });
   if (all.length > 6) { const b = el('button', { id: 'sbMore', textContent: subsAll ? 'Show fewer' : `Show ${all.length - vis.length} more` }); b.onclick = () => { subsAll = !subsAll; renderSubs(); }; rows.push(b); }
   $('#sbList').replaceChildren(...rows);
 }
+// an opened subagent: what it was asked, what came back, the files it touched, and what you can do with it
+function subDetail(r, end) {
+  const act = (t, f) => el('button', { className: 'sr-a', type: 'button', textContent: t, onclick: f });
+  const acts = [];
+  if (!end) acts.push(act('Stop', () => api.call('subagents:stop', r.id)));
+  if (end) acts.push(act('Run again', async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Queued'; try { await api.call('subagents:retry', r.id); } catch { b.textContent = 'Could not queue'; } }));
+  if (r.result) acts.push(act('Copy result', (e) => { const b = e.currentTarget; navigator.clipboard?.writeText(r.result).then(() => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy result'; }, 1200); }); }));
+  if (r.status === 'done') acts.push(act('Show in chat', () => showSubInChat(r)));
+  const outcome = r.result ? [el('small', { textContent: r.status === 'failed' ? 'Error' : 'Result' }), el('p', { textContent: r.result })]
+    : r.status === 'stopped' ? [el('small', { textContent: 'Result' }), el('p', { className: 'muted', textContent: `Stopped${r.ended ? ' after ' + dur(r.ended - r.started) : ''} before it reported back` })]
+    : r.status === 'queued' ? [el('p', { className: 'muted', textContent: 'Waiting for a free slot' })] : [];
+  const files = r.files || [];
+  return el('div', { className: 'sr-x' }, el('small', { textContent: 'Task' }), el('p', { textContent: r.task }), ...outcome,
+    ...(files.length ? [el('small', { textContent: `Files changed · ${files.length}` }), el('div', { className: 'sr-files' }, ...files.map((f) => el('button', { type: 'button', textContent: f.split(/[\\/]/).pop(), title: f, onclick: () => Promise.resolve(Panels.open(f)).catch(() => {}) })))] : []),
+    ...(acts.length ? [el('div', { className: 'sr-acts' }, ...acts)] : []));
+}
+function showSubInChat(r) {
+  const row = [...$('#log').children].reverse().find((x) => x._m?.sub === r.title);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  row.classList.add('sr-hl'); setTimeout(() => row.classList.remove('sr-hl'), 1600);
+}
+function renderSubsToggle() {
+  const b = $('#subsBtn'); if (!b) return;
+  const live = subs.filter((r) => !subEnd(r)).length;
+  b.hidden = !subs.length || !$('#subs').hidden;
+  $('#subsBtnN').textContent = live ? live + ' running' : subs.length + ' subagent' + (subs.length === 1 ? '' : 's');
+}
+function openSubs() { subsOpen = true; Panels.close?.(); renderSubs(); }
+$('#subsBtn').onclick = openSubs;
+$('#sbClose').onclick = () => { subsOpen = false; renderSubs(); };
 setInterval(() => { for (const r of subs) if (r.status === 'running') { const t = document.querySelector(`.sr[data-id="${r.id}"] .tm`); if (t) t.textContent = subTime(r); } }, 1000);
 api.on('subagent:update', (d) => {
   if (d.sid !== openSid) return;
@@ -1969,19 +2096,55 @@ async function loadRules() {
 }
 
 // ---------- settings ----------
-const FIELDS = [
-  ['claudeCmd', 'Claude command'],
-  ['claudeArgs', 'Extra Claude args', 'For example --model claude-sonnet-5-5 --permission-mode acceptEdits'],
-  ['codexCmd', 'Codex command'],
-  ['codexArgs', 'Extra Codex args', 'Add --full-auto to let Codex edit files'],
-  ['antigravityCmd', 'Antigravity command', 'CLI command for Antigravity (default: antigravity)'],
-  ['antigravityArgs', 'Extra Antigravity args'],
-  ['supercodeInstructions', 'Supercode model roles & priorities', 'Explain which models handle what tasks and how priority or delegation works in Supercode', 'textarea'],
-  ['cwd', 'Working directory'],
-  ['reviewerCount', 'Quality reviewers', 'Supercode only · 1–5 cheap reviewers, each checking a different area'],
-  ['approvalCount', 'Auto-approval agents', 'Supercode only · 1–5 cheap judges; all must agree before auto-approval'],
-  ['maxTurns', 'Max agent turns', 'Agents keep replying while they @mention each other. This caps how many replies one message can trigger'],
-];
+// Settings page. Text fields live in their sections; numeric limits come from main.js LIMITS (settings:limits), so a new limit shows up here on its own.
+const FIELDS = [['claudeCmd'], ['claudeArgs'], ['codexCmd'], ['codexArgs'], ['antigravityCmd'], ['antigravityArgs'], ['cwd'], ['supercodeInstructions']];
+const SET_MODES = [['edits', 'Full access', 'Agents edit and run commands; you answer their questions'], ['auto', 'Auto', 'Voters answer routine questions; important ones still come to you'], ['super', 'Super Auto', 'Voters answer every question, so a run can finish overnight']];
+const SET_SECS = [['profile', 'Profile'], ['providers', 'Providers'], ['agents', 'Agents'], ['limits', 'Limits'], ['updates', 'Updates']];
+let SET_LIMITS = {}, setSnap = '';
+const collectSettings = () => ({
+  ...Object.fromEntries(FIELDS.map(([k]) => [k, $('#s-' + k)?.value ?? ''])),
+  ...Object.fromEntries(Object.keys(SET_LIMITS).filter((k) => $('#s-' + k)).map((k) => [k, Number($('#s-' + k).value)])),
+  defaultMode: document.querySelector('input[name="s-mode"]:checked')?.value || 'edits',
+  disabledProviders: ALL_PROVIDERS.map(([k]) => k).filter((k) => !$('#prov-enable-' + k)?.checked),
+});
+const settingsDirty = () => { if (setSnap) $('#setBar').hidden = JSON.stringify(collectSettings()) === setSnap; };
+function filterSettings() {
+  const q = ($('#setSearch').value || '').trim().toLowerCase();
+  let any = false;
+  for (const sec of document.querySelectorAll('#set-profile, #settingsForm > .set-sec')) {
+    const title = (sec.querySelector('h3')?.textContent || '').toLowerCase(), all = !q || title.includes(q);
+    const units = sec.id === 'set-profile' ? [] : [...sec.querySelectorAll('.set-row, .lim')];
+    let shown = sec.id === 'set-profile' ? (sec.childElementCount && (all || sec.textContent.toLowerCase().includes(q)) ? 1 : 0) : 0;
+    for (const u of units) { const hit = all || u.textContent.toLowerCase().includes(q); u.hidden = !hit; shown += hit; }
+    for (const g of sec.querySelectorAll('.lim-group')) g.hidden = ![...g.querySelectorAll('.lim')].some((x) => !x.hidden);
+    sec.hidden = !shown; any ||= !!shown;
+  }
+  $('#setEmpty').hidden = any;
+  for (const b of $('#setNav').children) b.hidden = !!$('#set-' + b.dataset.sec)?.hidden;
+}
+function renderSetNav() {
+  const nav = $('#setNav');
+  nav.replaceChildren(...SET_SECS.filter(([id]) => $('#set-' + id)?.childElementCount).map(([id, n]) => {
+    const b = el('button', { type: 'button', textContent: n });
+    b.dataset.sec = id;
+    b.onclick = () => $('#set-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return b;
+  }));
+  spySettings();
+}
+// the section at the top of the scrolled page is the active one in the side list
+function spySettings() {
+  const main = $('main'), top = main.getBoundingClientRect().top + 96;
+  let cur = null;
+  for (const b of $('#setNav').children) { const sec = $('#set-' + b.dataset.sec); if (sec && !sec.hidden && sec.getBoundingClientRect().top <= top) cur = b; }
+  cur ||= $('#setNav').firstElementChild;
+  for (const b of $('#setNav').children) b.classList.toggle('on', b === cur);
+}
+$('main').addEventListener('scroll', () => { if ($('#settings').classList.contains('on')) spySettings(); }, { passive: true });
+$('#settings').addEventListener('input', (e) => { if (e.target.id !== 'setSearch') settingsDirty(); });
+$('#settings').addEventListener('change', settingsDirty);
+$('#setSearch').addEventListener('input', filterSettings);
+$('#setSearch').addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.target.value) { e.target.value = ''; filterSettings(); } });
 // Settings > Connected models: "+ Connect" menu (logos + detection badges), inline connect form, list of connections
 const LOGO_COLOR = { claude: '#D97757', openai: '#fff', antigravity: '#4E88F5', anthropic: '#D97757', ollama: '#fff', lmstudio: '#8B8BF5', openrouter: '#6D8CF5', groq: '#F55036', xai: '#fff', deepseek: '#4D6BFE', moonshot: '#fff', zai: '#fff', minimax: '#F5426C', plug: '#9a9a9a' };
 Object.assign(LOGOS, {
@@ -2094,25 +2257,54 @@ function connectedModels() {
   return box;
 }
 async function loadSettings() {
-  const s = await api.call('settings:get');
+  const [s, limits] = await Promise.all([api.call('settings:get'), api.call('settings:limits').catch(() => ({}))]);
+  SET_LIMITS = limits || {};
   const disabled = s.disabledProviders || [];
   authSubs.length = 0; refreshAuth();
-  const provToggles = el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 20px;' }, ...ALL_PROVIDERS.map(([k, name, ic]) => {
-    const chk = el('input', { type: 'checkbox', id: 'prov-enable-' + k, checked: !disabled.includes(k), style: 'width:15px;height:15px;margin:0;accent-color:var(--claude);cursor:pointer' });
-    const lbl = el('label', { htmlFor: 'prov-enable-' + k, style: 'margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--text);font-weight:400;' }, chk, el('span', { innerHTML: ic, style: 'display:inline-flex;align-items:center' }), name);
-    return el('div', { style: 'display:inline-flex;align-items:center;gap:14px;padding:6px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--raised);font-size:13px;' }, lbl, authStatusEl(k));
+  const provToggles = el('div', { className: 'set-provs' }, ...ALL_PROVIDERS.map(([k, name, ic]) => {
+    const chk = el('input', { type: 'checkbox', id: 'prov-enable-' + k, checked: !disabled.includes(k) });
+    const lbl = el('label', { htmlFor: 'prov-enable-' + k, className: 'set-prov-l' }, chk, el('span', { innerHTML: ic, className: 'set-ic' }), name);
+    return el('div', { className: 'set-prov' }, lbl, authStatusEl(k));
   }));
+  const sec = (id, title, sub, extra, ...body) => el('div', { className: 'set-sec', role: 'group', ariaLabel: title, id: 'set-' + id }, el('div', { className: 'set-sh' }, el('div', {}, el('h3', { textContent: title }), ...(sub ? [el('p', { textContent: sub })] : [])), ...(extra ? [extra] : [])), ...body);
+  const row = (id, label, hint, ...control) => el('div', { className: 'set-row' }, el('div', { className: 'set-l' }, el(id ? 'label' : 'span', { className: 'set-lb', ...(id && { htmlFor: id }), textContent: label }), ...(hint ? [el('span', { className: 'hint', textContent: hint })] : [])), el('div', { className: 'set-c' }, ...control));
+  const txt = (k, label, ph) => el('input', { id: 's-' + k, value: s[k] ?? '', placeholder: ph || '', className: 'mono-in', spellcheck: false, ariaLabel: label });
+  const cli = el('div', { className: 'set-cli' }, el('span', { className: 'set-cli-h' }), el('span', { className: 'set-cli-h', textContent: 'Command' }), el('span', { className: 'set-cli-h', textContent: 'Extra args' }),
+    ...ALL_PROVIDERS.flatMap(([k, name, ic]) => [el('span', { className: 'set-cli-n' }, el('span', { innerHTML: ic, className: 'set-ic' }), name), txt(k + 'Cmd', name + ' command', k), txt(k + 'Args', name + ' extra args', { claude: '--model claude-sonnet-5-5', codex: '--full-auto' }[k] || 'none')]));
+  const cwd = txt('cwd', 'Working directory', 'Project folder');
+  const browse = el('button', { className: 'b', type: 'button', textContent: 'Browse', onclick: async () => { const p = await api.call('settings:pickFolder'); if (p) { cwd.value = p; cwd.dispatchEvent(new Event('input', { bubbles: true })); } } });
+  const mode = el('div', { className: 'set-modes', role: 'radiogroup', ariaLabel: 'Mode for new sessions' }, ...SET_MODES.map(([k, n, d]) => el('label', { className: 'set-mode' }, el('input', { type: 'radio', name: 's-mode', value: k, checked: (s.defaultMode || 'edits') === k }), el('b', { textContent: n }), el('span', { textContent: d }))));
+  const roles = el('textarea', { id: 's-supercodeInstructions', value: s.supercodeInstructions ?? '', rows: 4, placeholder: ['Claude: architecture and complex logic', 'Codex: unit tests, scripts, file scaffolding', 'Priority: critical refactors to Opus, routine tasks to Luna'].join('\n') });
+  const limTile = ([k, [def, min, max, label, hint]]) => {
+    const input = el('input', { id: 's-' + k, type: 'number', min, max, step: 1, value: s[k] ?? def, className: 'lim-in', inputMode: 'numeric' });
+    const reset = el('button', { className: 'lim-reset', type: 'button', textContent: 'Reset', ariaLabel: `Reset ${label} to ${def}` });
+    const set = (v) => { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); };
+    const nudge = (d) => el('button', { className: 'lim-step', type: 'button', ariaLabel: `${d > 0 ? 'Increase' : 'Decrease'} ${label}`, innerHTML: svgI(d > 0 ? '<path d="M12 5v14M5 12h14"/>' : '<path d="M5 12h14"/>'), onclick: () => set(Math.max(min, Math.min(max, (Math.trunc(+input.value) || 0) + d))) });
+    const tile = el('div', { className: 'lim' }, el('div', { className: 'lim-h' }, el('label', { htmlFor: 's-' + k, textContent: label }), el('span', { className: 'lim-dot', ariaHidden: 'true' }), reset), el('span', { className: 'hint', textContent: hint }), el('div', { className: 'lim-ctl' }, nudge(-1), input, nudge(1), el('span', { className: 'lim-def', textContent: `default ${k === 'parallelTasks' && !def ? 'all' : def} · ${min}–${max}` })));
+    const sync = () => { const changed = String(input.value) !== String(def); tile.classList.toggle('changed', changed); reset.hidden = !changed; };
+    reset.onclick = () => set(def);
+    input.addEventListener('input', sync); sync();
+    return tile;
+  };
+  const groups = {};
+  for (const [k, v] of Object.entries(SET_LIMITS)) (groups[v[5] || 'Other'] ||= []).push([k, v]);
+  const resetAll = el('button', { className: 'b ghost', type: 'button', textContent: 'Reset all', onclick: () => { for (const [k, v] of Object.entries(SET_LIMITS)) { const i = $('#s-' + k); if (i && String(i.value) !== String(v[0])) { i.value = v[0]; i.dispatchEvent(new Event('input', { bubbles: true })); } } } });
+  const models = connectedModels(); models.style.margin = '0';
+  const upd = updateRow(); upd.style.marginTop = '0';
   $('#settingsForm').replaceChildren(
-    el('label', { style: 'margin-top:0' }, 'Enabled providers', el('span', { className: 'hint', textContent: 'Turn providers on or off. Disabled providers will not run or appear in leads' })),
-    provToggles,
-    el('label', { style: 'margin-top:0' }, 'Connected models', el('span', { className: 'hint', textContent: 'Connect any LLM (Ollama, OpenRouter, DeepSeek, Kimi, GLM…) and pick it in the chat model menu' })),
-    connectedModels(),
-    el('label', { htmlFor: 's-auto', style: 'display:flex;align-items:center;gap:8px;margin:0 0 20px;color:var(--text);cursor:pointer;white-space:nowrap' }, el('input', { id: 's-auto', type: 'checkbox', checked: s.defaultMode === 'auto', style: 'display:inline-block;width:16px;height:16px' }), 'Start new sessions in Auto mode', el('span', { className: 'hint', textContent: 'Judges vote on actions automatically before asking for your decision', style: 'margin:0' })), ...FIELDS.flatMap(([k, n, hint, type]) => [
-    el('label', { htmlFor: 's-' + k }, n, ...(hint ? [el('span', { className: 'hint', textContent: hint })] : [])),
-    type === 'textarea'
-      ? el('textarea', { id: 's-' + k, value: s[k] ?? '', rows: 4, placeholder: 'e.g. Claude: architecture and complex logic.\nCodex: unit tests, scripts, file scaffolding.\nAntigravity: Gemini-driven reasoning and fast review.\nPriority: assign critical refactors to Opus/Pro, routine tasks to Flash/Luna.', style: 'width:100%;font-size:13px;line-height:20px;resize:vertical' })
-      : el('input', { id: 's-' + k, value: s[k] ?? '', type: ['maxTurns','reviewerCount','approvalCount'].includes(k) ? 'number' : 'text', min: 1, max: k === 'maxTurns' ? 50 : 5, placeholder: k === 'maxTurns' ? '10' : '', className: ['maxTurns','reviewerCount','approvalCount'].includes(k) ? 'num-in' : '', style: ['maxTurns','reviewerCount','approvalCount'].includes(k) ? '' : 'font-family:var(--mono);font-size:13px;font-variant-ligatures:none' }),
-  ]), updateRow());
+    sec('providers', 'Providers', 'Which agents Relay may run, and extra models you connect', null,
+      row('', 'Enabled providers', 'Disabled providers never run and leave the lead menu', provToggles),
+      row('', 'Connected models', 'Ollama, OpenRouter, DeepSeek, Kimi, GLM and more, picked from the chat model menu', models)),
+    sec('agents', 'Agents', 'How new sessions start and how each CLI is launched', null,
+      row('', 'Mode for new sessions', 'Each chat can still switch from its mode menu', mode),
+      row('', 'Commands', 'The CLI each provider runs, plus flags added to every run', cli),
+      row('s-cwd', 'Working directory', 'Used by chats outside a project', el('div', { className: 'set-inline' }, cwd, browse)),
+      row('s-supercodeInstructions', 'Supercode roles', 'Which model handles what, and when work moves to a stronger one', roles)),
+    sec('limits', 'Limits', 'How much the team may do per task. A dot marks a value you changed', resetAll,
+      ...Object.entries(groups).map(([g, items]) => el('div', { className: 'lim-group' }, el('h4', { textContent: g }), el('div', { className: 'lim-grid' }, ...items.map(limTile))))),
+    sec('updates', 'Updates', '', null, el('div', { className: 'set-row' }, upd)));
+  renderSetNav(); filterSettings();
+  setSnap = JSON.stringify(collectSettings()); $('#setBar').hidden = true;
 }
 // ---- app updates (updater.js) ----
 let updSt = { state: 'idle' }, updCur = '';
@@ -2131,22 +2323,23 @@ function updateRow() {
 api.on('update:state', (d) => { updSt = d; renderUpd(); });
 api.call('update:get').then((d) => { updSt = d; updCur = d.current; renderUpd(); });
 $('#updPill').onclick = () => { if (updSt.state === 'ready') api.call('update:install'); };
-$('#saveSettings').onclick = async () => {
-  if (![...document.querySelectorAll('#settingsForm input, #settingsForm textarea')].every(input => input.reportValidity())) return;
-  const disabled = ALL_PROVIDERS.map(([k]) => k).filter(k => !$('#prov-enable-' + k)?.checked);
-  if (disabled.length >= ALL_PROVIDERS.length) {
-    alert('At least one provider must remain enabled.');
-    return;
-  }
-  const payload = { ...Object.fromEntries(FIELDS.map(([k]) => [k, $('#s-' + k).value])), edit: true, defaultMode: $('#s-auto')?.checked ? 'auto' : 'edits', disabledProviders: disabled };
-  await api.call('settings:save', payload);
-  cfg.disabledProviders = disabled;
+async function saveSettings() {
+  const fields = [...document.querySelectorAll('#settingsForm input, #settingsForm textarea')];
+  if (!fields.every((i) => i.checkValidity())) { $('#setSearch').value = ''; filterSettings(); fields.find((i) => !i.checkValidity())?.reportValidity(); return; }
+  const payload = collectSettings();
+  if (payload.disabledProviders.length >= ALL_PROVIDERS.length) { alert('At least one provider must remain enabled.'); return; }
+  await api.call('settings:save', { ...payload, edit: true });
+  cfg.disabledProviders = payload.disabledProviders;
   refreshQuota();
   renderLead(leadCur);
   loadUsage();
   loadRouting();
+  setSnap = JSON.stringify(collectSettings()); $('#setBar').hidden = true;
   flash($('#saved'));
-};
+}
+$('#saveSettings').onclick = saveSettings;
+$('#discardSettings').onclick = () => loadSettings();
+document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && $('#settings').classList.contains('on')) { e.preventDefault(); if (!$('#setBar').hidden) saveSettings(); } });
 
 (async () => {
   window._initialLogScrollPending = true;

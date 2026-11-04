@@ -46,13 +46,31 @@ function chat(text, items, awaiting = false, busy = false) {
   const reqs = { items }, state = { awaiting, lanes: { claude: { busy }, codex: {} } };
   vm.runInNewContext(`${dispatch}\ndispatchUser('test', {text: input});`, {
     input:text, isConversation, conversationReply, store: {getSession: () => ({ lead:'claude' })}, RT: () => state,
-    AGENT_NAMES:['claude','codex'], reqsOf:() => reqs,
+    AGENT_NAMES:['claude','codex'], reqsOf:() => reqs, supercodeOn: () => true, requirementCoordinators: new Map(),
     post: (_sid, from, text) => { const m = {from, text}; events.push(m); return m; },
     enqueue: (...args) => pending.push(args), setReqs: () => assert.fail('Conversation must preserve requirements'),
   });
   return { events, pending, state };
 }
 assert.equal(chat('hello', []).events.at(-1).text, 'Hello.');
+// "retry" on an unfinished Supercode checklist keeps the checklist and runs the open items in parallel instead of starting a new task
+{
+  let reqs = { items: [{ t: 'a', done: true }, { t: 'b', done: false }], requestAt: 1 };
+  const started = [], posted = [];
+  vm.runInNewContext(`${dispatch}\ndispatchUser('test', {text: 'retry'});`, {
+    isConversation, conversationReply, store: { getSession: () => ({ lead: 'codex' }) }, RT: () => ({ epoch: 7, lanes: {} }), settings: {},
+    AGENT_NAMES: ['claude', 'codex'], reqsOf: () => reqs, setReqs: (_sid, value) => { reqs = value; }, supercodeOn: () => true, requirementCoordinators: new Map(),
+    post: (_sid, from, text) => { const m = { from, text, at: 9 }; posted.push(m); return m; },
+    startRequirementWorkflow: (...args) => { started.push(args); return Promise.resolve(); },
+    enqueue: () => assert.fail('retry must not start a normal agent turn'),
+  });
+  assert.equal(started.length, 1, 'retry starts the parallel requirement workflow');
+  assert.equal(started[0][1], 'codex', 'the chat lead owns the run');
+  assert.equal(started[0][3], 7, 'it runs in the current epoch');
+  assert.deepEqual(reqs.items.map((i) => i.done), [true, false], 'the checklist is kept, not reset');
+  assert.equal(reqs.requestAt, 9, 'the retry message continues the checklist');
+  assert.match(posted.at(-1).text, /Running the 1 open requirement at once/);
+}
 assert.equal(chat('are u done', [{done:true}]).events.at(-1).text, 'Yes.');
 assert.equal(chat('are u done', [{done:false}]).events.at(-1).text, 'No.');
 assert.equal(chat('are u done', [{done:true}], false, true).events.at(-1).text, 'No.');
@@ -64,7 +82,7 @@ assert.equal(general.state.awaiting, true);
 const pump = source.slice(source.indexOf('async function pump('), source.indexOf('// Reading ~600 MB'));
 const rt = { epoch: 0, turns: 0, lanes: { claude: { next: { after: 'codex' } }, codex: { next: {} } } };
 vm.runInNewContext(`${pump}\npump('test', 'claude')`, {
-  RT: () => rt, supercodeOn: () => true, sendWorking() {}, saveResume() {}, drainUserQueue() {},
+  limit: (k) => ({ maxRequirements: 10, parallelTasks: 0, discoveryQuestions: 5, reviewRounds: 4, soloMinutes: 4, voterTimeoutSec: 60, debateRounds: 1, autoAnswers: 1, subagents: 3, relayRestarts: 3 })[k], RT: () => rt, supercodeOn: () => true, sendWorking() {}, saveResume() {}, drainUserQueue() {},
   ask: async () => { rt.awaiting = true; return { next: ['codex'], ended: false }; },
   enqueue: () => assert.fail('Teammate must not start while waiting for a human'),
 }).then(() => {
