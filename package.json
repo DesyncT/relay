@@ -11,7 +11,7 @@
   "scripts": {
     "start": "electron .",
     "check": "node usage.js",
-    "test": "node test-prompt-caching.js",
+    "test": "node test-prompt-caching.js && node test-requirement-gate.js",
     "dist": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always"
   },

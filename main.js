@@ -487,7 +487,7 @@ async function ask(sid, who, trigger, isLead) {
         requirements = applyReqTags(sid, r.text, who);
       }
       if (!reqsOf(sid)?.items?.length) throw new Error('Could not start this task: the agent did not write requirements. Send the request again to retry.');
-      const checklist = post(sid, who, requirements.trim() || reqsOf(sid).items.map((i) => `[req: ${i.t}]`).join('\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
+      const checklist = post(sid, who, [reqsOf(sid).items.map((i, n) => `${n + 1}. ${i.t}`).join('\n'), requirements.trim()].filter(Boolean).join('\n\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
       r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'The requirements are now written and shown in the chat. Continue the user task, satisfying them.', s), checklist, { lead: isLead, tag, ...(lockEdits && { readonly: true }) });
       rd = r.rd; prov = r.prov; usage = addUsage(usage, r.usage);
     }
