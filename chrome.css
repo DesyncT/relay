@@ -68,7 +68,7 @@ main > #chat.on { height:100%; }
 .ch-main > #pend { order:1; }
 .ch-main > #busy { order:2; height:auto; min-height:28px; flex-wrap:wrap; white-space:normal; overflow-wrap:anywhere; }
 .ch-main > #busy:empty { display:none; }
-#chat.on #scrollBottom { bottom:calc(var(--composer-h, 150px) + 40px); }
+#chat.on #scrollBottom { bottom:var(--scroll-bottom-offset, 180px); }
 .ch-main > #reqbar { order:2; padding:2px 16px 0; font-size:12px; color:var(--muted); }
 #chat.on .ch-main > #reqbar:not([hidden]) ~ .cbar { margin-top:4px !important; } /* the bar sits right on the composer, no dead band */
 #reqbar summary { display:flex; align-items:center; gap:10px; cursor:pointer; list-style:none; white-space:nowrap; }

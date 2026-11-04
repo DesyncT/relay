@@ -362,7 +362,7 @@
   #log.sw-in { animation:swIn .22s cubic-bezier(.2,.8,.2,1); }
   @keyframes swIn { from { opacity:0; transform:translateY(6px); } }
   @media (prefers-reduced-motion: reduce) { #log.sw-in { animation:none; } }
-  #scrollBottom { position:absolute; z-index:5; left:50%; bottom:calc(var(--composer-h, 150px) + 24px); transform:translate(-50%, 0); width:40px; height:40px; margin:0; padding:8px; border:1px solid var(--line-strong); border-radius:50%; display:grid; place-items:center; background:#242426; color:var(--text); box-shadow:0 3px 12px rgba(0,0,0,.35); opacity:1; transition:opacity .18s var(--ease), transform .18s var(--ease), background-color .15s var(--ease); }
+  #scrollBottom { position:absolute; z-index:5; left:50%; bottom:var(--scroll-bottom-offset, 180px); transform:translate(-50%, 0); width:40px; height:40px; margin:0; padding:8px; border:1px solid var(--line-strong); border-radius:50%; display:grid; place-items:center; background:#242426; color:var(--text); box-shadow:0 3px 12px rgba(0,0,0,.35); opacity:1; transition:opacity .18s var(--ease), transform .18s var(--ease), background-color .15s var(--ease), bottom .12s var(--ease); }
   #scrollBottom:hover { background:#303033; }
   #scrollBottom[hidden] { display:none; }
   #scrollBottom.scroll-out { opacity:0; transform:translate(-50%, 6px); pointer-events:none; }
@@ -715,11 +715,19 @@ async function refreshQuota() {
   }));
 }
 refreshQuota(); setInterval(refreshQuota, 10000); setInterval(tickReset, 1000);
+const composer = document.querySelector('.cbar'), chatMain = document.querySelector('.ch-main');
 const composerObserver = new ResizeObserver(() => {
-  const h = document.querySelector('.cbar')?.getBoundingClientRect().height || 150;
-  document.querySelector('#chat')?.style.setProperty('--composer-h', `${h}px`);
+  const button = document.querySelector('#scrollBottom');
+  if (!composer || !chatMain || !button) return;
+  const top = [document.querySelector('#busy'), document.querySelector('#reqbar'), document.querySelector('#rchip'), composer]
+    .filter((node) => node && node.getClientRects().length)
+    .reduce((y, node) => Math.min(y, node.getBoundingClientRect().top), Infinity);
+  const gap = chatMain.getBoundingClientRect().bottom - top;
+  document.querySelector('#chat')?.style.setProperty('--scroll-bottom-offset', `${Math.max(0, gap + 8)}px`);
 });
-composerObserver.observe(document.querySelector('.cbar'));
+for (const node of [chatMain, composer, document.querySelector('#busy'), document.querySelector('#reqbar'), document.querySelector('#rchip'), document.querySelector('#limits')]) {
+  if (node) composerObserver.observe(node);
+}
 // ---------- usage ----------
 function niceStep(max) { // 1, 2, 2.5 or 5 times a power of ten, so axis labels read as round numbers
   const raw = max / 4, p = 10 ** Math.floor(Math.log10(raw));
@@ -918,7 +926,7 @@ async function loadUsage(fresh) {
       <div>Output<span>${sh(t.output)}</span></div>
       <div>Cache savings<span>${usd(t.savings)}</span></div>
     </div>
-    <div class="u-hd"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div>
+    <div class="u-hd u-heat-head"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div>
     <div id="uheat"></div>
     <div class="u-split">
       <div><div class="u-hd"><h3>Cost by type</h3></div>${bar(typeKeys, s.type)}</div>

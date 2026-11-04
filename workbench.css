@@ -100,6 +100,12 @@ main:has(#usage.on) { background:var(--bg); }
 #usage summary { cursor:pointer; color:var(--muted); }
 #usage details[open] { padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--deep); }
 #usage .u-tip { border-radius:8px; background:var(--card); border-color:var(--line-strong); }
+#usage .u-heat-head { align-items:center; gap:16px; margin-bottom:12px; }
+#usage .u-heat-head h3 { margin:0; }
+#usage .u-seg { flex:none; display:inline-flex; align-items:center; gap:2px; padding:3px; border:1px solid var(--line); border-radius:8px; background:var(--deep); }
+#usage .u-seg button { min-height:28px; padding:4px 10px; border:0; border-radius:5px; color:var(--muted); font-size:12px; line-height:18px; white-space:nowrap; }
+#usage .u-seg button:hover { color:var(--text); background:var(--raised); }
+#usage .u-seg button.on { color:var(--text); background:var(--raised); }
 #usage .rescan { position:static; display:block; margin:0 0 24px auto; padding:8px 12px; border:1px solid var(--line); font-size:12px; }
 /* Chat and tool panels share the same scale. Keep the floating scroll control out of layout. */
 #chat.on { font-family:inherit; }
@@ -367,7 +373,8 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 #reqbar.working:not(.has) .rq-track { display:none; }
 #reqbar .rq-track::after { display:none; animation:none; }
 #reqbar .rq-fill { box-shadow:none; }
-#reqbar .rq-ic { animation:none !important; }
+#reqbar .rq-ic { animation:none; }
+#reqbar li.now .rq-ic, #reqbar.working:not(:has(li.now)) li.next .rq-ic { animation:rqSpin .8s linear infinite; }
 #reqbar .rq-now { color:var(--text-2); }
 #chat .ch-head #quota { justify-content:flex-end; padding-right:16px; gap:8px; }
 #chat .ch-head #quota > span { padding:4px 8px; min-height:28px; font-size:12px; border:0; background:transparent; }

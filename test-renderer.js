@@ -64,6 +64,26 @@ app.whenReady().then(async () => {
     return {hidden, visible:!box.hidden, expanded:box.open};
   })()`);
   assert.deepEqual(checklist, {hidden:true, visible:true, expanded:true});
+  const spin = await win.webContents.executeJavaScript(`(() => {
+    renderReqs({items:[{t:'Active requirement',done:false,by:'claude',pct:40}]});
+    const icon = document.querySelector('#reqbar li.now .rq-ic');
+    return {name:getComputedStyle(icon).animationName, reduced:matchMedia('(prefers-reduced-motion: reduce)').matches};
+  })()`);
+  if (spin.reduced) assert.equal(spin.name, 'none');
+  else assert.equal(spin.name, 'rqSpin', 'Active requirement icons must keep spinning when motion is enabled');
+  const heatmap = await win.webContents.executeJavaScript(`(() => {
+    const usage = document.querySelector('#usage');
+    document.querySelector('#chat').classList.remove('on'); usage.classList.add('on');
+    usage.innerHTML = '<div class="u-hd u-heat-head"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div><div id="uheat"></div>';
+    renderHeat({[new Date().toISOString().slice(0,10)]:1200}, 'daily');
+    const head = usage.querySelector('.u-heat-head').getBoundingClientRect(), controls = usage.querySelector('#uheatseg').getBoundingClientRect();
+    return {insideHeading:controls.top >= head.top && controls.bottom <= head.bottom, fits:controls.right <= usage.getBoundingClientRect().right};
+  })()`);
+  assert.equal(heatmap.insideHeading, true, 'Heatmap modes must align with their heading');
+  assert.equal(heatmap.fits, true, 'Heatmap mode controls must fit within the usage panel');
+  await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  fs.writeFileSync(path.join(output, 'heatmap.png'), (await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`document.querySelector('#usage').classList.remove('on'); document.querySelector('#chat').classList.add('on')`);
   const observation = await win.webContents.executeJavaScript(`(async () => {
     const root = document.createElement('div'); root.style.cssText = 'height:100px;overflow:auto';
     const row = document.createElement('div');
@@ -134,6 +154,17 @@ app.whenReady().then(async () => {
   // Measure a visible, focused editor: hidden Windows windows intentionally
   // throttle compositor frames to ~1 Hz even with timer throttling disabled.
   win.show(); win.focus();
+  const arrow = await win.webContents.executeJavaScript(`(async () => {
+    const busy = document.querySelector('#busy'), reqbar = document.querySelector('#reqbar'), button = document.querySelector('#scrollBottom');
+    busy.replaceChildren(document.createTextNode('Agent is working'));
+    reqbar.hidden = false; reqbar.replaceChildren(document.createTextNode('Requirements · 40%'));
+    button.hidden = false;
+    await new Promise(resolve => setTimeout(resolve, 80));
+    const br = button.getBoundingClientRect(), busyTop = busy.getBoundingClientRect().top, reqTop = reqbar.getBoundingClientRect().top;
+    return {clearOfStatus:br.bottom <= Math.min(busyTop, reqTop) + 1, cssOffset:document.querySelector('#chat').style.getPropertyValue('--scroll-bottom-offset'), buttonBottom:br.bottom, busyTop, reqTop};
+  })()`);
+  console.log('Dynamic arrow position:', JSON.stringify(arrow));
+  assert.equal(arrow.clearOfStatus, true, 'Jump-to-latest arrow must stay above the dynamic status/checklist rows');
   await win.webContents.executeJavaScript(`document.querySelector('#input').focus({preventScroll:true}); window.nativePaintDelays=[]; document.querySelector('#input').addEventListener('input', () => { const start=performance.now(); requestAnimationFrame(()=>nativePaintDelays.push(performance.now()-start)); });`);
   for (let i=0;i<30;i++) {
     await win.webContents.debugger.sendCommand('Input.insertText', {text:i%6 ? 'typing ' : '\n'});
