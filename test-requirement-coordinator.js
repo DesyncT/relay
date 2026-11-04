@@ -82,12 +82,27 @@ async function unscopedFallbackNeverStarts() {
   assert.deepEqual(a.changedPaths, undefined, 'unscoped fallback never produces a collectable patch');
 }
 
+async function recoveringReviewDoesNotRerunWorker() {
+  const a = task('5'); a.status = 'reviewing'; a.changedPaths = ['5.js']; a.workerEvidence = 'completed worker output';
+  let workers = 0, reviewers = 0;
+  const c = createRequirementCoordinator({
+    persist: () => {}, emit: () => {},
+    runTask: async () => { workers++; return { paths:[], evidence:'' }; },
+    reviewTask: async (_assignment, work) => { reviewers++; assert.equal(work.evidence, 'completed worker output'); return { verdict:'PASS', evidence:'review resumed' }; },
+  });
+  await c.start([a]);
+  assert.equal(workers, 0, 'interrupted reviewing assignment resumes at its review step');
+  assert.equal(reviewers, 1);
+  assert.equal(a.status, 'passed');
+}
+
 (async () => {
   await schedulerPersistsBeforeStartingAndCapsConcurrency();
   await sharedFolderSerializesOverlappingPaths();
   await reviewEvidenceUnknownAndFailEscalation();
   await exhaustedFailureStaysOpen();
   await unscopedFallbackNeverStarts();
+  await recoveringReviewDoesNotRerunWorker();
   await singleIntegrationRequiresAllPassAndFinalGates();
   await integrationNeedsChecksAndIndependentReview();
   await finalFailEscalatesAndCeilingReportsFindings();

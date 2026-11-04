@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces } = require('./requirement-workspaces');
+const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace } = require('./requirement-workspaces');
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-workspaces-test-'));
 function git(cwd, ...args) { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
@@ -25,6 +25,8 @@ try {
     assert.equal(result.mode, 'worktree');
     const task = result.tasks[0];
     assert.ok(task.baselineCommit); assert.ok(task.baselineRef); assert.ok(fs.existsSync(task.path));
+    assert.equal(validTaskWorkspace({ ...task, cleanup:result.cleanup[0] }), true, 'persisted ownership metadata validates a live task workspace');
+    assert.equal(validTaskWorkspace({ ...task, path:project, cleanup:result.cleanup[0] }), false, 'active project paths cannot be accepted as recovered task workspaces');
     fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'worker\n');
     fs.writeFileSync(path.join(task.path, 'ignored-by-scope.txt'), 'skip\n');
     const changes = collectTaskChanges(task);
@@ -34,6 +36,7 @@ try {
     assert.equal(read(project, 'tracked.txt'), 'worker\n');
     assert.equal(fs.existsSync(path.join(project, 'ignored-by-scope.txt')), false);
     cleanupTaskWorkspaces(result); assert.equal(fs.existsSync(task.path), false);
+    assert.equal(validTaskWorkspace({ ...task, cleanup:result.cleanup[0] }), false, 'deleted temporary workspaces fail recovery validation');
   }
 
   // Dirty tracked state, staged and unstaged edits, and untracked files are part of the captured baseline.

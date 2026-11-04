@@ -213,4 +213,22 @@ function cleanupTaskWorkspaces(workspaces) {
   return errors;
 }
 
-module.exports = { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces };
+function validTaskWorkspace(workspace) {
+  try {
+    if (!workspace || !Array.isArray(workspace.files) || !workspace.files.length) return false;
+    if (workspace.mode !== 'worktree' && !(workspace.mode === 'shared' && workspace.isolated === true)) return false;
+    const cleanup = workspace.cleanup || {};
+    const root = path.resolve(cleanup.root || ''), marker = path.resolve(cleanup.marker || ''), taskPath = path.resolve(workspace.path || '');
+    if (!pathInside(os.tmpdir(), root) || !pathInside(root, marker) || !pathInside(root, taskPath)) return false;
+    for (const target of [root, marker, taskPath]) if (fs.lstatSync(target).isSymbolicLink()) return false;
+    if (path.resolve(fs.realpathSync(root)) !== root || !fs.statSync(root).isDirectory() || !fs.statSync(taskPath).isDirectory()) return false;
+    const recorded = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    if (path.resolve(recorded.root) !== root || path.resolve(recorded.snapshot) !== path.resolve(cleanup.snapshot || '') || recorded.baselineRef !== cleanup.baselineRef) return false;
+    const recordedTasks = new Set((recorded.tasks || []).map(p => path.resolve(p)));
+    if (!recordedTasks.has(taskPath) || !(cleanup.paths || []).some(p => path.resolve(p) === taskPath)) return false;
+    if (!fs.existsSync(path.join(taskPath, '.git')) || !workspace.baselineCommit || !workspace.baselineRef) return false;
+    return true;
+  } catch { return false; }
+}
+
+module.exports = { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace };

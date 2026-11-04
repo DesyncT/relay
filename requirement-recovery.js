@@ -1,0 +1,45 @@
+'use strict';
+
+const INTERRUPTED_INTEGRATION = new Set(['integrating', 'retrying', 'open']);
+
+function recoverRequirementAssignments(input, validateWorkspace = () => false) {
+  const assignments = Array.isArray(input) ? JSON.parse(JSON.stringify(input)) : [];
+  if (!assignments.length) return { kind:'legacy', assignments };
+
+  const actionable = assignments.filter(a => a.actionable !== false);
+  if (actionable.length && actionable.every(a => a.integrationStatus === 'passed'))
+    return { kind:'integrated', assignments, integrate:false };
+
+  const inFlightIntegration = assignments.some(a => a.integrationStatus === 'integrating' || a.integrationStatus === 'retrying');
+  const priorIntegration = assignments.some(a => INTERRUPTED_INTEGRATION.has(a.integrationStatus) || a.integrationStatus === 'passed');
+  if (priorIntegration && !inFlightIntegration) return { kind:'integration-open', assignments, integrate:false };
+  if (inFlightIntegration) {
+    for (const a of assignments) if (a.actionable !== false && a.status === 'passed') {
+      a.integrationStatus = 'open';
+      a.blocker = 'integration-interrupted';
+      a.integrationFindings ||= 'Integration was interrupted by an application restart and was not retried automatically.';
+    }
+    return { kind:'integration-interrupted', assignments, integrate:false };
+  }
+
+  let hasActive = false;
+  for (const a of assignments) {
+    if (!['queued', 'running', 'reviewing'].includes(a.status)) continue;
+    if (!a.workspace || a.workspace.assignmentId !== a.id || !validateWorkspace(a.workspace, a)) {
+      a.status = 'open';
+      a.blocker = 'workspace-unavailable';
+      a.error = 'The saved task workspace is missing or no longer owned by this workflow.';
+      continue;
+    }
+    hasActive = true;
+    if (a.status === 'running') {
+      a.recoveredFrom = 'running';
+      a.status = 'queued';
+      a.progress = 0;
+    }
+  }
+  const readyToIntegrate = actionable.length > 0 && actionable.every(a => a.status === 'passed');
+  return { kind:hasActive || readyToIntegrate ? 'resume' : 'open', assignments, integrate:hasActive || readyToIntegrate };
+}
+
+module.exports = { recoverRequirementAssignments };

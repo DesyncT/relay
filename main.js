@@ -13,8 +13,9 @@ const registerPanels = require('./panels-main');
 const models = require('./models');
 const { providerArgs } = require('./permissions');
 const { createAssignments, nextEscalation } = require('./requirement-workflow');
-const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces } = require('./requirement-workspaces');
+const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
+const { recoverRequirementAssignments } = require('./requirement-recovery');
 const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
@@ -360,29 +361,40 @@ ipcMain.handle('skills:list', (_e, sid) => {
 const reqsOf = (sid) => sessOf(sid)?.reqs || null;
 function setReqs(sid, reqs) { try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs }); }
 const requirementCoordinators = new Map();
-async function startRequirementWorkflow(sid, owner, trigger, epoch) {
+async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = null) {
   const rt = RT(sid), existing = requirementCoordinators.get(sid);
   if (existing) return existing.promise;
   const checklist = reqsOf(sid)?.items || [];
   const available = AGENT_NAMES.filter(p => !isDown(p) && settings.routes?.[p]?.coding);
-  const planPrompt = `Plan parallel implementation tasks for this completed checklist. Return ONLY a JSON array. Each entry has requirementIndex (zero-based checklist index), task (concrete worker instruction), provider (one of ${available.join(', ')}), model, effort, and files (exact repository-relative paths owned by this task). Assign exactly one entry per actionable requirement. Assign disjoint paths when possible; do not invent paths or include preservation-only constraints. Checklist: ${JSON.stringify(checklist)}`;
-  let plan = [];
-  try {
-    const planned = await seatRun(sid, owner, 'coding', () => planPrompt, trigger, { quiet: true, requirementsOnly: true });
-    const raw = planned.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) plan = parsed;
-  } catch {}
-  if (epoch !== rt.epoch) return null;
   const routes = settings.routes || {};
-  const assignments = createAssignments(checklist, plan, routes, available);
-  for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
-  const runnableAssignments = assignments.filter(a => a.status === 'queued');
-  let workspaces;
-  try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
-  catch (error) { workspaces = { mode:'shared', blocked:true, tasks: runnableAssignments.map(a => ({ id:a.id, assignmentId:a.id, path:null, taskPath:null, files:a.files, mode:'shared', blocked:true })), reason:error.message }; }
-  const byId = new Map(workspaces.tasks.map(w => [w.assignmentId || w.id, w]));
-  for (const a of assignments) Object.assign(a, { workspace: byId.get(a.id) || null, workspaceMode:workspaces.mode });
+  let assignments, workspaces;
+  if (recovery) {
+    assignments = recovery.assignments;
+    workspaces = recovery.workspaces;
+    owner = assignments.find(a => a.owner)?.owner || owner;
+  } else {
+    const planPrompt = `Plan parallel implementation tasks for this completed checklist. Return ONLY a JSON array. Each entry has requirementIndex (zero-based checklist index), task (concrete worker instruction), provider (one of ${available.join(', ')}), model, effort, and files (exact repository-relative paths owned by this task). Assign exactly one entry per actionable requirement. Assign disjoint paths when possible; do not invent paths or include preservation-only constraints. Checklist: ${JSON.stringify(checklist)}`;
+    let plan = [];
+    try {
+      const planned = await seatRun(sid, owner, 'coding', () => planPrompt, trigger, { quiet: true, requirementsOnly: true });
+      const raw = planned.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) plan = parsed;
+    } catch {}
+    if (epoch !== rt.epoch) return null;
+    assignments = createAssignments(checklist, plan, routes, available);
+    for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
+    const runnableAssignments = assignments.filter(a => a.status === 'queued');
+    try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
+    catch (error) { workspaces = { mode:'shared', blocked:true, tasks: runnableAssignments.map(a => ({ id:a.id, assignmentId:a.id, path:null, taskPath:null, files:a.files, mode:'shared', blocked:true })), reason:error.message }; }
+    const cleanup = workspaces.cleanup?.[0] || null;
+    const byId = new Map(workspaces.tasks.map(w => [w.assignmentId || w.id, w]));
+    for (const a of assignments) {
+      const workspace = byId.get(a.id);
+      Object.assign(a, { workspace:workspace ? { ...workspace, ...(cleanup && { cleanup:{ ...cleanup } }) } : null, workspaceMode:workspaces.mode });
+    }
+  }
+  if (epoch !== rt.epoch) return null;
   const providerOrder = available.length ? available : [owner];
   const coordinator = createRequirementCoordinator({
     limit: 3, workspaceMode: workspaces.mode,
@@ -932,11 +944,11 @@ async function autoAnswer(sid, who, q, options, ep) {
   enqueue(sid, who, m);
 }
 
-function enqueue(sid, who, trigger, after, lead) {
+function enqueue(sid, who, trigger, after, lead, options = {}) {
   const lane = RT(sid).lanes[who];
   // Once the user has queued another prompt, don't schedule another agent follow-up;
   // the user queue drains as soon as every active lane settles.
-  if (userQueues.get(sid)?.length) return;
+  if (userQueues.get(sid)?.length && !options.resume) return;
   if (lane.next) { lane.next.trigger = trigger; lane.next.after = after || lane.next.after; lane.next.lead = lane.next.lead || lead; } // already waiting: answer the newest message instead
   else { lane.next = { trigger, after, lead }; if (!lane.busy) pump(sid, who); }
   saveResume(sid);
@@ -959,9 +971,55 @@ function restartRelay(by) {
   saveAllResume(by);
   setTimeout(() => { app.relaunch(); app.quit(); }, 800);
 }
+function workspacesFromAssignments(assignments) {
+  const tasks = assignments.map(a => a.workspace).filter(Boolean);
+  const cleanup = [...new Map(tasks.map(w => [w.cleanup?.root, w.cleanup]).filter(([root, entry]) => root && entry)).values()];
+  return { mode:assignments.find(a => a.workspaceMode)?.workspaceMode || tasks[0]?.mode || 'shared', tasks, cleanup };
+}
 function resumeSessions() {
   for (const meta of store.listSessions()) {
     const s = sessOf(meta.id), r = s?.resume;
+    const persistedAssignments = s?.reqs?.assignments;
+    if (Array.isArray(persistedAssignments) && persistedAssignments.length) {
+      const rt = RT(s.id);
+      Object.assign(rt, { wrapping:!!r?.wrapping, requests:r?.requests || [], reviewRequest:(r?.requests || []).join('\n\n'), reviewRequestAt:r?.reviewRequestAt, building:!!r?.building, restarts:r?.restarts || 0 });
+      const recovered = recoverRequirementAssignments(persistedAssignments, workspace => validTaskWorkspace(workspace));
+      const reqs = s.reqs || {};
+      if (recovered.kind === 'integrated') {
+        const items = (reqs.items || []).map(item => ({ ...item, done:true }));
+        setReqs(s.id, { ...reqs, items, assignments:recovered.assignments });
+        if (!reqs.items?.every(item => item.done)) post(s.id, 'system', 'Recovered the already completed requirement integration; no worker or integrator was restarted.', null, null, { muted:true });
+        saveResume(s.id); drainUserQueue(s.id); continue;
+      }
+      setReqs(s.id, { ...reqs, assignments:recovered.assignments });
+      if (recovered.kind === 'integration-interrupted' || recovered.kind === 'integration-open') {
+        const explanation = recovered.kind === 'integration-interrupted'
+          ? 'Requirement integration was interrupted by restart and remains open.'
+          : 'Requirement integration remains open from its saved state.';
+        post(s.id, 'system', `${explanation} It was not run a second time; review the saved integration findings before continuing.`, null, null, { muted:true });
+        saveResume(s.id); drainUserQueue(s.id); continue;
+      }
+      if (recovered.kind === 'resume') {
+        const lastUser = s.messages.findLast(m => m.from === 'user');
+        const unavailable = recovered.assignments.filter(a => a.blocker === 'workspace-unavailable');
+        const suffix = unavailable.length ? ` These assignments are left open because their temporary workspaces are unavailable: ${unavailable.map(a => `${a.id} (${a.error})`).join('; ')}.` : '';
+        const note = post(s.id, 'system', `Relay restarted during requirement work. Resuming saved task workspaces and review state; queued user messages will wait until this work settles.${suffix}`, null, null, { muted:true });
+        const owner = recovered.assignments.find(a => a.owner)?.owner || r?.who?.[0] || s.lead || settings.lead || 'claude';
+        const workspaces = workspacesFromAssignments(recovered.assignments);
+        startRequirementWorkflow(s.id, owner, lastUser || note, rt.epoch, { assignments:recovered.assignments, workspaces })
+          .catch(error => {
+            const latest = reqsOf(s.id) || {};
+            const failed = recovered.assignments.map(a => ['queued','running','reviewing'].includes(a.status) ? { ...a, status:'open', blocker:'recovery-failed', error:String(error.message || error) } : a);
+            setReqs(s.id, { ...latest, assignments:failed });
+            post(s.id, 'system', `Requirement recovery failed and remains open: ${String(error.message || error).slice(-500)}`, null, null, { muted:true });
+          })
+          .finally(() => { saveResume(s.id); drainUserQueue(s.id); });
+        continue;
+      }
+      const open = recovered.assignments.filter(a => ['open','blocked','failed'].includes(a.status));
+      if (open.length) post(s.id, 'system', `Requirement work remains open after restart: ${open.map(a => `${a.id}: ${a.blocker || a.status} — ${a.error || ''}`).join('; ')}`, null, null, { muted:true });
+      saveResume(s.id); drainUserQueue(s.id); continue;
+    }
     if (!r?.who?.length) continue;
     const rt = RT(s.id);
     Object.assign(rt, { wrapping: r.wrapping, requests: r.requests, reviewRequest: r.requests.join('\n\n'), reviewRequestAt: r.reviewRequestAt, building: r.building, restarts: r.restarts || 0 });
@@ -969,7 +1027,7 @@ function resumeSessions() {
     const note = post(s.id, 'system', r.by
       ? `Relay restarted${r.by === 'you' ? '' : ` for ${r.by}`} and is now running the latest code. ${names}: check that the changes really work now, tell your teammate what you see, then continue.`
       : `Relay closed while ${names} ${r.who.length > 1 ? 'were' : 'was'} working. Pick up where you left off: check the files for edits you already made, tell your teammate where you are, then continue.`, null, null, { muted: true });
-    for (const who of r.who) enqueue(s.id, who, note);
+    for (const who of r.who) enqueue(s.id, who, note, null, false, { resume:true });
   }
 }
 
@@ -1163,7 +1221,7 @@ const userQueues = {
 };
 const drainingUserQueue = new Set();
 const queueUpdate = (sid) => send('chat:queue', { sid, items: (userQueues.get(sid) || []) });
-const chatBusy = (sid) => Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive);
+const chatBusy = (sid) => Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive) || requirementCoordinators.has(sid);
 function drainUserQueue(sid) {
   if (drainingUserQueue.has(sid)) return;
   const q = userQueues.get(sid);

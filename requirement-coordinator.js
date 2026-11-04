@@ -24,40 +24,46 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
     const max = Math.min(3, Math.max(1, Number(limit) || 3));
     const available = Math.max(0, max - active);
     const running = assignments.filter(a => a.status === 'running');
-    const schedulable = [...running, ...assignments.filter(a => a.status === 'queued')];
+    const waitingTasks = assignments.filter(a => a.status === 'queued' || a.status === 'reviewing');
+    const schedulable = [...running, ...waitingTasks.map(a => ({ ...a, status:'queued' }))];
     const waiting = workspaceMode === 'shared' ? schedulable.map(a => {
       const files = a.fileOwnership || a.files || [];
       return files.length ? a : { ...a, coordinatorOwned:true };
     }) : schedulable;
     const ready = workspaceMode === 'shared'
       ? readyAssignments(waiting, active + available).map(a => assignments.find(original => original.id === a.id))
-      : waiting.filter(a => a.status === 'queued').slice(0, available);
+      : waiting.filter(a => a.status === 'queued').slice(0, available).map(a => assignments.find(original => original.id === a.id));
     for (const a of ready) {
       if (active >= max) break;
-      active++; a.status = 'running'; a.progress = 0; save(a);
+      active++; if (a.status !== 'reviewing') { a.status = 'running'; a.progress = 0; } save(a);
       Promise.resolve().then(() => execute(a)).catch(error => {
         a.status = 'blocked'; a.blocker = 'worker-failed'; a.error = String(error?.message || error); a.ended = Date.now(); save(a);
       }).finally(() => {
         active--;
         launch();
-        if (active === 0 && !assignments.some(x => x.status === 'queued' || x.status === 'running')) {
+        if (active === 0 && !assignments.some(x => x.status === 'queued' || x.status === 'running' || x.status === 'reviewing')) {
           const done = settled; settled = null; done?.(assignments);
         }
       });
     }
-    if (active === 0 && !assignments.some(x => x.status === 'queued' || x.status === 'running')) {
+    if (active === 0 && !assignments.some(x => x.status === 'queued' || x.status === 'running' || x.status === 'reviewing')) {
       const done = settled; settled = null; done?.(assignments);
     }
   }
   async function execute(a) {
-    while (a.status === 'running') {
+    while (a.status === 'running' || a.status === 'reviewing') {
       a.started = a.started || Date.now();
       let work;
-      try { work = await runTask(a); }
-      catch (error) { a.status = 'blocked'; a.blocker = 'worker-failed'; a.error = String(error?.message || error); a.ended = Date.now(); save(a); return; }
-      a.changedPaths = [...new Set(Array.isArray(work?.paths) ? work.paths : [])];
-      a.workerEvidence = work?.evidence ?? work?.text ?? '';
-      a.progress = 80; save(a);
+      if (a.status === 'reviewing') {
+        work = { paths:a.changedPaths || [], evidence:a.workerEvidence || '', checkEvidence:a.checkEvidence || '' };
+      } else {
+        try { work = await runTask(a); }
+        catch (error) { a.status = 'blocked'; a.blocker = 'worker-failed'; a.error = String(error?.message || error); a.ended = Date.now(); save(a); return; }
+        a.changedPaths = [...new Set(Array.isArray(work?.paths) ? work.paths : [])];
+        a.workerEvidence = work?.evidence ?? work?.text ?? '';
+        a.checkEvidence = work?.checkEvidence || '';
+        a.status = 'reviewing'; a.progress = 90; save(a);
+      }
       let review;
       try { review = await reviewTask(a, work); }
       catch (error) { review = { verdict: 'UNKNOWN', evidence: String(error?.message || error) }; }

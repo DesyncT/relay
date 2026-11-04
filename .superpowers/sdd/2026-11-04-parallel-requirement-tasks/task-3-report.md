@@ -28,12 +28,33 @@ This task does not apply worker patches to the project checkout or declare the o
 - The task workspace collector refuses empty scope, and the integrator helper rejects nonempty patches without an explicit scope.
 - Added provider permission tests and regression assertions for unsafe scopes, blocked scheduler behavior, collection refusal, and integration refusal.
 
+## Restart recovery fix round
+
+- Persisted task workspace ownership-marker metadata on every assignment and added `validTaskWorkspace` checks for temp-root ownership, marker agreement, assignment path membership, baseline fields, isolation mode and scope.
+- Startup reconstructs requirement assignments directly from persisted state, without rerunning the planner. Interrupted `running` tasks restart as queued in their saved workspace; interrupted `reviewing` tasks resume at review using saved worker evidence. Neither state is treated as passed.
+- Missing or invalid active workspaces become visible `open` assignments with `workspace-unavailable`; recovery never substitutes the active project path.
+- Integration status is persisted before an integrator starts. Startup recognizes completed integration and marks a partially saved checklist complete, while interrupted/exhausted integration stays open and is never launched a second time.
+- Legacy sessions without assignments retain lane resume. Resume triggers bypass the regular-follow-up guard and are scheduled before the persisted user queue; the queue remains intact until resumed work settles.
+- Added recovery, workspace validation, and restart queue-order tests to `npm test`.
+
 ## Files changed
 
 - `main.js`
 - `requirement-coordinator.js`
+- `requirement-recovery.js`
 - `test-requirement-coordinator.js`
 - `test-provider-permissions.js`
+- `test-requirement-recovery.js`
+- `test-resume-queue.js`
 - `test-requirement-gate.js`
 - `package.json`
 - `.superpowers/sdd/2026-11-04-parallel-requirement-tasks/task-3-report.md`
+
+## Verification
+
+- 
+pm test passed, including requirement recovery and resume queue ordering regressions.
+- 
+pm run test:ui passed; dynamic arrow remained clear of the busy status and requirement bar.
+- Syntax checks for changed JavaScript modules and git diff --check passed.
+
