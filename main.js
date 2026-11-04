@@ -30,21 +30,21 @@ const RULE_FILES = {
   claude: path.join(HOME, '.claude', 'CLAUDE.md'),
   codex: path.join(HOME, '.codex', 'AGENTS.md'),
 };
-// Tunable limits (Settings > Limits): key -> [default, min, max, label, hint, group]. The settings page builds its inputs from this table.
+// Tunable limits (Settings > Limits): key -> [default, min, max, label, hint, group, unit]. The settings page builds its inputs from this table.
 const LIMITS = {
-  maxRequirements: [10, 1, 30, 'Max requirements', 'Largest checklist the team may write for one task', 'Tasks'],
-  parallelTasks: [0, 0, 30, 'Parallel tasks', 'Requirement tasks that run at the same time · 0 = all at once', 'Tasks'],
-  discoveryQuestions: [5, 0, 10, 'Discovery questions', 'Product questions asked before the checklist is written · 0 = skip', 'Tasks'],
-  maxTurns: [4, 1, 50, 'Max agent turns', 'Replies one message can trigger while agents @mention each other', 'Tasks'],
-  reviewerCount: [1, 1, 5, 'Quality reviewers', 'Wrap-up reviewers, each checking a different area', 'Review'],
-  reviewRounds: [4, 1, 10, 'Quality review rounds', 'Review and fix rounds before the wrap-up gives up', 'Review'],
-  soloMinutes: [4, 1, 60, 'Solo time limit (min)', 'Longest one agent may work without posting before its teammate takes over', 'Review'],
-  approvalCount: [1, 1, 5, 'Auto voters', 'Voters that must all agree before Auto answers for you', 'Auto modes'],
-  voterTimeoutSec: [60, 15, 600, 'Voter timeout (s)', 'How long each Auto / Super Auto voter may take', 'Auto modes'],
-  debateRounds: [1, 0, 3, 'Super Auto debate rounds', 'Revotes after a split, each voter reading the others first', 'Auto modes'],
-  autoAnswers: [1, 0, 20, 'Auto answers per message', 'Routine questions Auto mode answers before asking you', 'Auto modes'],
-  subagents: [3, 1, 10, 'Subagents at once', 'Helper runs per chat at the same time', 'Tasks'],
-  relayRestarts: [3, 0, 10, 'Relay self-restarts', 'Times agents may restart Relay per message', 'Review'],
+  maxRequirements: [10, 1, 30, 'Max requirements', 'Most checklist items the team writes for one task', 'Tasks'],
+  parallelTasks: [0, 0, 30, 'Parallel tasks', 'Tasks that run side by side. 0 runs them all at once', 'Tasks'],
+  discoveryQuestions: [5, 0, 10, 'Discovery questions', 'Questions asked before the checklist is written. 0 skips them', 'Tasks'],
+  maxTurns: [4, 1, 50, 'Max agent turns', 'Replies one message can set off between agents', 'Tasks'],
+  reviewerCount: [1, 1, 5, 'Quality reviewers', 'Reviewers at wrap-up, each checking a different area', 'Review'],
+  reviewRounds: [4, 1, 10, 'Review rounds', 'Review and fix passes before wrap-up stops', 'Review'],
+  soloMinutes: [4, 1, 60, 'Solo time limit', 'How long one agent works silently before its teammate steps in', 'Review', 'min'],
+  approvalCount: [1, 1, 5, 'Auto voters', 'Voters who must agree before Auto answers for you', 'Auto modes'],
+  voterTimeoutSec: [60, 15, 600, 'Voter timeout', 'How long each voter may take to answer', 'Auto modes', 's'],
+  debateRounds: [1, 0, 3, 'Debate rounds', 'Super Auto revotes after a split, each voter reading the others first', 'Auto modes'],
+  autoAnswers: [1, 0, 20, 'Auto answers', 'Routine questions Auto answers per message before asking you', 'Auto modes'],
+  subagents: [3, 1, 10, 'Subagents at once', 'Helpers one chat can run at the same time', 'Tasks'],
+  relayRestarts: [3, 0, 10, 'Relay restarts', 'Times agents may restart Relay for one message', 'Review'],
 };
 const limit = (key) => { const [def, min, max] = LIMITS[key], n = Math.trunc(Number(settings[key])); return Number.isFinite(n) && String(settings[key]).trim() !== '' ? Math.max(min, Math.min(max, n)) : def; };
 const SETTINGS_FILE = path.join(DATA, 'settings.json');

@@ -469,6 +469,15 @@
   .rule-head label .dot:only-of-type { margin-right:16px; }
   .rule-head p { margin:4px 0 0; color:var(--muted); font:12px/16px var(--mono); word-break:break-all; }
   .saved { color:var(--muted); font-size:13px; margin-left:8px; }
+  .upd { display:flex; flex-direction:column; gap:8px; width:100%; }
+  .upd-h { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .upd-h b { display:block; color:var(--text); font-size:13px; line-height:20px; font-weight:500; font-variant-numeric:tabular-nums; }
+  .upd-s { display:block; color:var(--muted); font-size:12px; line-height:16px; font-variant-numeric:tabular-nums; } .upd-s.bad { color:var(--negative); }
+  .upd-bar { height:4px; border-radius:2px; background:var(--raised); overflow:hidden; } .upd-bar i { display:block; height:100%; background:var(--claude); transition:width .3s var(--ease); }
+  .upd small { margin-top:8px; color:var(--muted); font-size:12px; }
+  .upd-notes { margin:0; max-height:192px; overflow:auto; color:var(--text-2); font-size:13px; line-height:20px; white-space:pre-wrap; }
+  .upd-err { margin:0; color:var(--text-2); font:12px/16px var(--mono); overflow-wrap:anywhere; }
+  .upd-fine { margin:0; color:var(--muted); font-size:12px; line-height:16px; }
   /* settings */
   #settings [hidden] { display:none !important; }
   #settings .page-head { align-items:flex-end; }
@@ -514,7 +523,7 @@
   .set-mode:has(input:focus-visible) { outline:2px solid var(--claude); outline-offset:2px; }
   .lim-group { margin-top:16px; } .set-sh + .lim-group { margin-top:8px; }
   .lim-group h4 { margin:0 0 8px; color:var(--text-2); font-size:13px; line-height:20px; font-weight:500; }
-  .lim-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(256px,1fr)); gap:8px; }
+  .lim-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:8px; }
   .lim { display:flex; flex-direction:column; gap:4px; padding:12px 16px; border:1px solid var(--line); border-radius:12px; background:var(--bg); transition:border-color .15s var(--ease); }
   .lim.changed { border-color:var(--line-strong); }
   .lim-h { display:flex; align-items:center; gap:8px; min-height:24px; }
@@ -522,7 +531,7 @@
   .lim-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--claude); visibility:hidden; } .lim.changed .lim-dot { visibility:visible; }
   .lim-reset { all:unset; flex:none; height:24px; padding:0 8px; border-radius:6px; color:var(--muted); font-size:12px; line-height:24px; cursor:pointer; transition:background-color .15s var(--ease), color .15s var(--ease); }
   .lim-reset:hover { color:var(--text); background:var(--raised); } .lim-reset:focus-visible { outline:2px solid var(--claude); }
-  .lim .hint { margin:0 0 8px; min-height:32px; line-height:16px; }
+  .lim .hint { margin:0 0 12px; min-height:32px; line-height:16px; text-wrap:pretty; }
   .lim-ctl { display:flex; align-items:center; gap:4px; margin-top:auto; }
   .lim-step { all:unset; box-sizing:border-box; display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--line); border-radius:8px; background:var(--raised); color:var(--text-2); cursor:pointer; transition:background-color .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease); }
   .lim-step:hover { color:var(--text); border-color:var(--line-strong); } .lim-step:active { transform:scale(.96); } .lim-step:focus-visible { outline:2px solid var(--claude); outline-offset:1px; }
@@ -530,7 +539,8 @@
   .lim-in { width:56px; height:32px; padding:0 4px; text-align:center; font:400 13px/20px var(--mono); font-variant-numeric:tabular-nums; appearance:textfield; }
   .lim-in::-webkit-inner-spin-button, .lim-in::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
   .lim-in:invalid { border-color:var(--negative); }
-  .lim-def { margin-left:auto; color:var(--muted); font:12px/16px var(--mono); font-variant-numeric:tabular-nums; }
+  .lim-def { margin-left:auto; color:var(--muted); font-size:12px; line-height:16px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .lim-unit { margin-left:4px; color:var(--muted); font-size:12px; line-height:16px; }
   .set-empty { padding:48px 0; color:var(--muted); text-align:center; }
   .set-bar { position:sticky; bottom:16px; z-index:5; display:flex; align-items:center; gap:8px; align-self:flex-end; padding:8px 8px 8px 16px; background:var(--raised); border:1px solid var(--line-strong); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.35); }
   .set-bar > span { margin-right:8px; color:var(--text-2); font-size:13px; }
@@ -641,7 +651,7 @@
   </section>
 
   <section id="settings">
-    <div class="page-head"><div><h2>Settings</h2><p>How Relay runs your agents on this computer</p></div><div class="set-tools"><span id="saved" class="saved" role="status"></span><input id="setSearch" type="search" placeholder="Find a setting" aria-label="Find a setting" spellcheck="false" autocomplete="off"></div></div>
+    <div class="page-head"><div><h2>Settings</h2><p>How Relay runs your agents on this computer</p></div><div class="set-tools"><span id="saved" class="saved" role="status"></span><button class="b ghost" id="setUpd" type="button">Check for updates</button><input id="setSearch" type="search" placeholder="Find a setting" aria-label="Find a setting" spellcheck="false" autocomplete="off"></div></div>
     <div class="set-wrap">
       <div class="set-nav" id="setNav" role="navigation" aria-label="Settings sections"></div>
       <div class="set-main">
@@ -2113,7 +2123,7 @@ function filterSettings() {
   let any = false;
   for (const sec of document.querySelectorAll('#set-profile, #settingsForm > .set-sec')) {
     const title = (sec.querySelector('h3')?.textContent || '').toLowerCase(), all = !q || title.includes(q);
-    const units = sec.id === 'set-profile' ? [] : [...sec.querySelectorAll('.set-row, .lim')];
+    const units = sec.id === 'set-profile' ? [] : [...sec.querySelectorAll('.set-row, .lim, .upd')];
     let shown = sec.id === 'set-profile' ? (sec.childElementCount && (all || sec.textContent.toLowerCase().includes(q)) ? 1 : 0) : 0;
     for (const u of units) { const hit = all || u.textContent.toLowerCase().includes(q); u.hidden = !hit; shown += hit; }
     for (const g of sec.querySelectorAll('.lim-group')) g.hidden = ![...g.querySelectorAll('.lim')].some((x) => !x.hidden);
@@ -2137,6 +2147,7 @@ function spySettings() {
   const main = $('main'), top = main.getBoundingClientRect().top + 96;
   let cur = null;
   for (const b of $('#setNav').children) { const sec = $('#set-' + b.dataset.sec); if (sec && !sec.hidden && sec.getBoundingClientRect().top <= top) cur = b; }
+  if (main.scrollTop + main.clientHeight >= main.scrollHeight - 4) cur = [...$('#setNav').children].filter((b) => !b.hidden).pop() || cur; // the last section never reaches the top
   cur ||= $('#setNav').firstElementChild;
   for (const b of $('#setNav').children) b.classList.toggle('on', b === cur);
 }
@@ -2275,12 +2286,12 @@ async function loadSettings() {
   const browse = el('button', { className: 'b', type: 'button', textContent: 'Browse', onclick: async () => { const p = await api.call('settings:pickFolder'); if (p) { cwd.value = p; cwd.dispatchEvent(new Event('input', { bubbles: true })); } } });
   const mode = el('div', { className: 'set-modes', role: 'radiogroup', ariaLabel: 'Mode for new sessions' }, ...SET_MODES.map(([k, n, d]) => el('label', { className: 'set-mode' }, el('input', { type: 'radio', name: 's-mode', value: k, checked: (s.defaultMode || 'edits') === k }), el('b', { textContent: n }), el('span', { textContent: d }))));
   const roles = el('textarea', { id: 's-supercodeInstructions', value: s.supercodeInstructions ?? '', rows: 4, placeholder: ['Claude: architecture and complex logic', 'Codex: unit tests, scripts, file scaffolding', 'Priority: critical refactors to Opus, routine tasks to Luna'].join('\n') });
-  const limTile = ([k, [def, min, max, label, hint]]) => {
+  const limTile = ([k, [def, min, max, label, hint, , unit]]) => {
     const input = el('input', { id: 's-' + k, type: 'number', min, max, step: 1, value: s[k] ?? def, className: 'lim-in', inputMode: 'numeric' });
     const reset = el('button', { className: 'lim-reset', type: 'button', textContent: 'Reset', ariaLabel: `Reset ${label} to ${def}` });
     const set = (v) => { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); };
     const nudge = (d) => el('button', { className: 'lim-step', type: 'button', ariaLabel: `${d > 0 ? 'Increase' : 'Decrease'} ${label}`, innerHTML: svgI(d > 0 ? '<path d="M12 5v14M5 12h14"/>' : '<path d="M5 12h14"/>'), onclick: () => set(Math.max(min, Math.min(max, (Math.trunc(+input.value) || 0) + d))) });
-    const tile = el('div', { className: 'lim' }, el('div', { className: 'lim-h' }, el('label', { htmlFor: 's-' + k, textContent: label }), el('span', { className: 'lim-dot', ariaHidden: 'true' }), reset), el('span', { className: 'hint', textContent: hint }), el('div', { className: 'lim-ctl' }, nudge(-1), input, nudge(1), el('span', { className: 'lim-def', textContent: `default ${k === 'parallelTasks' && !def ? 'all' : def} · ${min}–${max}` })));
+    const tile = el('div', { className: 'lim' }, el('div', { className: 'lim-h' }, el('label', { htmlFor: 's-' + k, textContent: label }), el('span', { className: 'lim-dot', ariaHidden: 'true' }), reset), el('span', { className: 'hint', textContent: hint }), el('div', { className: 'lim-ctl' }, nudge(-1), input, nudge(1), ...(unit ? [el('span', { className: 'lim-unit', textContent: unit })] : []), el('span', { className: 'lim-def', title: `Allowed ${min} to ${max}`, textContent: `Default ${k === 'parallelTasks' && !def ? 'all' : def}` })));
     const sync = () => { const changed = String(input.value) !== String(def); tile.classList.toggle('changed', changed); reset.hidden = !changed; };
     reset.onclick = () => set(def);
     input.addEventListener('input', sync); sync();
@@ -2302,7 +2313,7 @@ async function loadSettings() {
       row('s-supercodeInstructions', 'Supercode roles', 'Which model handles what, and when work moves to a stronger one', roles)),
     sec('limits', 'Limits', 'How much the team may do per task. A dot marks a value you changed', resetAll,
       ...Object.entries(groups).map(([g, items]) => el('div', { className: 'lim-group' }, el('h4', { textContent: g }), el('div', { className: 'lim-grid' }, ...items.map(limTile))))),
-    sec('updates', 'Updates', '', null, el('div', { className: 'set-row' }, upd)));
+    sec('updates', 'Updates', 'Relay downloads new versions in the background and installs them when you restart', null, upd));
   renderSetNav(); filterSettings();
   setSnap = JSON.stringify(collectSettings()); $('#setBar').hidden = true;
 }
@@ -2314,15 +2325,41 @@ function renderUpd() {
   p.hidden = state !== 'downloading' && state !== 'ready';
   p.className = state === 'ready' ? 'ready' : '';
   p.textContent = state === 'ready' ? `Restart to update v${v}` : `Update v${v} available · ${percent || 0}%`;
-  const m = $('#updMsg'); if (m) m.textContent = 'Version ' + updCur + ({ checking: ' · checking…', none: ' · up to date', downloading: ' · downloading v' + v, ready: ' · v' + v + ' ready', error: ' · update check failed' }[state] || '');
+  renderUpdCard();
+  const b = $('#setUpd');
+  if (b) { b.textContent = { checking: 'Checking', none: 'Up to date', downloading: `Downloading ${percent || 0}%`, ready: 'Restart to update', error: 'Check failed, retry' }[state] || 'Check for updates'; b.className = 'b ' + (state === 'ready' ? 'primary' : 'ghost'); b.disabled = state === 'checking' || state === 'downloading'; }
+}
+// Settings > Updates: what is installed, what is coming, and the one button that applies it
+const mb = (n) => (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + ' MB';
+const noteText = (html) => { const t = document.createElement('template'); t.innerHTML = String(html).replace(/<\/(li|p|h\d)>|<br\s*\/?>/gi, '\n'); return t.content.textContent.replace(/\n{3,}/g, '\n\n').trim(); };
+function renderUpdCard() {
+  const c = $('#updCard'); if (!c) return;
+  const { state, version: v, percent, error, notes, speed, total, checkedAt, packaged } = updSt;
+  const ago = checkedAt ? ' · checked ' + new Date(checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const status = packaged === false ? 'Updates install from the packaged app' : {
+    checking: 'Checking for updates', none: 'Up to date' + ago, downloading: `Downloading ${v} · ${percent || 0}%${total ? ` of ${mb(total)}` : ''}${speed ? ` · ${mb(speed)}/s` : ''}`,
+    ready: `Version ${v} is ready to install`, error: 'Update check failed' + ago,
+  }[state] || 'Checks every 30 minutes';
+  const btn = state === 'ready'
+    ? el('button', { className: 'b primary', type: 'button', textContent: 'Restart and install', onclick: () => api.call('update:install') })
+    : el('button', { className: 'b', type: 'button', textContent: state === 'error' ? 'Retry' : 'Check now', disabled: state === 'checking' || state === 'downloading' || packaged === false, onclick: () => { updSt = { ...updSt, state: 'checking' }; renderUpd(); api.call('update:check'); } });
+  const kids = [el('div', { className: 'upd-h' }, el('div', {}, el('b', { textContent: 'Relay ' + updCur }), el('span', { className: 'upd-s' + (state === 'error' ? ' bad' : ''), role: 'status', textContent: status })), btn)];
+  if (state === 'downloading') { const bar = el('div', { className: 'upd-bar' }, el('i')); bar.firstChild.style.width = (percent || 0) + '%'; kids.push(bar); }
+  if (state === 'error' && error) kids.push(el('p', { className: 'upd-err', textContent: error }));
+  if ((state === 'downloading' || state === 'ready') && notes) kids.push(el('small', { textContent: `What's new in ${v}` }), el('p', { className: 'upd-notes', textContent: noteText(notes) }));
+  if (state === 'ready') kids.push(el('p', { className: 'upd-fine', textContent: 'Open chats are saved first and pick up where they left off. Closing Relay also installs it' }));
+  c.replaceChildren(...kids);
 }
 function updateRow() {
-  const b = el('button', { className: 'b', textContent: 'Check for updates', type: 'button', onclick: () => api.call('update:check') });
-  return el('div', { style: 'display:flex;align-items:center;gap:12px;margin-top:20px;font-size:12px;color:var(--muted)' }, b, el('span', { id: 'updMsg' }));
+  const c = el('div', { id: 'updCard', className: 'upd' });
+  queueMicrotask(renderUpdCard);
+  return c;
 }
 api.on('update:state', (d) => { updSt = d; renderUpd(); });
 api.call('update:get').then((d) => { updSt = d; updCur = d.current; renderUpd(); });
-$('#updPill').onclick = () => { if (updSt.state === 'ready') api.call('update:install'); };
+$('#updPill').title = 'Open Settings > Updates';
+$('#setUpd').onclick = () => { if (updSt.state === 'ready') return api.call('update:install'); updSt = { ...updSt, state: 'checking' }; renderUpd(); api.call('update:check'); };
+$('#updPill').onclick = () => { if (updSt.state === 'ready') return api.call('update:install'); document.querySelector('[data-tab="settings"]')?.click(); setTimeout(() => $('#set-updates')?.scrollIntoView({ block: 'start' }), 100); };
 async function saveSettings() {
   const fields = [...document.querySelectorAll('#settingsForm input, #settingsForm textarea')];
   if (!fields.every((i) => i.checkValidity())) { $('#setSearch').value = ''; filterSettings(); fields.find((i) => !i.checkValidity())?.reportValidity(); return; }
