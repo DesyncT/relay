@@ -20,7 +20,8 @@ function init({ ipcMain, send, prepareInstall }) {
 
   const check = () => { if (st.state === 'downloading' || st.state === 'ready') return; autoUpdater.checkForUpdates().catch(() => {}); };
   ipcMain.handle('update:check', check);
-  ipcMain.handle('update:install', () => { prepareInstall?.(); autoUpdater.quitAndInstall(); }); // prepareInstall saves chat resume state first
+  // silent: no setup wizard, Relay reopens on its own; prepareInstall saves chat resume state first
+  ipcMain.handle('update:install', () => { prepareInstall?.(); autoUpdater.quitAndInstall(true, true); });
   setTimeout(check, 5000);
   setInterval(check, 30 * 60 * 1000);
 }

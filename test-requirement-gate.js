@@ -100,8 +100,8 @@ async function asks(responses, initial, count = 5) {
   await check(['@claude [req: Show requirements before editing] [pass @claude]']);
   await check([{ text: '1. [req: Show requirements before editing]', said: ['@claude [req: Show requirements before editing]\nRead the files.', '1. [req: Show requirements before editing]'] }]);
   await check(['Each on its own [req: ...] line.\n- [req: Show requirements before editing]']);
-  await asks(['1. Which page? 2. Which colours? [ask-user!]'], { items: [] });
-  await asks(['[req: Premature checklist]', 'How should matching work? [ask-user!: All filters | Weighted scoring | Rules]'], {items:[]}, 3);
+  await asks(['1. Which page? 2. Which colours? [ask-user!]'], { items: [] }, 2); // under the question cap, a question goes through
+  await asks(['How should matching work? [ask-user!: All filters | Weighted scoring | Rules]', 'Which page? [ask-user!: Home | Search | Cart]'], {items:[]}, 5); // cap reached: one retry asks for the checklist instead
   await asks(['Restarted, all good.'], null); // after a wrap-up there is no checklist to write
   const user = { from: 'user', text: 'Build it' }, ask = { from: 'claude', text: 'Which page?', askUser: true }, said = { from: 'claude', text: 'Done.' };
   assert.match(gateFor([user]), /one question at a time/); // first run asks one question
@@ -109,9 +109,10 @@ async function asks(responses, initial, count = 5) {
   assert.doesNotMatch(gateFor([user]), /numbered questions/);
   assert.match(gateFor([user, ask, user]), /answered your earlier question/); // after one answer it may ask the next
   assert.match(gateFor([user, ask, user, ask, user, ask, user]), /answered your earlier question/);
-  assert.match(gateFor([user, ask, user, ask, user, ask, user, ask, user]), /one question at a time/); // complex tasks may need more than four questions
+  assert.match(gateFor([user, ask, user, ask, user, ask, user, ask, user]), /one question at a time/); // four answered, one question left
+  assert.match(gateFor([user, ask, user, ask, user, ask, user, ask, user, ask, user]), /only writes the requirements/); // five answered: the cap is reached, write the checklist
   assert.match(gateFor([user, said, user]), /one question at a time/); // a plain reply is not a question: new task, asks again
-  assert.match(gateFor([user]), /no fixed question limit/);
+  assert.match(gateFor([user]), /at most 5 questions in total/);
   assert.match(gateFor([user]), /inspect the relevant project/);
   assert.doesNotMatch(gateFor([user], { items: [] }, true), /1 to 3/);
   assert.match(gateFor([user], { items: [], target: 2 }), /exactly 2/);
@@ -125,7 +126,7 @@ async function asks(responses, initial, count = 5) {
   assert.ok(fullBrief.includes(original), 'Preserve the entire original task even when it exceeds the recent-message truncation limit');
   assert.ok(fullBrief.includes('Use the existing URL'));
   assert.match(fullBrief, /end-to-end flows/);
-  assert.match(fullBrief, /at least 5 substantive product questions/);
+  assert.match(fullBrief, /1 of at most 5 questions answered/);
   let detailed = {items:[]};
   const longRequirement = 'Preserve the complete acceptance criterion: ' + 'specific behavior '.repeat(20);
   vm.runInNewContext(`${parser}; applyReqTags('test', tags, 'claude')`, {
