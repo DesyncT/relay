@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require.resolve('./main.js'), 'utf8');
 const parser = source.slice(source.indexOf('function applyReqTags('), source.indexOf('// A wrap-up'));
 const gate = source.slice(source.indexOf('    const request = msgs()'), source.indexOf('    if (supercodeOn(sid) && /\\[escalate'));
+const askGate = source.slice(source.indexOf('  const lastUser = sess.messages'), source.indexOf('  const notes = [resumed'));
 const dispatch = source.slice(source.indexOf('const WRAP ='), source.indexOf("ipcMain.handle('chat:queue',"));
 
 function dispatchTaggedRequest() {
@@ -25,6 +26,12 @@ function dispatchTaggedRequest() {
 }
 
 let cases = 0;
+
+// Round 1 asks the user questions, round 2 (the turn after an agent question) writes the list
+function gateFor(messages, reqs = { items: [] }, writeNow) {
+  cases += 1;
+  return vm.runInNewContext(`${askGate}; checklistGate`, { sid: 'test', sess: { messages }, reqsOf: () => reqs, writeNow });
+}
 
 async function check(responses, fails = false, initial = { items: [] }) {
   cases += 1;
@@ -92,5 +99,11 @@ async function asks(responses, initial) {
   await check(['Each on its own [req: ...] line.\n- [req: Show requirements before editing]']);
   await asks(['1. Which page? 2. Which colours? [ask-user!]'], { items: [] });
   await asks(['Restarted, all good.'], null); // after a wrap-up there is no checklist to write
+  const user = { from: 'user', text: 'Build it' }, agentAsk = { from: 'claude', text: 'Which page?', askUser: true }, agentSaid = { from: 'claude', text: 'Done.' };
+  assert.match(gateFor([user]), /only asks questions/);
+  assert.match(gateFor([user, agentAsk, user]), /only writes the requirements/);
+  assert.match(gateFor([user, agentSaid, user]), /only asks questions/);
+  assert.match(gateFor([user], { items: [], target: 2 }), /exactly 2/);
+  assert.match(gateFor([user], { items: [] }, true), /only writes the requirements/);
   console.log(`Requirement gate: ${cases} cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

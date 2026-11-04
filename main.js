@@ -353,9 +353,7 @@ function reqNote(sid, who) {
     ? `Requirements (${r.items.filter((i) => i.done).length}/${r.items.length} done):\n${r.items.map((i, n) => `${n + 1}. [${i.done ? 'x' : ' '}] ${i.t}`).join('\n')}\nKeep these requirements visible in your response, work through them, and mark completed items with [req-done: 1, 2].`
     : ''; // empty list: checklistGate in promptFor asks for them
   const lead = RT(sid).leadNow;
-  if (!r.items.length) return lead && lead !== who
-    ? `Requirements: @${lead} is writing the checklist; wait for it, then work through it with them.`
-    : `Requirements: before any coding, write ${r.target ? `exactly ${r.target}` : 'only as many as the task really needs: 1 to 3 for a small fix or question, more only for a bigger build (never pad the list)'} concrete, checkable requirements the finished work HAS to meet, one per line as [req: ...]. Each one is an outcome you can verify and tick during this session. Never write optional items, or rules like "never X" / "no X until the user says" / "only if", as requirements: those are just rules to follow. Then split them with @${otherOf(who)}.`;
+  if (!r.items.length) return lead && lead !== who ? `Requirements: @${lead} is writing the checklist; wait for it, then work through it with them.` : ''; // the lead's step is promptFor's checklistGate
   const done = r.items.filter((i) => i.done).length;
   return `Requirements (${done}/${r.items.length} done):\n${r.items.map((i, n) => `${n + 1}. [${i.done ? 'x' : ' '}] ${i.t}${!i.done && i.by ? ` (@${i.by} on it, ${i.pct || 0}%)` : ''}`).join('\n')}\nGo straight for the goal, fastest path: work only on unticked requirements, no extra polish or side quests. Every message while you work names the item you're on with [req-now: 3] and reports progress with [req-now: 3 60%] so the user can see it. Tick each one the moment it's verified, in that same message, with [req-done: 3] (several: [req-done: 1, 4]); never hold a verified one back. Rule-type items (never / no / only if / don't touch) and optional ones are met as long as you haven't broken them: tick them right away. One that turns out impossible or not needed: tick it and say why in one line. Add a missed one with [req: ...]. When all are met the session wraps up automatically; the final message lists each requirement and how it was met.`;
 }
@@ -389,7 +387,7 @@ const pastNote = (s) => [
 ].filter(Boolean).join('\n\n');
 const REQ_COUNT = /\b(\d{1,2}|one|a single|single)\s+(?:requirement|req)s?\b/i;
 
-function promptFor(sid, who, note, stand) {
+function promptFor(sid, who, note, stand, writeNow) {
   const other = who === 'claude' ? 'codex' : 'claude', leadNow = RT(sid).leadNow;
   // Reviewer verdicts are fed to the fixer via `note`; resending 5 of them per round in history dominated per-message tokens
   // only the current task: everything up to the last wrap-up is closed and shows up as a short "finished earlier" list instead
@@ -406,7 +404,12 @@ function promptFor(sid, who, note, stand) {
   const resumed = !supercodeOn(sid) && sess.cli?.[who];
   const past = (!resumed || firstAfter) && pastNote(sess);
   // this run is read-only and only writes the checklist; telling it to start the task made agents report "blocked / plan mode" to the user
-  const checklistGate = `Requirements: this step only writes the requirements. Write ${reqsOf(sid)?.target ? `exactly ${reqsOf(sid).target}` : '1 to 3'} concrete, checkable requirements the finished work HAS to meet, each on its own [req: ...] line, then stop: no tools, no work on the task yet, no plan, and no remarks about permissions. Never pad the list or include optional items or rules. Your next run has full permissions and does the work. If the request leaves real choices open (scope, look, budget), instead ask the user up to 5 short numbered questions and end with [ask-user!]; write the requirements after they answer.`;
+  // round 1 asks the user about the exact result; their answer is a new request, which is round 2 and writes the list (a typed "N requirements" skips round 1)
+  const lastUser = sess.messages.findLastIndex((m) => m.from === 'user'), before = sess.messages.slice(0, Math.max(0, lastUser)).findLast((m) => m.from !== 'user' && m.from !== 'system');
+  const askFirst = !writeNow && !reqsOf(sid)?.target && !before?.askUser;
+  const checklistGate = askFirst
+    ? `Requirements: this step only asks questions. Ask the user 3 to 5 short numbered questions about the exact result they want: what should change, how it should look or behave, limits, and how they will check it is right. Give 2 or 3 example answers per question when useful, then end with [ask-user!]. Do not write requirements yet; no tools, no work on the task, no plan, and no remarks about permissions.`
+    : `Requirements: this step only writes the requirements. Write ${reqsOf(sid)?.target ? `exactly ${reqsOf(sid).target}` : '1 to 3'} concrete, checkable requirements the finished work HAS to meet (use the user's answers if they gave any), each on its own [req: ...] line, then stop: no questions, no tools, no work on the task yet, no plan, and no remarks about permissions. Never pad the list or include optional items or rules. Your next run has full permissions and does the work.`;
   const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, reqNote(sid, who), !reqsOf(sid)?.items?.length && checklistGate].filter(Boolean).join('\n\n');
   // Resumed CLI session: it already has the whole conversation, so send just what's new, exactly like typing in the terminal
   if (resumed) {
@@ -490,7 +493,7 @@ async function ask(sid, who, trigger, isLead) {
     if (writingChecklist && !/\[ask-user/i.test(r.text)) { // questions first: the answer is a new request, which writes the checklist
       applyReqTags(sid, saidOf(r), who);
       if (!reqsOf(sid)?.items?.length) {
-        const retry = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'Your previous response did not write any [req: ...] lines. Write 1 to 3 concrete, checkable requirements now, one per line, before doing anything else.', s), trigger, { lead: isLead, tag, readonly: true });
+        const retry = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'Your previous response did not write any [req: ...] lines. Write 1 to 3 concrete, checkable requirements now, one per line, before doing anything else.', s, true), trigger, { lead: isLead, tag, readonly: true });
         usage = addUsage(usage, retry.usage); r = retry; rd = r.rd; prov = r.prov;
         applyReqTags(sid, saidOf(r), who);
       }
