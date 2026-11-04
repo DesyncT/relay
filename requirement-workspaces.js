@@ -47,19 +47,52 @@ function overlappingAssignments(assignments) {
   return result;
 }
 function sharedResult(projectPath, assignments, reason) {
-  const tasks = assignments.map(a => ({
-    id: a.id, assignmentId: a.id, requirementIndex: a.requirementIndex,
-    path: projectPath, taskPath: projectPath, files: normalizeOwnedPaths(a.files || a.fileOwnership),
-    baselineCommit: null, baselineRef: null, mode: 'shared',
-  }));
-  return { mode: 'shared', base: null, tasks, sharedOverlaps: overlappingAssignments(assignments), reason,
-    cleanup: [], cleanupTasks: () => cleanupTaskWorkspaces({ cleanup: [] }) };
+  let root;
+  try {
+    if (fs.lstatSync(projectPath).isSymbolicLink()) throw new Error('Project root is a symbolic link');
+    root = fs.mkdtempSync(path.join(os.tmpdir(), `relay-req-shared-${crypto.randomBytes(6).toString('hex')}-`));
+    const snapshot = path.join(root, 'snapshots'); fs.mkdirSync(snapshot);
+    const tasks = assignments.map((assignment, index) => {
+      const id = String(assignment.id || `requirement-${assignment.requirementIndex ?? index}`);
+      const taskPath = path.join(snapshot, `${id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'task'}-${index}`);
+      fs.mkdirSync(taskPath);
+      copyProjectSnapshot(projectPath, taskPath);
+      runGit(taskPath, ['init', '-q']);
+      runGit(taskPath, ['config', 'user.name', 'Relay Task Snapshot']);
+      runGit(taskPath, ['config', 'user.email', 'relay-snapshot@localhost']);
+      runGit(taskPath, ['add', '-A']);
+      runGit(taskPath, ['-c', 'core.safecrlf=false', 'commit', '-qm', 'Relay isolated task baseline']);
+      const baselineCommit = gitText(taskPath, ['rev-parse', 'HEAD']);
+      const baselineRef = `refs/relay-task-baselines/${crypto.createHash('sha256').update(`${id}:${index}`).digest('hex').slice(0, 16)}`;
+      runGit(taskPath, ['update-ref', baselineRef, baselineCommit]);
+      const files = normalizeOwnedPaths(assignment.files || assignment.fileOwnership);
+      if (!files.length) throw new Error(`Assignment ${id} has no explicit safe file scope`);
+      return { id, assignmentId: id, requirementIndex: assignment.requirementIndex, path: taskPath, taskPath,
+        files, baselineCommit, baselineRef, repo: taskPath, mode: 'shared', isolated: true };
+    });
+    const baselineRef = `isolated-${crypto.randomBytes(6).toString('hex')}`;
+    const marker = path.join(root, OWNED_MARKER);
+    fs.writeFileSync(marker, JSON.stringify({ root, snapshot, baselineRef, tasks: tasks.map(task => task.path) }));
+    const cleanup = [{ root, marker, snapshot, baselineRef, paths: tasks.map(task => task.path) }];
+    return { mode: 'shared', base: null, tasks, sharedOverlaps: overlappingAssignments(assignments), reason,
+      isolated: true, cleanup, cleanupTasks: () => cleanupTaskWorkspaces({ cleanup }) };
+  } catch (error) {
+    if (root && fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true });
+    const failedReason = `${reason}; isolated fallback failed: ${error.message}`;
+    return { mode: 'shared', base: null, tasks: assignments.map((a, index) => ({
+      id: a.id, assignmentId: a.id, requirementIndex: a.requirementIndex, path: null, taskPath: null,
+      files: normalizeOwnedPaths(a.files || a.fileOwnership), baselineCommit: null, baselineRef: null,
+      mode: 'shared', isolated: false, blocked: true,
+    })), sharedOverlaps: overlappingAssignments(assignments), reason: failedReason, blocked: true,
+      cleanup: [], cleanupTasks: () => cleanupTaskWorkspaces({ cleanup: [] }) };
+  }
 }
 
 function createTaskWorkspaces(projectPath, sessionId, assignments) {
   const project = path.resolve(projectPath);
   const list = Array.isArray(assignments) ? assignments : [];
-  if (!fs.statSync(project).isDirectory()) throw new Error('Project path must be a directory');
+  try { if (!fs.statSync(project).isDirectory()) return sharedResult(project, list, 'Project path is not a directory'); }
+  catch (error) { return sharedResult(project, list, error.message); }
   let tempRoot;
   try {
     const gitRoot = path.resolve(gitText(project, ['rev-parse', '--show-toplevel']));
@@ -100,7 +133,7 @@ function createTaskWorkspaces(projectPath, sessionId, assignments) {
 
 function collectTaskChanges(workspace) {
   if (!workspace || !Array.isArray(workspace.files) || !workspace.files.length) throw new Error('Cannot collect changes from a task without an explicit file scope');
-  if (workspace.mode === 'shared') return { paths: [], patch: Buffer.alloc(0), mode: 'shared', assignmentId: workspace && workspace.assignmentId };
+  if (workspace.mode === 'shared' && !workspace.isolated) return { paths: [], patch: Buffer.alloc(0), mode: 'shared', assignmentId: workspace && workspace.assignmentId };
   const baseline = workspace.baselineCommit;
   const scope = workspace.files;
   const addArgs = ['add', '-A', '--'];

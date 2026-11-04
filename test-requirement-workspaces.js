@@ -89,11 +89,20 @@ try {
   // A patch cannot smuggle an unrelated file by claiming only an allowed path.
   {
     const project = repo('scope-smuggling');
-    const result = createTaskWorkspaces(project, 'scope-session', [{ id: 'scoped', requirementIndex: 0, files: ['tracked.txt'] }]);
+    const result = createTaskWorkspaces(project, 'scope-session', [{ id: 'scoped', requirementIndex: 0, files: ['tracked.txt', 'nested/owned.txt'] }]);
     const task = result.tasks[0];
     fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'allowed worker change\n');
     fs.writeFileSync(path.join(task.path, 'nested', 'owned.txt'), 'unrelated worker change\n');
     const changes = collectTaskChanges(task);
+    changes.paths = ['tracked.txt'];
+    assert.ok(applyTaskChanges(project, changes).length, 'unreviewed patch path must be rejected');
+    assert.equal(read(project, 'tracked.txt'), 'base\n');
+    assert.equal(read(project, 'nested/owned.txt'), 'owned base\n');
+    changes.paths = ['tracked.txt', 'nested/owned.txt'];
+    changes.scope = ['tracked.txt'];
+    assert.ok(applyTaskChanges(project, changes).length, 'assignment scope must be enforced');
+    assert.equal(read(project, 'tracked.txt'), 'base\n');
+    assert.equal(read(project, 'nested/owned.txt'), 'owned base\n');
     task.files = []; // An empty scope must never become a whole-repository patch.
     assert.throws(() => collectTaskChanges(task), /scope|unscoped/i);
     assert.ok(applyTaskChanges(project, { ...changes, scope:[] }).length, 'integrator rejects a patch without explicit file scope');
@@ -106,8 +115,27 @@ try {
   {
     const project = path.join(tempRoot, 'plain'); fs.mkdirSync(project); fs.writeFileSync(path.join(project, 'file.txt'), 'keep');
     const result = createTaskWorkspaces(project, 'plain-session', [{ id: 'plain', requirementIndex: 0, files: ['file.txt'] }]);
-    assert.equal(result.mode, 'shared'); assert.equal(result.tasks[0].path, project);
-    assert.equal(read(project, 'file.txt'), 'keep'); cleanupTaskWorkspaces(result);
+    assert.equal(result.mode, 'shared'); assert.notEqual(result.tasks[0].path, project);
+    assert.ok(result.tasks[0].path && !path.relative(os.tmpdir(), result.tasks[0].path).startsWith('..'), result.reason);
+    fs.writeFileSync(path.join(result.tasks[0].path, 'file.txt'), 'worker file\n');
+    fs.writeFileSync(path.join(result.tasks[0].path, 'unrelated.txt'), 'should remain isolated\n');
+    const changes = collectTaskChanges(result.tasks[0]);
+    assert.deepEqual(changes.paths, ['file.txt']);
+    assert.equal(applyTaskChanges(project, changes).length, 0);
+    assert.equal(read(project, 'file.txt'), 'worker file\n');
+    assert.equal(fs.existsSync(path.join(project, 'unrelated.txt')), false);
+    cleanupTaskWorkspaces(result);
+    const unsafe = repo('setup-failure');
+    const symlinkTarget = path.join(tempRoot, 'symlink-target'); fs.mkdirSync(symlinkTarget); fs.writeFileSync(path.join(symlinkTarget, 'keep.txt'), 'outside data');
+    const link = path.join(unsafe, 'external');
+    try {
+      fs.symlinkSync(symlinkTarget, link, process.platform === 'win32' ? 'junction' : 'dir');
+      const blocked = createTaskWorkspaces(unsafe, 'blocked-session', [{ id: 'blocked', requirementIndex: 1, files: ['tracked.txt'] }]);
+      assert.equal(blocked.blocked, true); assert.equal(blocked.tasks[0].path, null); assert.equal(blocked.tasks[0].taskPath, null);
+      assert.equal(fs.readFileSync(path.join(symlinkTarget, 'keep.txt'), 'utf8'), 'outside data');
+    } catch (error) {
+      if (error.code !== 'EPERM' && error.code !== 'EACCES' && error.code !== 'ENOTSUP') throw error;
+    }
     const outside = path.join(tempRoot, 'outside'); fs.mkdirSync(outside); fs.writeFileSync(path.join(outside, 'important'), 'keep');
     assert.ok(cleanupTaskWorkspaces({ cleanup: [{ path: outside, marker: 'not-owned' }] }).length);
     assert.equal(fs.readFileSync(path.join(outside, 'important'), 'utf8'), 'keep');

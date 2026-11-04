@@ -380,7 +380,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch) {
   const runnableAssignments = assignments.filter(a => a.status === 'queued');
   let workspaces;
   try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
-  catch (error) { workspaces = { mode:'shared', tasks: runnableAssignments.map(a => ({ id:a.id, path:cwdFor(sid), taskPath:cwdFor(sid), files:a.files, mode:'shared' })), reason:error.message }; }
+  catch (error) { workspaces = { mode:'shared', blocked:true, tasks: runnableAssignments.map(a => ({ id:a.id, assignmentId:a.id, path:null, taskPath:null, files:a.files, mode:'shared', blocked:true })), reason:error.message }; }
   const byId = new Map(workspaces.tasks.map(w => [w.assignmentId || w.id, w]));
   for (const a of assignments) Object.assign(a, { workspace: byId.get(a.id) || null, workspaceMode:workspaces.mode });
   const providerOrder = available.length ? available : [owner];
@@ -393,14 +393,16 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch) {
       if (a.status !== 'running' || a.blocker === 'missing-file-scope' || !a.files?.length || !a.workspace?.files?.length) throw new Error('Task cannot run without an explicit assigned file scope');
       if (epoch !== rt.epoch) throw new Error('Workflow cancelled');
       const ws = a.workspace;
+      const workerPath = ws.path && path.resolve(ws.path), projectPath = path.resolve(cwdFor(sid));
+      if (!workerPath || ws.blocked || (process.platform === 'win32' ? workerPath.toLowerCase() === projectPath.toLowerCase() : workerPath === projectPath)) throw new Error('Task cannot run without an isolated workspace');
       const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.`;
       const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
       let changes = { paths:[], patch:Buffer.alloc(0) };
-      if (ws.mode !== 'shared') {
+      if (ws.mode !== 'shared' || ws.isolated) {
         if (!ws.files?.length) throw new Error('Task cannot collect changes without an explicit assigned file scope');
         changes = collectTaskChanges(ws);
       }
-      const paths = ws.mode === 'shared' ? [...new Set((result.activity || []).filter(x => ['create','edit','delete'].includes(x.kind)).map(x => x.file || x.abs).filter(Boolean))] : changes.paths;
+      const paths = ws.mode === 'shared' && !ws.isolated ? [...new Set((result.activity || []).filter(x => ['create','edit','delete'].includes(x.kind)).map(x => x.file || x.abs).filter(Boolean))] : changes.paths;
       a.patch = changes.patch?.toString('base64') || '';
       let checkEvidence = 'No package test script was available.';
       try {
