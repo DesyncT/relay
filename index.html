@@ -1682,6 +1682,8 @@ function renderTyping() {
   if (ws.length > 1 && ws.every((w) => act[w].status === 'typing')) return $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [i === ws.length - 1 ? ' and ' : ', '] : []), nm(w)]), ' are typing…');
   $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [sep()] : []), avatar(w, 1, null, modelProvider(act[w].model)), nm(w), RoutingUI.badge(act[w].model, act[w].effort), ` is ${act[w].status}`, el('span', { className: 'mono', textContent: dur(Date.now() - act[w].since) })]));
 }
+// same rule as requirement-workflow pathsOverlap: a file is covered by itself or a folder above it
+const pathsOverlapUi = (a, b) => { const k = (p) => String(p).toLowerCase().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''); const x = k(a), y = k(b); return !!x && !!y && (x === y || x.startsWith(y + '/') || y.startsWith(x + '/')); };
 // Requirements checklist progress (main.js reqs): bar + count, click to see the list
 function renderReqs(r) {
   const box = $('#reqbar'), items = r?.items || [];
@@ -1712,16 +1714,25 @@ function renderReqs(r) {
     const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
     const progress = Math.max(0, Math.min(100, Number(a.progress) || 0));
     return [el('span', { className:`rq-assignment-state ${status}`, textContent:state }),
-      el('span', { className:'rq-assignment-route', title:[a.provider, a.model, a.effort].filter(Boolean).join(' · '), textContent:[a.provider && `Worker ${a.provider}`, (a.model || a.effort) && `Model ${[a.model, a.effort].filter(Boolean).join(' / ')}`].filter(Boolean).join(' · ') }),
-      el('span', { className:'rq-assignment-progress', title:`Progress ${progress}%` }, el('span', { className:'rq-assignment-track' }, el('i', { style:`width:${progress}%` })), el('span', { textContent:`Progress ${progress}%` })),
+      el('span', { className:'rq-assignment-route', title:[a.provider, a.model, a.effort].filter(Boolean).join(' · '), textContent:[a.provider, [a.model, a.effort].filter(Boolean).join(' ')].filter(Boolean).join(' · ') }),
+      el('span', { className:'rq-assignment-progress', title:`Progress ${progress}%` }, el('span', { className:'rq-assignment-track' }, el('i', { style:`width:${progress}%` })), el('span', { textContent:`${progress}%` })),
       ...(review ? [el('span', { className:'rq-assignment-review', title:evidence.map(x => x.evidence || x.verdict || '').filter(Boolean).join('\n'), textContent:review })] : []),
       ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || a.blocker, textContent:`Blocked · ${a.blocker}` })] : [])];
   };
   const list = el('ol', {}, ...items.map((i, n) => {
     const a = assignmentByIndex.get(n);
-    return el('li', { className: i.done ? 'done' : i.by ? 'now' : n === next ? 'next' : '' },
-      el('span', { className:'rq-ic', innerHTML:i.done ? svgI('<path d="M20 6 9 17l-5-5"/>') : '' }),
-      el('span', { className:'rq-content' }, el('span', { className:'rq-title', textContent:i.t }), ...(!i.done && i.by ? [who(i)] : []), ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a))] : [])));
+    // quoted text ("DE MORTELEN · KEUZEHULP") is the exact thing to match, so it reads as code
+    const title = el('span', { className:'rq-title' }, ...String(i.t).split(/("[^"\n]{1,120}")/).map((p, k) => k % 2 ? el('code', { textContent:p.slice(1, -1) }) : p));
+    const live = !i.done && (i.by || a?.status === 'running' || a?.status === 'reviewing'), worker = a?.provider || i.by;
+    // the spinner carries the logo of the model working on it
+    const ic = i.done ? svgI('<path d="M20 6 9 17l-5-5"/>') : live && worker ? logo(worker === 'claude' ? 'claude' : worker === 'antigravity' ? 'antigravity' : 'openai', 10, worker === 'claude' ? '#D97757' : worker === 'antigravity' ? '#4E88F5' : '#fff') : '';
+    // a queued task waits because it edits the same files as a running one; say which
+    const blocker = a?.status === 'queued' && (r.assignments || []).find((b) => b !== a && (b.status === 'running' || b.status === 'reviewing') && (b.files || []).some((f) => (a.files || []).some((g) => pathsOverlapUi(f, g))));
+    return el('li', { className: i.done ? 'done' : live ? 'now' : n === next ? 'next' : '' },
+      el('span', { className:'rq-n', textContent:String(n + 1).padStart(2, '0') }),
+      el('span', { className:'rq-ic', innerHTML:ic, title: live && worker ? `${worker} is working on this` : '' }),
+      el('span', { className:'rq-content' }, title, ...(!i.done && i.by && !a ? [who(i)] : []),
+        ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a), ...(blocker ? [el('span', { className:'rq-wait', textContent:`Waits for #${Number(blocker.requirementIndex) + 1}, same files` })] : []))] : [])));
   }));
   // End task: two clicks (the first one asks), never toggles the dropdown
   if (!r.idle) {

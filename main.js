@@ -424,7 +424,11 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     if (epoch !== rt.epoch) return null;
     // finished items (a continued checklist) get no task; a plan entry for one is dropped instead of failing the whole run
     const open = checklist.map((item) => item.done ? { ...item, actionable: false } : item);
-    assignments = createAssignments(open, plan.filter((e) => open[e?.requirementIndex] && open[e.requirementIndex].actionable !== false), routes, available);
+    // the planner sometimes names its own model or effort, or a provider that is off: snap each entry to a configured route instead of failing the run
+    const routeFor = (p) => available.includes(p) && routes[p]?.coding ? p : available.find((x) => routes[x]?.coding);
+    const fixed = plan.filter((e) => open[e?.requirementIndex] && open[e.requirementIndex].actionable !== false)
+      .map((e) => { const p = routeFor(e.provider); return p ? { ...e, provider: p, model: routes[p].coding.model, effort: routes[p].coding.effort } : e; });
+    assignments = createAssignments(open, fixed, routes, available);
     for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
     const runnableAssignments = assignments.filter(a => a.status === 'queued');
     try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }

@@ -85,7 +85,7 @@ app.whenReady().then(async () => {
     return {text, compact, recovered, overflow:finalRows.some(row=>row.scrollWidth>row.clientWidth), details:finalRows.map(row=>row.querySelector('.rq-assignment')?.getBoundingClientRect().right <= row.getBoundingClientRect().right+1)};
   })()`);
   assert.equal(assignments.text.length, 6);
-  for (const label of ['queued','running','reviewing','passed','escalated','blocked','worker codex','model gpt-6.1-terra-with-a-very-long-model-name','high','progress 37%','review 2','review-unknown']) {
+  for (const label of ['queued','running','reviewing','passed','escalated','blocked','codex · gpt-6.1-terra-with-a-very-long-model-name high','37%','review 2','review-unknown']) {
     assert.ok(assignments.text.join(' ').toLowerCase().includes(label.toLowerCase()), `Assignment UI should show ${label}`);
   }
   assert.equal(assignments.overflow, false, 'Long assignment metadata must fit compact rows');
@@ -118,7 +118,7 @@ app.whenReady().then(async () => {
   const spin = await win.webContents.executeJavaScript(`(() => {
     renderReqs({items:[{t:'Active requirement',done:false,by:'claude',pct:40}]});
     const icon = document.querySelector('#reqbar li.now .rq-ic');
-    return {name:getComputedStyle(icon).animationName, reduced:matchMedia('(prefers-reduced-motion: reduce)').matches};
+    return {name:getComputedStyle(icon, '::after').animationName, reduced:matchMedia('(prefers-reduced-motion: reduce)').matches};
   })()`);
   if (spin.reduced) assert.equal(spin.name, 'none');
   else assert.equal(spin.name, 'rqSpin', 'Active requirement icons must keep spinning when motion is enabled');
