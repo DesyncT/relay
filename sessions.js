@@ -105,8 +105,8 @@ function createSessions({ dataDir, send = () => {} }) {
   function createSession(projectId, title) {
     project(projectId);
     const now = Date.now();
-    const s = { id: uid(), projectId, title: String(title || '').trim() || 'New session', created: now, updated: now, messages: [], unread: false, auto: !title, supercode: false };
-    index.push({ id: s.id, projectId, order: Math.min(0, ...index.filter((x) => x.projectId === projectId).map((x) => x.order)) - 1, title: s.title, created: now, updated: now, unread: false, auto: s.auto, supercode: false });
+    const s = { id: uid(), projectId, title: String(title || '').trim() || 'New session', created: now, updated: now, messages: [], unread: false, auto: !title, supercode: true };
+    index.push({ id: s.id, projectId, order: Math.min(0, ...index.filter((x) => x.projectId === projectId).map((x) => x.order)) - 1, title: s.title, created: now, updated: now, unread: false, auto: s.auto, supercode: true });
     cache.set(s.id, s); persist(s); emit('sessions', s.id);
     return { ...s };
   }

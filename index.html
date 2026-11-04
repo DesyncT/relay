@@ -1826,10 +1826,10 @@ $('#leadPick').onclick = (e) => toggleLeadMenu(undefined, e.detail === 0);
 document.addEventListener('mousedown', (e) => { if (!$('#leadMenu').hidden && !e.target.closest('#leadMenu, #leadPick')) toggleLeadMenu(false); });
 $('#leadMenu').onkeydown = (e) => { if (e.key === 'Escape') { toggleLeadMenu(false); $('#leadPick').focus(); } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const b = [...$('#leadMenu').children], i = b.indexOf(document.activeElement); b[(i + (e.key === 'ArrowDown' ? 1 : -1) + b.length) % b.length].focus(); } };
 // This controls who answers routine decisions; permissions are always full.
-const MODES = [['edits', 'Full access', 'Agents can edit files and run commands'], ['auto', 'Auto', 'Full access; agents also resolve routine decisions']];
+const MODES = [['edits', 'Full access', 'Agents can edit files and run commands'], ['auto', 'Auto', 'Full access; agents also resolve routine decisions'], ['super', 'Super Auto', 'Overnight: AI voters answer every question and the team wraps up on its own']];
 let modeCur = 'edits';
 function renderMode(mode) {
-  if (mode) modeCur = mode === 'auto' ? 'auto' : 'edits';
+  if (mode) modeCur = MODES.some(x => x[0] === mode) ? mode : 'edits';
   const m = MODES.find(x => x[0] === modeCur), c = $('#modeChip');
   c.classList.remove('bp', 'on'); c.textContent = m[1];
   c.title = 'Filesystem and network access are always enabled';
@@ -1846,7 +1846,7 @@ function drawMode() {
 function toggleModeMenu(open = $('#modeMenu').hidden, kb) { $('#modeMenu').hidden = !open; $('#modeChip').setAttribute('aria-expanded', open); if (open) { drawMode(); if (kb) $('#modeMenu .mi')?.focus(); } }
 $('#modeChip').onclick = (e) => toggleModeMenu(undefined, e.detail === 0);
 document.addEventListener('mousedown', (e) => { if (!$('#modeMenu').hidden && !e.target.closest('#modeMenu, #modeChip')) toggleModeMenu(false); });
-document.addEventListener('keydown', (e) => { if ($('#modeMenu').hidden) return; if (e.key === 'Escape') { toggleModeMenu(false); $('#modeChip').focus(); } else if (/^[1-2]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !$('#modeMenu .mm-p')) { e.preventDefault(); pickMode(MODES[+e.key - 1][0]); } });
+document.addEventListener('keydown', (e) => { if ($('#modeMenu').hidden) return; if (e.key === 'Escape') { toggleModeMenu(false); $('#modeChip').focus(); } else if (/^[1-3]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !$('#modeMenu .mm-p')) { e.preventDefault(); pickMode(MODES[+e.key - 1][0]); } });
 api.on('chat:mode', (d) => { if (d.sid === openSid) renderMode(d.mode, d.bypass); });
 function refreshCfg() { return api.call('settings:get').then((s) => { cfg = s; renderLead(openSid ? leadCur : s.lead || leadCur); }).catch(() => {}); }
 renderLead('claude'); renderMode(); refreshCfg();

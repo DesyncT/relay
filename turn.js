@@ -7,8 +7,8 @@ const otherOf = (who) => (who === 'claude' ? 'codex' : 'claude');
 function answeredQuestions(messages) {
   let count = 0;
   for (let u = messages.findLastIndex(m => m.from === 'user'); u > 0; count++) {
-    const a = messages.slice(0,u).findLastIndex(m => m.from !== 'user' && m.from !== 'system');
-    if (a < 0 || !messages[a].askUser) break;
+    const a = messages.slice(0,u).findLastIndex(m => m.from !== 'user' && m.from !== 'system' && m.from !== 'auto');
+    if (a < 0 || !(messages[a].askUser || messages[a].autoAsk)) break; // autoAsk: the auto voters answered it
     u = messages.slice(0,a).findLastIndex(m => m.from === 'user');
   }
   return count;

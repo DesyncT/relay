@@ -6,6 +6,8 @@ const { fullAccessArgs } = require('./permissions');
 assert.deepEqual(fullAccessArgs(['--sandbox', 'read-only', '-a', 'on-request', '-c', 'sandbox_mode="read-only"', '--model', 'example'], 'codex'), ['--model','example','--dangerously-bypass-approvals-and-sandbox']);
 assert.deepEqual(fullAccessArgs(['--permission-mode=plan', '--tools', 'Read', '--model', 'example'], 'claude'), ['--model','example','--dangerously-skip-permissions']);
 assert.deepEqual(fullAccessArgs(['exec','resume','session','--full-auto','--config=approval_policy="on-request"'], 'codex'), ['exec','resume','session','--dangerously-bypass-approvals-and-sandbox']);
+// Super Auto: a question the voters answered (agent autoAsk, then the auto verdict, then the viaAuto reply) still counts as answered
+assert.equal(answeredQuestions([{from:'user',text:'build x'},{from:'claude',text:'Q1?',autoAsk:true},{from:'auto',text:'Intent: A'},{from:'user',text:'A',viaAuto:true},{from:'claude',text:'Q2?',askUser:true},{from:'user',text:'B'}]), 2);
 
 const tag = '[ask-user!: Yes, one at a time | Show all questions at once | Keep current behavior | Something else :: type your own answer]';
 for (const raw of [`Which outcome matters most? ${tag}`, `Which outcome matters most? ${tag}\nChoose an answer below.`]) {
