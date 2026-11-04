@@ -48,7 +48,7 @@
 - [ ] **Step 1: Write failing tests** for one-to-one actionable requirement coverage, preservation-only constraints, invalid/duplicate plan entries, exact route validation, provider overrides, and bounded strictly stronger escalation.
 - [ ] **Step 2: Run `node test-requirement-workflow.js`** and confirm it fails because the module/API is absent.
 - [ ] **Step 3: Implement the minimal pure workflow module** using `routing.js` route definitions; reject invalid provider/model/effort combinations rather than silently inventing them.
-- [ ] **Step 4: Add the test to `npm test` and run it**; confirm invalid plans fall back to a single safe coordinator-owned task rather than dropping requirements.
+- [ ] **Step 4: Add the test to `npm test` and run it**; when coordinator output is incomplete, duplicated, or otherwise invalid, preserve all checklist coverage by assigning a serialized coordinator-owned fallback task per affected requirement using an actual configured coding route. Never accept an invalid model route or silently substitute a guessed model.
 
 ### Task 2: Safe task workspaces and change transfer
 
