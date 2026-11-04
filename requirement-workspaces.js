@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { scopeCovers, pathsOverlap } = require('./requirement-workflow');
 
 const OWNED_MARKER = '.relay-requirement-workspaces.json';
 function runGit(cwd, args, input) {
@@ -42,7 +43,7 @@ function overlappingAssignments(assignments) {
   for (let i = 0; i < assignments.length; i++) for (let j = i + 1; j < assignments.length; j++) {
     const left = normalizeOwnedPaths(assignments[i].files || assignments[i].fileOwnership);
     const right = normalizeOwnedPaths(assignments[j].files || assignments[j].fileOwnership);
-    if (!left.length || !right.length || left.some(a => right.some(b => a.toLowerCase() === b.toLowerCase()))) result.push([assignments[i].id, assignments[j].id]);
+    if (!left.length || !right.length || left.some(a => right.some(b => pathsOverlap(a, b)))) result.push([assignments[i].id, assignments[j].id]);
   }
   return result;
 }
@@ -178,7 +179,7 @@ function applyTaskChanges(projectPath, changes) {
     const actualPaths = readPatchPaths(candidate, patch);
     const declared = new Set(paths);
     const outsideDeclared = actualPaths.filter(p => !declared.has(p));
-    const outsideScope = scope.length ? actualPaths.filter(p => !scope.includes(p)) : [];
+    const outsideScope = scope.length ? actualPaths.filter(p => !scope.some(s => scopeCovers(s, p))) : [];
     if (outsideDeclared.length || outsideScope.length) {
       return [{ paths: [...new Set([...outsideDeclared, ...outsideScope])], error: 'Patch paths exceed the reviewed or assigned scope' }];
     }
@@ -211,6 +212,24 @@ function cleanupTaskWorkspaces(workspaces) {
     } catch (error) { errors.push(error.message); }
   }
   return errors;
+}
+
+// Fingerprint of each changed or untracked file in a Git project root, to see which paths a live-project run touched; null outside a Git root.
+function projectChanges(project) {
+  try {
+    if (path.resolve(gitText(project, ['rev-parse', '--show-toplevel'])) !== path.resolve(project)) return null;
+    const entries = runGit(project, ['status', '--porcelain=v1', '-z', '-uall', '--no-renames']).toString('utf8').split(' ').filter(Boolean);
+    return new Map(entries.map(entry => {
+      const file = entry.slice(3);
+      let hash; try { hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(project, file))).digest('hex'); } catch { hash = 'missing'; }
+      return [file, entry.slice(0, 2) + hash];
+    }));
+  } catch { return null; }
+}
+function touchedSince(project, before) {
+  const after = before && projectChanges(project);
+  if (!after) return null;
+  return [...new Set([...before.keys(), ...after.keys()])].filter(file => before.get(file) !== after.get(file)).sort();
 }
 
 function validTaskWorkspace(workspace, assignment) {
@@ -254,4 +273,4 @@ function validTaskWorkspace(workspace, assignment) {
   } catch { return false; }
 }
 
-module.exports = { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace };
+module.exports = { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince };

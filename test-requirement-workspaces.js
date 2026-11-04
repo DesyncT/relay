@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace } = require('./requirement-workspaces');
+const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-workspaces-test-'));
 function git(cwd, ...args) { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
@@ -70,6 +70,37 @@ try {
     assert.match(changes.patch.toString('utf8'), /worker commit/);
     assert.doesNotMatch(changes.patch.toString('utf8'), /out of scope/);
     cleanupTaskWorkspaces(result); assert.equal(fs.existsSync(task.path), false);
+  }
+
+  // Folder scopes: an edit inside an assigned folder applies, overlap with a file in it is reported, and files outside stay out.
+  {
+    const project = repo('folder');
+    const result = createTaskWorkspaces(project, 'folder-session', [{ id: 'dir', files: ['nested/'] }, { id: 'file', files: ['nested/owned.txt'] }]);
+    assert.deepEqual(result.sharedOverlaps, [['dir', 'file']], 'a folder scope overlaps a file inside it');
+    const task = result.tasks[0];
+    fs.writeFileSync(path.join(task.path, 'nested', 'owned.txt'), 'folder worker\n');
+    fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'outside folder\n');
+    const changes = collectTaskChanges(task);
+    assert.deepEqual(changes.paths, ['nested/owned.txt']);
+    assert.deepEqual(applyTaskChanges(project, changes), [], 'a change inside a folder scope applies');
+    assert.equal(read(project, 'nested/owned.txt'), 'folder worker\n');
+    assert.equal(read(project, 'tracked.txt'), 'base\n');
+    cleanupTaskWorkspaces(result);
+  }
+
+  // Live-project change tracking: which files changed since a snapshot (used to keep the integrator in scope).
+  {
+    const project = repo('touched');
+    fs.writeFileSync(path.join(project, 'tracked.txt'), 'dirty before\n');
+    const before = projectChanges(project);
+    assert.deepEqual(touchedSince(project, before), [], 'nothing touched yet');
+    fs.writeFileSync(path.join(project, 'nested', 'owned.txt'), 'integrated\n');
+    fs.writeFileSync(path.join(project, 'extra.txt'), 'new\n');
+    fs.writeFileSync(path.join(project, 'tracked.txt'), 'dirty again\n');
+    assert.deepEqual(touchedSince(project, before), ['extra.txt', 'nested/owned.txt', 'tracked.txt'], 'new, edited and re-edited dirty files are all reported');
+    git(project, 'checkout', '--', 'tracked.txt');
+    assert.ok(touchedSince(project, before).includes('tracked.txt'), 'reverting an already-dirty file counts as a change');
+    assert.equal(projectChanges(path.join(project, 'nested')), null, 'a folder below the Git root is not tracked');
   }
 
   // Dirty tracked state, staged and unstaged edits, and untracked files are part of the captured baseline.

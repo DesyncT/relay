@@ -61,6 +61,11 @@ function normalizeFiles(value) {
     .filter(x => x && x !== '.' && !x.startsWith('/') && !/^[a-zA-Z]:\//.test(x) && !x.split('/').includes('..')))];
 }
 
+// File scopes may name folders ("src" or "src/"): a path is covered by itself or any folder above it
+const scopeKey = p => String(p).trim().replace(/\\/g, '/').replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+const scopeCovers = (scope, file) => { const s = scopeKey(scope), f = scopeKey(file); return !!s && (f === s || f.startsWith(s + '/')); };
+const pathsOverlap = (a, b) => scopeCovers(String(a).toLowerCase(), String(b).toLowerCase()) || scopeCovers(String(b).toLowerCase(), String(a).toLowerCase());
+
 function nextEscalation(assignment, routes, availableProviders) {
   const current = { model: assignment.model, effort: assignment.effort };
   const currentScore = routeScore(current);
@@ -74,21 +79,21 @@ function readyAssignments(assignments, runningLimit) {
   const list = Array.isArray(assignments) ? assignments : [];
   const running = list.filter(a => a.status === 'running');
   const limit = Math.max(0, Math.floor(Number(runningLimit) || 0) - running.length);
-  const busy = running.flatMap(a => a.fileOwnership || a.files || []).map(path => path.toLowerCase());
+  const busy = running.flatMap(a => a.fileOwnership || a.files || []);
   const coordinatorBusy = running.some(a => a.coordinatorOwned);
   const ready = [];
   for (const assignment of list) {
     if (assignment.status !== 'queued' || ready.length >= limit) continue;
     if (assignment.coordinatorOwned && (coordinatorBusy || ready.some(a => a.coordinatorOwned))) continue;
     const files = assignment.fileOwnership || assignment.files || [];
-    if (files.some(path => busy.includes(String(path).toLowerCase()))) continue;
+    if (files.some(path => busy.some(other => pathsOverlap(path, other)))) continue;
     ready.push(assignment);
-    busy.push(...files.map(path => String(path).toLowerCase()));
+    busy.push(...files);
   }
   return ready;
 }
 function allTasksPassed(assignments) { return (Array.isArray(assignments) ? assignments : []).filter(a => a.actionable !== false).every(a => a.status === 'passed'); }
-module.exports = { createAssignments, nextEscalation, readyAssignments, allTasksPassed };
+module.exports = { createAssignments, nextEscalation, readyAssignments, allTasksPassed, scopeCovers, pathsOverlap };
 
 
 

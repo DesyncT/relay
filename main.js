@@ -12,8 +12,8 @@ const { isLimitError, parseReset } = require('./limits');
 const registerPanels = require('./panels-main');
 const models = require('./models');
 const { providerArgs } = require('./permissions');
-const { createAssignments, nextEscalation } = require('./requirement-workflow');
-const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace } = require('./requirement-workspaces');
+const { createAssignments, nextEscalation, scopeCovers } = require('./requirement-workflow');
+const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
 const { recoverRequirementAssignments, canCleanupRequirementWorkspaces } = require('./requirement-recovery');
 const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
@@ -374,6 +374,16 @@ function reclaimWorkspaces(sid, entries) {
   const orphans = entries.filter(e => !kept.has(e.root));
   if (orphans.length) cleanupTaskWorkspaces({ cleanup: orphans });
 }
+// Deleting a session, or a project with its sessions, drops their saved assignments too.
+for (const [name, sessionIds] of [['deleteSession', (id) => [id]], ['removeProject', (id) => store.listSessions(id).map((s) => s.id)]]) {
+  const original = store[name];
+  store[name] = (id) => {
+    const saved = sessionIds(id).map((sid) => [sid, savedWorkspaceRoots(sid)]);
+    const result = original(id);
+    for (const [sid, entries] of saved) reclaimWorkspaces(sid, entries);
+    return result;
+  };
+}
 async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = null) {
   const rt = RT(sid), existing = requirementCoordinators.get(sid);
   if (existing) return existing.promise;
@@ -473,11 +483,14 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
 }
 async function integrateRequirementTasks(sid, assignments, trigger, epoch, workspaces, routes, available, owner) {
   const rt = RT(sid), projectPath = cwdFor(sid);
+  // Taken once before the first patch: a retry must undo an earlier attempt's out-of-scope edit, not hide it. ponytail: Git roots only; non-Git projects are not checked
+  let before;
   return runRequirementIntegration(assignments, {
     nextRoute: assignment => nextEscalation(assignment, routes, available),
     persist: current => setReqs(sid, { ...reqsOf(sid), assignments:current.map(a => ({ ...a, workspace:a.workspace && { ...a.workspace } })) }),
     integrate: async (integrator, changes) => {
       if (epoch !== rt.epoch) throw new Error('Integration cancelled');
+      before ??= projectChanges(projectPath);
       const conflicts = [];
       if (!integrator.retryCount) for (const change of changes) if (change.patch.length) conflicts.push(...applyTaskChanges(projectPath, change));
       const assigned = assignments.filter(a => a.status === 'passed').map(a => ({ id:a.id, task:a.task, requirement:a.requirementIndex, files:a.changedPaths || [], patchIncluded:changes.some(c => c.assignmentId === a.id && c.patch.length) }));
@@ -494,7 +507,11 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
         hasFullCheck = error?.code === 0;
         checkEvidence = hasFullCheck ? 'npm test exited 0 with no output.' : `Full project check failed: ${String(error.message || error)}`;
       }
-      const checksPassed = hasFullCheck;
+      const scopes = changes.flatMap(c => c.scope);
+      const outside = (touchedSince(projectPath, before) || []).filter(file => !scopes.some(scope => scopeCovers(scope, file)));
+      if (outside.length) checkEvidence = `The integration edited files outside the passed tasks' scopes: ${outside.join(', ')}. Revert those edits; only the task scopes may change.
+${checkEvidence}`;
+      const checksPassed = hasFullCheck && !outside.length;
       return { checksPassed, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
     },
     review: (integrator, changes, integrated) => reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
