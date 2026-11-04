@@ -359,8 +359,21 @@ ipcMain.handle('skills:list', (_e, sid) => {
 // ---- Requirements checklist: written at the start of a request, ticked off by agents, wraps the session up at 100% ----
 // session.reqs = { items: [{ t, done }], target: n | null }. Kept at the end of the prompt so the cached prefix stays stable.
 const reqsOf = (sid) => sessOf(sid)?.reqs || null;
-function setReqs(sid, reqs) { try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs }); }
+function setReqs(sid, reqs) {
+  const before = savedWorkspaceRoots(sid);
+  try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs });
+  reclaimWorkspaces(sid, before);
+}
 const requirementCoordinators = new Map();
+// Open/blocked task workspaces stay for inspection while their assignments are saved; once nothing saved points at one
+// (a new request, cleared requirements or chat) it is unreachable, so it is deleted. Cleanup itself verifies the ownership marker.
+const savedWorkspaceRoots = (sid) => workspacesFromAssignments(reqsOf(sid)?.assignments || []).cleanup;
+function reclaimWorkspaces(sid, entries) {
+  if (!entries?.length || requirementCoordinators.has(sid)) return; // still in use: the workflow's finally retries
+  const kept = new Set(savedWorkspaceRoots(sid).map(e => e.root));
+  const orphans = entries.filter(e => !kept.has(e.root));
+  if (orphans.length) cleanupTaskWorkspaces({ cleanup: orphans });
+}
 async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = null) {
   const rt = RT(sid), existing = requirementCoordinators.get(sid);
   if (existing) return existing.promise;
@@ -454,7 +467,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     }
     if (canCleanupRequirementWorkspaces(completed, result.status)) cleanupTaskWorkspaces(workspaces);
     return completed;
-  }).finally(() => requirementCoordinators.delete(sid));
+  }).finally(() => { requirementCoordinators.delete(sid); reclaimWorkspaces(sid, workspaces.cleanup); });
   requirementCoordinators.set(sid, { coordinator, promise, workspaces });
   return promise;
 }
@@ -1165,7 +1178,7 @@ ipcMain.handle('chat:workflow', (_e, sid, enabled) => {
   send('workflow:changed', { sid, supercode:!!enabled });
   return { sid, supercode:!!enabled };
 });
-ipcMain.handle('chat:clear', (_e, sid) => { stopSubs(sid); store.updateSession(sid, { subs: [] }); store.clearSession(sid); const r = RT(sid); r.building = r.awaiting = false; r.leadNow = null; });
+ipcMain.handle('chat:clear', (_e, sid) => { stopSubs(sid); store.updateSession(sid, { subs: [] }); const saved = savedWorkspaceRoots(sid); store.clearSession(sid); reclaimWorkspaces(sid, saved); const r = RT(sid); r.building = r.awaiting = false; r.leadNow = null; });
 
 // Profile: display name + picture. The renderer gets the picture as a data URL (file:// images may be blocked by the CSP).
 const PROFILE_DIR = path.join(DATA, 'profile');
