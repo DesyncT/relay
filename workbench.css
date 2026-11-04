@@ -346,6 +346,7 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 }
 
 /* Focused conversation layout. unslop by @heydamir, CC BY 4.0. */
+#chat #input { field-sizing:content; height:auto; min-height:72px; max-height:200px; overflow-y:auto; }
 :root { --negative:#f0787c; }
 *:focus, *:focus-visible, *:focus-within { outline:none !important; box-shadow:none !important; }
 #chat #log > .msg.grp { padding-top:20px; padding-bottom:12px; }

@@ -71,6 +71,47 @@ app.whenReady().then(async () => {
   assert.equal(observation.observed, 2, 'Observe only the root and its message row, never every nested element');
   assert.equal(observation.styled, 0, 'Content updates must not scan computed styles across the conversation');
   console.log('Large-message observer regression:', JSON.stringify(observation));
+  const history = await win.webContents.executeJavaScript(`(() => {
+    const log = document.querySelector('#log');
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight');
+    let reads = 0;
+    Object.defineProperty(log, 'scrollHeight', { configurable:true, get() { reads++; return descriptor.get.call(this); } });
+    const start = performance.now();
+    try {
+      for (let i=0;i<150;i++) addMsg({from:i%2 ? 'claude':'user', text:'History message '+i+'\\nA representative chat message with enough text to wrap on compact windows.', at:Date.now()+i*1000}, false, true);
+      return {ms:Math.round(performance.now()-start), scrollHeightReads:reads};
+    } finally { delete log.scrollHeight; }
+  })()`);
+  console.log('History rendering (150 messages):', JSON.stringify(history));
+  assert.equal(history.scrollHeightReads, 0, 'History rendering must not force a layout and scroll for every message');
+  const typing = await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('#input');
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight');
+    let reads = 0;
+    Object.defineProperty(input, 'scrollHeight', { configurable:true, get() { reads++; return descriptor.get.call(this); } });
+    const start = performance.now();
+    try {
+      input.value = '';
+      for (let i=0;i<200;i++) { input.value += 'a'; input.dispatchEvent(new Event('input',{bubbles:true})); }
+      return {ms:Math.round(performance.now()-start), scrollHeightReads:reads, nativeSizing:CSS.supports('field-sizing','content')};
+    } finally { delete input.scrollHeight; clearTimeout(draftTimer); input.value = ''; }
+  })()`);
+  console.log('Composer typing (200 input events):', JSON.stringify(typing));
+  assert.equal(typing.scrollHeightReads, 0, 'Typing must never synchronously measure and resize the composer');
+  assert.equal(typing.nativeSizing, true);
+  const sizing = await win.webContents.executeJavaScript(`(async () => {
+    const input = document.querySelector('#input');
+    const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    input.value = 'One line'; input.dispatchEvent(new Event('input')); await paint(); const short = input.clientHeight;
+    input.value = Array.from({length:20},()=> 'Another line').join('\\n'); input.dispatchEvent(new Event('input')); await paint(); const tall = input.clientHeight;
+    input.value = '/he'; input.dispatchEvent(new Event('input')); const slash = !document.querySelector('#slash').hidden;
+    input.value = ''; input.dispatchEvent(new Event('input')); await paint(); const reset = input.clientHeight;
+    clearTimeout(draftTimer);
+    return {short,tall,reset,slash};
+  })()`);
+  assert.ok(sizing.tall > sizing.short && sizing.tall <= 200);
+  assert.equal(sizing.reset, sizing.short);
+  assert.equal(sizing.slash, true, 'Slash commands still work with the lightweight input handler');
   assert.deepEqual(errors, []);
   console.log('Renderer layout, tag recovery, focus, choice and custom-answer checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();

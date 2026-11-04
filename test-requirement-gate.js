@@ -105,9 +105,29 @@ async function asks(responses, initial) {
   assert.doesNotMatch(gateFor([user]), /numbered questions/);
   assert.match(gateFor([user, ask, user]), /answered your earlier question/); // after one answer it may ask the next
   assert.match(gateFor([user, ask, user, ask, user, ask, user]), /answered your earlier question/);
-  assert.match(gateFor([user, ask, user, ask, user, ask, user, ask, user]), /only writes the requirements/); // capped at 4 questions
+  assert.match(gateFor([user, ask, user, ask, user, ask, user, ask, user]), /one question at a time/); // complex tasks may need more than four questions
   assert.match(gateFor([user, said, user]), /one question at a time/); // a plain reply is not a question: new task, asks again
+  assert.match(gateFor([user]), /no fixed question limit/);
+  assert.match(gateFor([user]), /inspect the relevant project/);
+  assert.doesNotMatch(gateFor([user], { items: [] }, true), /1 to 3/);
   assert.match(gateFor([user], { items: [], target: 2 }), /exactly 2/);
   assert.match(gateFor([user], { items: [] }, true), /only writes the requirements/);
+  const original = 'Build a customer portal. ' + 'Detailed workflow requirement. '.repeat(80) + 'Preserve subscription history.';
+  const prompt = source.slice(source.indexOf('function promptFor('), source.indexOf('\nfunction post('));
+  const fullBrief = vm.runInNewContext(`${prompt}; promptFor('test','claude','',false)`, {
+    RT: () => ({}), store:{getSession:()=>({messages:[{from:'user',text:original,at:1},{from:'claude',text:'Which URL?',askUser:true,at:2},{from:'user',text:'Use the existing URL',at:3}]})},
+    supercodeOn:()=>true, pastNote:()=>'', reqNote:()=>'', reqsOf:()=>({items:[]}), forcedLine:()=>'', ACCESS_NOTE:'Full access',
+  });
+  assert.ok(fullBrief.includes(original), 'Preserve the entire original task even when it exceeds the recent-message truncation limit');
+  assert.ok(fullBrief.includes('Use the existing URL'));
+  assert.match(fullBrief, /end-to-end flows/);
+  let detailed = {items:[]};
+  const longRequirement = 'Preserve the complete acceptance criterion: ' + 'specific behavior '.repeat(20);
+  vm.runInNewContext(`${parser}; applyReqTags('test', tags, 'claude')`, {
+    reqsOf:()=>detailed, setReqs:(_sid,r)=>{detailed=r;},
+    tags:Array.from({length:35},(_,i)=>`[req: Workflow ${i}: ${longRequirement}]`).join('\n'),
+  });
+  assert.equal(detailed.items.length,35, 'Do not silently discard requirements beyond 30');
+  assert.ok(detailed.items[0].t.endsWith(longRequirement.trimEnd()), 'Do not truncate acceptance criteria at 200 characters');
   console.log(`Requirement gate: ${cases} cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

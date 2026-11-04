@@ -1254,7 +1254,7 @@ function renderFailureCard(m) {
   return row;
 }
 
-function addMsg(m, live) {
+function addMsg(m, live, batch = false) {
   // Also recover controls in older saved agent messages that were not parsed.
   if (['claude', 'codex', 'antigravity'].includes(m.from) && /\[ask-user[!:\s\]]/i.test(m.text || '')) {
     const question = parseTurn(m.text, m.from);
@@ -1313,10 +1313,12 @@ function addMsg(m, live) {
   }
   log.append(row);
   // Every new message stays visible, including agent replies and review cards.
-  log.scrollTop = log.scrollHeight;
-  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; updateScrollButton(); });
-  updateScrollButton();
-  if (m.usage) renderSpend(live);
+  if (!batch) {
+    log.scrollTop = log.scrollHeight;
+    requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; updateScrollButton(); });
+    updateScrollButton();
+    if (m.usage) renderSpend(live);
+  }
 }
 // pending uploads: saved by main right away, sent with the next message
 let pend = [];
@@ -1363,7 +1365,9 @@ async function sendChat(pick, interrupt = false) { // pick: an option button's l
   if (!openSid) return;
   try { await api.call(interrupt ? 'chat:interrupt-send' : 'chat:send', sid, text, files, { reply: reply && { from: reply.from, at: reply.at }, queue: $('#queueBusy').checked }); } catch (e) { addMsg({ from: 'system', text: String(e.message).replace(/^.*Error: /, ''), at: Date.now() }, 1); }
 }
-const grow = () => { const i = $('#input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 200) + 'px'; $('#send').disabled = !i.value.trim() && !pend.length; };
+// Chromium sizes the field natively; reading scrollHeight after resetting its
+// height forced synchronous layout on every keystroke in long conversations.
+const grow = () => { const disabled = !$('#input').value.trim() && !pend.length; if ($('#send').disabled !== disabled) $('#send').disabled = disabled; };
 $('#send').onclick = () => sendChat();
 function renderQueue(items = []) {
   const box = $('#queueCount'); box.replaceChildren(); box.hidden = !items.length;
@@ -1491,6 +1495,7 @@ function runSlash(text) {
 let slashSel = 0, slashList = [];
 function renderSlash() {
   const m = /^\/(\w*)$/.exec($('#input').value), box = $('#slash');
+  if (!m && box.hidden) { slashList = []; return; }
   slashList = m ? CMDS.filter((c) => c.n.startsWith(m[1].toLowerCase())) : [];
   box.hidden = !slashList.length;
   if (box.hidden) return;
@@ -1508,7 +1513,7 @@ const draftKey = (sid) => 'relay.draft.' + sid;
 function saveDraft(sid = openSid) { if (!sid) return; try { const v = $('#input').value; v.trim() ? localStorage.setItem(draftKey(sid), v) : localStorage.removeItem(draftKey(sid)); } catch {} }
 const loadDraft = (sid) => { try { return (sid && localStorage.getItem(draftKey(sid))) || ''; } catch { return ''; } };
 let draftTimer; window.addEventListener('beforeunload', () => saveDraft());
-$('#input').oninput = () => { grow(); slashSel = 0; renderSlash(); clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 300); };
+$('#input').oninput = () => { grow(); slashSel = 0; renderSlash(); clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 750); };
 $('#input').onkeydown = (e) => {
   if (!$('#slash').hidden) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); slashSel = (slashSel + (e.key === 'ArrowDown' ? 1 : -1) + slashList.length) % slashList.length; renderSlash(); return; }
@@ -1853,7 +1858,7 @@ async function openSession(id, show = true) {
   $('#chName').textContent = info ? info.title : 'No session';
   renderChips();
   window.Titlebar?.setTitle(info ? info.title : '');
-  msgs.forEach((m) => addMsg(m));
+  msgs.forEach((m) => addMsg(m, false, true));
   if (window._initialLogScrollPending) { scrollLogToBottom(); window._initialLogScrollPending = false; }
   updateScrollButton();
   emptyState(); placeholder(); renderTyping(); renderSpend(); renderReqs(info ? info.reqs || { items: [], idle: true } : null);
