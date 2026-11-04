@@ -570,7 +570,7 @@ const bootTimer = setTimeout(finishBoot, 8000);
 window.addEventListener('error', finishBoot);
 window.addEventListener('unhandledrejection', finishBoot);
 if (!window.api) { // opened in a plain browser: nothing can work without the Electron preload
-  document.querySelector('main').innerHTML = '<div style="margin:auto;text-align:center;color:#a1a1a6;font-size:15px;line-height:24px">Relay needs its desktop app.<br>Run <code>npm start</code> in the jarvis folder</div>';
+  document.querySelector('main').innerHTML = '<div style="margin:auto;text-align:center;color:#a1a1a6;font-size:15px;line-height:24px">Relay needs its desktop app.<br>Run <code>npm start</code> in the Relay folder</div>';
   document.querySelector('main').style.cssText = 'display:flex;background:#000';
   throw new Error('window.api missing');
 }

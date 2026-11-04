@@ -13,7 +13,7 @@ const registerPanels = require('./panels-main');
 const models = require('./models');
 
 app.setAppUserModelId('Relay.Desktop');
-app.setPath('userData', path.join(app.getPath('appData'), 'jarvis')); // keep the data folder across the rename
+{ const old = path.join(app.getPath('appData'), 'jarvis'); app.setPath('userData', require('fs').existsSync(old) ? old : path.join(app.getPath('appData'), 'Relay')); } // installs from before the rename keep their data folder
 
 const HOME = os.homedir();
 const DATA = app.getPath('userData');
@@ -836,10 +836,15 @@ const stopSubs = (sid) => subsOf(sid).forEach(stopSub);
 ipcMain.handle('subagents:list', (_e, sid) => subsOf(sid).map((r) => ({ ...r })));
 ipcMain.handle('subagents:stop', (_e, id) => { for (const s of store.listSessions()) { const r = subsOf(s.id).find((x) => x.id === id); if (r) return stopSub(r); } });
 
+// sidebar spinner: which chats have an agent running right now
+const workingIds = () => [...rts].filter(([, rt]) => Object.values(rt.lanes).some((l) => l.busy)).map(([sid]) => sid);
+const sendWorking = () => send('sessions:working', workingIds());
+ipcMain.handle('sessions:working', () => workingIds());
+
 async function pump(sid, who) {
   // Supercode chats run until the user says "wrap up" (or the team goes idle); a single agent keeps the maxTurns cap
   const rt = RT(sid), lane = rt.lanes[who], ep = rt.epoch, max = supercodeOn(sid) ? Infinity : Math.max(1, +settings.maxTurns || 4);
-  lane.busy = true;
+  lane.busy = true; sendWorking();
   while (lane.next && ep === rt.epoch) {
     const { trigger, after, lead } = lane.next; lane.next = null;
     if (rt.paused || rt.turns >= max) {
@@ -854,7 +859,7 @@ async function pump(sid, who) {
     for (const n of next) if (supercodeOn(sid) && n !== who && AGENT_NAMES.includes(n)) enqueue(sid, n, msg);
     if (supercodeOn(sid) && after && !ended && !next.includes(after)) enqueue(sid, after, trigger); // the second agent starts once the leader has posted, so it reads the reply first
   }
-  lane.busy = false; saveResume(sid);
+  lane.busy = false; saveResume(sid); sendWorking();
   drainUserQueue(sid);
 }
 

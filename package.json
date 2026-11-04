@@ -2,7 +2,11 @@
   "name": "relay",
   "productName": "Relay",
   "version": "0.1.0",
-  "description": "Usage dashboard + cross-agent chat for Claude Code and Codex",
+  "description": "AI coding agents (Claude Code, Codex and any model you connect) working together in one chat",
+  "author": "DesyncT",
+  "license": "MIT",
+  "homepage": "https://github.com/DesyncT/relay",
+  "repository": "github:DesyncT/relay",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -30,6 +34,7 @@
       "!test-*.js",
       "!skills-lock.json",
       "!.claude/**",
+      "!.agents/**",
       "!**/*.md",
       "!**/*.map"
     ],
@@ -38,6 +43,7 @@
       "icon": "assets/relay.ico"
     },
     "nsis": {
+      "artifactName": "Relay-Setup-${version}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true

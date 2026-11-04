@@ -25,8 +25,14 @@
 .sb .sb-row:hover, .sb .sb-hit:hover { background:var(--card); color:var(--text); }
 .sb .sb-row.on { background:var(--raised); color:var(--text); }
 .sb .sb-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sb .sb-dot { flex:none; width:6px; height:6px; margin-right:4px; border-radius:50%; background:#4f8cff; transition:opacity .15s var(--ease); }
-.sb .sb-row:hover .sb-dot, .sb .sb-row:focus-within .sb-dot { opacity:0; }
+.sb .sb-dot { position:relative; flex:none; width:6px; height:6px; margin-right:4px; border-radius:50%; background:#4f8cff; }
+.sb .sb-dot.ping::after { content:''; position:absolute; inset:0; border-radius:50%; background:inherit; animation:sbPing 1.6s cubic-bezier(0,0,.2,1) 3; } /* done while you were elsewhere: pings a few times, then stays */
+@keyframes sbPing { 75%, 100% { transform:scale(2.6); opacity:0; } }
+.sb .sb-spin { flex:none; width:12px; height:12px; margin-right:1px; box-sizing:border-box; border-radius:50%; border:1.5px solid var(--line-strong); border-top-color:var(--text-2); animation:sbSpin .8s linear infinite; }
+@keyframes sbSpin { to { transform:rotate(360deg); } }
+/* hover/focus shows the … button: make room for it so the title ellipsizes before it instead of running underneath */
+.sb .sb-row:hover, .sb .sb-row:focus-within { padding-right:32px; }
+.sb .sb-row:hover :is(.sb-dot, .sb-spin), .sb .sb-row:focus-within :is(.sb-dot, .sb-spin) { position:absolute; opacity:0; } /* out of the flow without restarting the ping */
 
 .sb .sb-more { all:unset; box-sizing:border-box; position:absolute; right:4px; top:50%; display:grid; place-items:center; width:24px; height:24px; margin-top:-12px; border-radius:6px; color:var(--muted); cursor:pointer; opacity:0; transition:opacity .15s var(--ease), color .15s var(--ease), background-color .15s var(--ease); }
 .sb .sb-group-h .sb-more { width:20px; height:20px; margin-top:-10px; }
@@ -58,7 +64,7 @@
 .sb .sb-new { interpolate-size:allow-keywords; overflow:hidden; animation:sbGrow .28s var(--ease), sbFlash 1.1s ease-out .1s; }
 @keyframes sbGrow { from { height:0; padding-block:0; opacity:0; transform:translateX(-10px); } }
 @keyframes sbFlash { from { background:color-mix(in srgb, var(--claude, #e07a5f) 22%, transparent); } }
-@media (prefers-reduced-motion: reduce) { .sb .sb-in, .sb .sb-new, .sb .sb-menu { animation:none; } .sb .sb-caret { transition:none; } }
+@media (prefers-reduced-motion: reduce) { .sb .sb-in, .sb .sb-new, .sb .sb-menu, .sb .sb-dot::after { animation:none; } .sb .sb-spin { animation-duration:2s; } .sb .sb-caret { transition:none; } }
 .sb .sb-list[hidden], .sb .sb-search[hidden] { display:none; }
 .sb .sb-show { box-sizing:border-box; height:28px; line-height:28px; padding:0 8px; border-radius:8px; color:var(--muted); font-size:12px; cursor:pointer; transition:color .15s var(--ease), background-color .15s var(--ease); }
 .sb .sb-show:hover { color:var(--text-2); background:var(--card); }

@@ -1,5 +1,5 @@
 node_modules/
 dist/
-.claude/skills/unslop/
+.claude/
 *.log
 .env*

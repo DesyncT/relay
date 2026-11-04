@@ -16,6 +16,8 @@
 
   let box, list, searchBox, input, results, menu, opts = {};
   let tree = { projects: [], sessions: [], active: null };
+  let working = new Set(); // chats with an agent running
+  const pinged = new Set(); // unread dots that already pinged; rows are rebuilt on every render
   const seen = new Set(); // ids already animated in
   let fresh = null; // session just created here
   const expanded = new Set(); // group keys showing more than LIMIT rows
@@ -122,7 +124,9 @@
     seen.add(s.id);
     r.append(el('span', { className:'sb-supercode', title: s.supercode ? 'Supercode' : '', innerHTML: !s.supercode ? '' :'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-12h-7z"/></svg>' }));
     r.append(title);
-    if (s.unread) r.append(el('span', { className: 'sb-dot', title: 'Unread' }));
+    if (working.has(s.id)) r.append(el('span', { className: 'sb-spin', title: 'Working' }));
+    else if (s.unread) r.append(el('span', { className: 'sb-dot' + (pinged.has(s.id) ? '' : ' ping'), title: 'Done, not read yet' })), pinged.add(s.id);
+    else pinged.delete(s.id);
     const items = [['Rename', () => inlineRename(title, s.title, (v) => api.call('sessions:rename', s.id, v))], ['Delete', () => delSession(s), true]];
     r.append(btn('sb-more', 'Session actions', 'more', (e) => { e.stopPropagation(); showMenu(e.currentTarget, items); }));
     r.onclick = () => open(s.id);
@@ -236,6 +240,9 @@
       searchBox, list,
     );
     api.on('sessions:changed', refreshSoon);
+    const setWorking = (ids) => { working = new Set(ids || []); render(); };
+    api.on('sessions:working', setWorking);
+    api.call('sessions:working').then(setWorking, () => {});
     return refresh();
   }
 
