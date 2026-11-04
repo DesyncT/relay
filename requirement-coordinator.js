@@ -22,7 +22,7 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
   }
   function launch() {
     if (!settled) return;
-    const max = Math.min(3, Math.max(1, Number(limit) || 3));
+    const max = Math.max(1, Number(limit) || 3);
     const available = Math.max(0, max - active);
     const running = assignments.filter(a => a.status === 'running' || inFlight.has(a.id)).map(a => a.status === 'running' ? a : { ...a, status:'running' });
     const waitingTasks = assignments.filter(a => !inFlight.has(a.id) && (a.status === 'queued' || a.status === 'reviewing'));

@@ -420,7 +420,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
   if (epoch !== rt.epoch) return null;
   const providerOrder = available.length ? available : [owner];
   const coordinator = createRequirementCoordinator({
-    limit: 3, workspaceMode: workspaces.mode,
+    limit: Math.max(1, assignments.length), workspaceMode: workspaces.mode, // every independent task starts at once
     persist: current => setReqs(sid, { ...reqsOf(sid), assignments: current.map(a => ({ ...a, workspace: a.workspace && { ...a.workspace } })) }),
     emit: ({ assignments: current }) => send('reqs:update', { sid, reqs:reqsOf(sid), assignments:current }),
     nextRoute: a => nextEscalation(a, routes, available),

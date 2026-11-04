@@ -22,6 +22,13 @@ async function schedulerPersistsBeforeStartingAndCapsConcurrency() {
   assert.ok(max <= 3, `maximum concurrency was ${max}`);
   assert.equal(max, 3, 'three disjoint workers overlap');
   assert.ok(assignments.every(x => x.status === 'passed'));
+  // Relay passes the task count as the limit, so nine independent tasks all run together
+  let wide = 0, wideMax = 0;
+  const all = createRequirementCoordinator({ persist: () => {}, emit: () => {}, limit: 9,
+    runTask: async a => { wide++; wideMax = Math.max(wideMax, wide); await new Promise(resolve => setTimeout(resolve, 10)); wide--; return { paths: a.files }; },
+    reviewTask: async () => ({ verdict: 'PASS' }) });
+  await all.start([1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => task(String(n), [`all-${n}.js`])));
+  assert.equal(wideMax, 9, 'all nine independent tasks run at once');
 }
 
 async function sharedFolderSerializesOverlappingPaths() {
