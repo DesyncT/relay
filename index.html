@@ -1584,8 +1584,25 @@ function renderReqs(r) {
   const sum = el('summary', { title: items.length ? 'Show all requirements' : '' }, ...(items.length ? [el('span', { className: 'rq-car', innerHTML: CARET })] : []), ...head);
   sum.setAttribute('aria-label', label);
   // icon per row: check = done, spinner = an agent is on it, grey circle = not started. "next" = first open one, spun while agents work and none is flagged
-  const next = items.findIndex((i) => !i.done);
-  const list = el('ol', {}, ...items.map((i, n) => el('li', { className: i.done ? 'done' : i.by ? 'now' : n === next ? 'next' : '' }, el('span', { className: 'rq-ic', innerHTML: i.done ? svgI('<path d="M20 6 9 17l-5-5"/>') : '' }), el('span', { textContent: i.t }), ...(!i.done && i.by ? [who(i)] : []))));
+  const next = items.findIndex((i) => !i.done), assignmentByIndex = new Map((r.assignments || []).map((a) => [Number(a.requirementIndex), a]));
+  const assignmentDetails = (a) => {
+    const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', blocked:'Blocked', open:'Open', escalated:'Escalated' };
+    const state = status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
+    const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
+    const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
+    const progress = Math.max(0, Math.min(100, Number(a.progress) || 0));
+    return [el('span', { className:`rq-assignment-state ${status}`, textContent:state }),
+      el('span', { className:'rq-assignment-route', title:[a.provider, a.model, a.effort].filter(Boolean).join(' · '), textContent:[a.provider && `Worker ${a.provider}`, (a.model || a.effort) && `Model ${[a.model, a.effort].filter(Boolean).join(' / ')}`].filter(Boolean).join(' · ') }),
+      el('span', { className:'rq-assignment-progress', title:`Progress ${progress}%` }, el('span', { className:'rq-assignment-track' }, el('i', { style:`width:${progress}%` })), el('span', { textContent:`Progress ${progress}%` })),
+      ...(review ? [el('span', { className:'rq-assignment-review', title:evidence.map(x => x.evidence || x.verdict || '').filter(Boolean).join('\n'), textContent:review })] : []),
+      ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || a.blocker, textContent:`Blocked · ${a.blocker}` })] : [])];
+  };
+  const list = el('ol', {}, ...items.map((i, n) => {
+    const a = assignmentByIndex.get(n);
+    return el('li', { className: i.done ? 'done' : i.by ? 'now' : n === next ? 'next' : '' },
+      el('span', { className:'rq-ic', innerHTML:i.done ? svgI('<path d="M20 6 9 17l-5-5"/>') : '' }),
+      el('span', { className:'rq-content' }, el('span', { className:'rq-title', textContent:i.t }), ...(!i.done && i.by ? [who(i)] : []), ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a))] : [])));
+  }));
   // End task: two clicks (the first one asks), never toggles the dropdown
   if (!r.idle) {
     const end = el('button', { type: 'button', className: 'rq-end', textContent: 'End task', title: 'Stop, drop these requirements and start fresh. What the agents learned is kept' });

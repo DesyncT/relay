@@ -376,6 +376,26 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 #reqbar .rq-ic { animation:none; }
 #reqbar li.now .rq-ic, #reqbar.working:not(:has(li.now)) li.next .rq-ic { animation:rqSpin .8s linear infinite; }
 #reqbar .rq-now { color:var(--text-2); }
+#reqbar li { display:flex; align-items:flex-start; gap:0; }
+#reqbar .rq-content { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:2px 10px; min-width:0; }
+#reqbar .rq-title { min-width:0; overflow-wrap:anywhere; }
+#reqbar li.done .rq-content { text-decoration:line-through; }
+#reqbar .rq-assignment { display:flex; flex:1 1 100%; flex-wrap:wrap; align-items:center; gap:4px 10px; min-width:0; padding:2px 0 3px; color:var(--muted); font-size:11px; line-height:16px; text-decoration:none; }
+#reqbar .rq-assignment > span { min-width:0; }
+#reqbar .rq-assignment-state { flex:none; color:var(--text-2); }
+#reqbar .rq-assignment-state.passed { color:var(--claude); }
+#reqbar .rq-assignment-state.blocked, #reqbar .rq-assignment-blocker { color:var(--negative); }
+#reqbar .rq-assignment-route { flex:1 1 180px; overflow-wrap:anywhere; }
+#reqbar .rq-assignment-progress { display:inline-flex; flex:none; align-items:center; gap:5px; width:112px; font-variant-numeric:tabular-nums; }
+#reqbar .rq-assignment-track { display:block; flex:1; height:3px; border-radius:2px; background:var(--raised); overflow:hidden; }
+#reqbar .rq-assignment-track i { display:block; height:100%; background:var(--claude); }
+#reqbar .rq-assignment-review, #reqbar .rq-assignment-blocker { overflow-wrap:anywhere; }
+@container(max-width:640px) {
+  #reqbar summary { gap:6px; }
+  #reqbar .rq-track { min-width:40px; }
+  #reqbar .rq-assignment { gap:3px 8px; }
+  #reqbar .rq-assignment-route { flex-basis:130px; }
+}
 #chat .ch-head #quota { justify-content:flex-end; padding-right:16px; gap:8px; }
 #chat .ch-head #quota > span { padding:4px 8px; min-height:28px; font-size:12px; border:0; background:transparent; }
 #chat .ch-head #quota > span:hover { background:var(--raised); }

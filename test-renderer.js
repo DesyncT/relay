@@ -64,6 +64,57 @@ app.whenReady().then(async () => {
     return {hidden, visible:!box.hidden, expanded:box.open};
   })()`);
   assert.deepEqual(checklist, {hidden:true, visible:true, expanded:true});
+  const assignments = await win.webContents.executeJavaScript(`(() => {
+    const names = ['Queued task','Running task','Reviewing task','Passed task','Escalated task','Blocked task'];
+    const states = ['queued','running','reviewing','passed','escalated','blocked'];
+    const items = names.map(t => ({t, done:false}));
+    const assignments = states.map((status, requirementIndex) => ({id:'a'+requirementIndex, requirementIndex, status,
+      provider:'codex', model:'gpt-6.1-terra-with-a-very-long-model-name', effort:'high', progress:status==='passed'?100:37,
+      reviewAttempts:status==='reviewing'?2:0, reviewEvidence:status==='reviewing'?[{evidence:'Independent check in progress'}]:[], blocker:status==='blocked'?'review-unknown':null}));
+    renderReqs({items, assignments});
+    const rows = [...document.querySelectorAll('#reqbar li')];
+    const text = rows.map(row => row.textContent);
+    const compact = rows.map(row => row.getBoundingClientRect().width);
+    const recovered = ['running','reviewing'].map(status => {
+      const assignment = {id:status, requirementIndex:0, status, provider:'claude', model:'claude-sonnet', effort:'medium'};
+      renderReqs({items:[{t:'Recovered '+status, done:false}], assignments:[assignment]});
+      return document.querySelector('#reqbar li').textContent;
+    });
+    renderReqs({items, assignments});
+    const finalRows = [...document.querySelectorAll('#reqbar li')];
+    return {text, compact, recovered, overflow:finalRows.some(row=>row.scrollWidth>row.clientWidth), details:finalRows.map(row=>row.querySelector('.rq-assignment')?.getBoundingClientRect().right <= row.getBoundingClientRect().right+1)};
+  })()`);
+  assert.equal(assignments.text.length, 6);
+  for (const label of ['queued','running','reviewing','passed','escalated','blocked','worker codex','model gpt-6.1-terra-with-a-very-long-model-name','high','progress 37%','review 2','review-unknown']) {
+    assert.ok(assignments.text.join(' ').toLowerCase().includes(label.toLowerCase()), `Assignment UI should show ${label}`);
+  }
+  assert.equal(assignments.overflow, false, 'Long assignment metadata must fit compact rows');
+  assert.ok(assignments.details.every(Boolean), 'Assignment details must remain inside compact row bounds');
+  assert.ok(assignments.recovered.every(text => !/passed/i.test(text)), 'Interrupted running/reviewing assignments must not recover as passed');
+  const persistedRecovery = await win.webContents.executeJavaScript(`(async () => {
+    const sid = 'persisted-assignment-recovery';
+    await api.call('test:save-session', sid, {title:'Persisted recovery', reqs:{items:[{t:'Saved running',done:false},{t:'Saved reviewing',done:false}], assignments:[
+      {id:'saved-running',requirementIndex:0,status:'running',provider:'codex',model:'gpt-6.1-sol',effort:'medium',progress:45},
+      {id:'saved-reviewing',requirementIndex:1,status:'reviewing',provider:'claude',model:'claude-sonnet',effort:'high',progress:90,reviewAttempts:2,reviewEvidence:[null]}
+    ]}});
+    await openSession(sid, false);
+    const firstOpen = [...document.querySelectorAll('#reqbar li')].map(row=>row.textContent);
+    await openSession(null, false);
+    await openSession(sid, false);
+    return {firstOpen, reopened:[...document.querySelectorAll('#reqbar li')].map(row=>row.textContent)};
+  })()`);
+  for (const rows of [persistedRecovery.firstOpen, persistedRecovery.reopened]) {
+    assert.equal(rows.length, 2, 'Opening a saved session must restore its assigned requirement rows');
+    assert.match(rows[0], /Running/);
+    assert.match(rows[1], /Reviewing/);
+    assert.match(rows[1], /Review 2/);
+    assert.ok(rows.every(text => !/Passed/.test(text)), 'Persisted interrupted assignments must remain non-passed after reopening');
+  }
+  await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  fs.writeFileSync(path.join(output, 'assignments-compact.png'), (await win.webContents.capturePage()).toPNG());
+  win.setSize(1280, 900);
+  await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  fs.writeFileSync(path.join(output, 'assignments-desktop.png'), (await win.webContents.capturePage()).toPNG());
   const spin = await win.webContents.executeJavaScript(`(() => {
     renderReqs({items:[{t:'Active requirement',done:false,by:'claude',pct:40}]});
     const icon = document.querySelector('#reqbar li.now .rq-ic');
