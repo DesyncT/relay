@@ -20,13 +20,16 @@ function dispatchTaggedRequest() {
   });
   assert.equal(reqs.items.length, 0, 'User tags must not populate the agent checklist');
   assert.match(messages[0].text, /\[req: User supplied requirement\]/);
-  assert.match(messages[1].text, /Waiting for the agent/);
+  assert.match(messages[1].text, /Writing requirements/);
   return reqs;
 }
 
+let cases = 0;
+
 async function check(responses, fails = false, initial = { items: [] }) {
+  cases += 1;
   let reqs = initial;
-  const prose = responses[0].includes('Here is the plan.');
+  const prose = String(responses[0].text ?? responses[0]).includes('Here is the plan.');
   const events = [];
   const context = {
     sid: 'test', who: 'claude', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
@@ -37,7 +40,8 @@ async function check(responses, fails = false, initial = { items: [] }) {
     post: (_, who, text) => { events.push({ text }); return { text }; },
     seatRun: async (_, who, phase, prompt, trigger, options) => {
       events.push({ readonly: !!options.readonly });
-      return { text: responses.shift() || 'Implementation complete', rd: { meta: {} }, prov: who };
+      const res = responses.shift() || 'Implementation complete';
+      return { ...(typeof res === 'string' ? { text: res } : res), rd: { meta: {} }, prov: who };
     },
   };
   const run = vm.runInNewContext(`${parser}\n(async () => { let r, rd, prov, usage; ${gate} })()`, context);
@@ -57,6 +61,20 @@ async function check(responses, fails = false, initial = { items: [] }) {
   }
 }
 
+// The gate must let the reply through without writing or failing
+async function asks(responses, initial) {
+  cases += 1;
+  let reqs = initial, runs = 0;
+  await vm.runInNewContext(`${parser}\n(async () => { let r, rd, prov, usage; ${gate} })()`, {
+    sid: 'test', who: 'codex', phase: 'coding', notes: '', trigger: {}, isLead: true, tag: 'test', lockEdits: false,
+    msgs: () => [{ from: 'user', text: 'wrap up', at: 2 }], WRAP: /^wrap up$/i,
+    reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; }, promptFor: () => '', addUsage: () => null,
+    post: () => assert.fail('nothing should be posted'),
+    seatRun: async (_, who) => { runs += 1; return { text: responses.shift(), rd: { meta: {} }, prov: who }; },
+  });
+  assert.equal(runs, 1);
+}
+
 (async () => {
   await check(['@codex Here is the plan.\n[req: Show requirements before editing]']);
   await check(['[req: Show requirements before editing]']);
@@ -66,5 +84,9 @@ async function check(responses, fails = false, initial = { items: [] }) {
   await check(['Forgot again.', 'Still missing.'], true, { items: [{ t: 'Old completed request', done: true }], requestAt: 1 });
   await check(['[req: Show requirements before editing]'], false, dispatchTaggedRequest());
   await check(['Forgot again.', 'Still missing.'], true, dispatchTaggedRequest());
-  console.log('Requirement gate: 8 cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).');
+  // Requirements written before tool calls, missing from the final message (Codex and Claude both do this)
+  await check([{ text: 'Read the files.', said: ['[req: Show requirements before editing]', 'Read the files.'] }]);
+  await asks(['1. Which page? 2. Which colours? [ask-user!]'], { items: [] });
+  await asks(['Restarted, all good.'], null); // after a wrap-up there is no checklist to write
+  console.log(`Requirement gate: ${cases} cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

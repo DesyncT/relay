@@ -163,6 +163,7 @@ const splitArgs = (s) => (s || '').split(/\s+/).filter(Boolean);
 // Claude Code: stream-json. The final text is the result event.
 function claudeRun(label, who, prompt, c = {}) {
   let result = '', failed = false, model = '', usage = null;
+  const said = []; // every text block: [req:] lines often sit before the tool calls, not in the final result
   const act = [];
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, w, st, c.route?.meta); // quiet: subagent runs have their own panel
   setStatus(who, 'thinking');
@@ -174,14 +175,14 @@ function claudeRun(label, who, prompt, c = {}) {
   return run(label, c.cmd || settings.claudeCmd, ['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.readonly ? ['--permission-mode', 'plan', '--allowedTools', 'Read', 'Glob', 'Grep'] : bypass.has(c.sid) ? ['--dangerously-skip-permissions'] : editsOn(c.sid) ? ['--permission-mode', 'acceptEdits'] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); } catch {}
-    if (e.type === 'assistant') for (const b of e.message?.content || []) setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking');
+    if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) said.push(b.text); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
     else if (e.type === 'system' && e.subtype === 'init') { model = e.model || ''; if (e.session_id) c.onSession?.(e.session_id); }
     else if (e.type === 'result') {
       result = e.result || ''; failed = !!e.is_error;
       const u = e.usage || {};
       usage = mkUsage(model || Object.keys(e.modelUsage || {})[0] || 'claude', (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), u.cache_read_input_tokens || 0, u.output_tokens || 0, e.total_cost_usd);
     }
-  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env }).then(() => { if (failed || !result.trim()) throw new Error(cleanErrorMessage(result.trim() || 'claude returned no result', who)); return { text: result.trim(), usage, activity: activity.clean(act), skills: act.skills || [] }; })
+  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env }).then(() => { if (failed || !result.trim()) throw new Error(cleanErrorMessage(result.trim() || 'claude returned no result', who)); return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] }; })
     .finally(() => setStatus(who, null));
 }
 
@@ -190,6 +191,7 @@ const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
 function codexRun(prompt, images, c = {}) {
   try { require('./shareskills').sync(DATA); } catch {} // Claude's skills and plugin skills, for Codex too
   let text = '', inp = 0, cac = 0, out = 0, errText = '';
+  const said = []; // every agent message, not just the last
   const act = [], seat = c.seat || 'codex';
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, seat, st, c.route?.meta);
   setStatus('codex', 'thinking');
@@ -207,13 +209,13 @@ function codexRun(prompt, images, c = {}) {
     if (e.type === 'turn.started') setStatus('codex', 'thinking');
     if (e.type === 'turn.completed' && e.usage) { inp += (e.usage.input_tokens || 0) - (e.usage.cached_input_tokens || 0); cac += e.usage.cached_input_tokens || 0; out += e.usage.output_tokens || 0; }
     if (!it.type) return;
-    if (it.type === 'agent_message') { setStatus('codex', 'typing'); if (e.type === 'item.completed' && it.text) text = it.text; }
+    if (it.type === 'agent_message') { setStatus('codex', 'typing'); if (e.type === 'item.completed' && it.text) said.push(text = it.text); }
     else if (it.type === 'reasoning') setStatus('codex', 'thinking');
     else if (it.type === 'command_execution') setStatus('codex', 'running ' + String(it.command || '').replace(/^"[^"]*powershell[^"]*"\s+-Command\s+/i, '').replace(/^['"]|['"]$/g, '').slice(0, 40));
     else if (/file_change|patch/.test(it.type)) setStatus('codex', 'coding ' + base(it.changes?.[0]?.path));
     else if (it.type === 'web_search') setStatus('codex', 'searching');
     else if (it.type === 'mcp_tool_call') setStatus('codex', 'using ' + (it.tool || 'tool'));
-  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env }).then(() => { if (!text.trim()) throw new Error(cleanErrorMessage(errText || 'codex returned no message', 'codex')); return { text: text.trim(), usage: mkUsage(runModel, inp, cac, out), activity: act }; })
+  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env }).then(() => { if (!text.trim()) throw new Error(cleanErrorMessage(errText || 'codex returned no message', 'codex')); return { text: text.trim(), said, usage: mkUsage(runModel, inp, cac, out), activity: act }; })
     .finally(() => setStatus('codex', null));
 }
 
@@ -349,7 +351,7 @@ function reqNote(sid, who) {
   const r = reqsOf(sid); if (!r) return '';
   if (!supercodeOn(sid)) return r.items.length
     ? `Requirements (${r.items.filter((i) => i.done).length}/${r.items.length} done):\n${r.items.map((i, n) => `${n + 1}. [${i.done ? 'x' : ' '}] ${i.t}`).join('\n')}\nKeep these requirements visible in your response, work through them, and mark completed items with [req-done: 1, 2].`
-    : `Requirements: before coding, write ${r.target ? `exactly ${r.target}` : '1 to 3'} concrete, checkable requirements the finished work HAS to meet, one per line as [req: ...]. Show them at the start of your response, then complete them in this response. Never pad the list or include optional items or rules. Do not delegate.`;
+    : `Requirements: before coding, write ${r.target ? `exactly ${r.target}` : '1 to 3'} concrete, checkable requirements the finished work HAS to meet, one per line as [req: ...]. Show them at the start of your response, then complete them in this response. Never pad the list or include optional items or rules. Put the [req: ...] lines in your final message. Do not delegate. If the request leaves real choices open (scope, look, budget), instead ask the user up to 5 short numbered questions and end with [ask-user!]; write the requirements after they answer.`;
   const lead = RT(sid).leadNow;
   if (!r.items.length) return lead && lead !== who
     ? `Requirements: @${lead} is writing the checklist; wait for it, then work through it with them.`
@@ -402,7 +404,7 @@ function promptFor(sid, who, note, stand) {
   const firstAfter = sess.doneAt && messages.filter((m) => m.from === 'user').length <= 1;
   const resumed = !supercodeOn(sid) && sess.cli?.[who];
   const past = (!resumed || firstAfter) && pastNote(sess);
-  const checklistGate = `Requirements: first, write 1 to 3 concrete, checkable requirements for this task, each on its own [req: ...] line. Do not inspect or edit files until those lines are written. Then continue the task.`;
+  const checklistGate = `Requirements: first, write 1 to 3 concrete, checkable requirements for this task, each on its own [req: ...] line. Do not inspect or edit files until those lines are written, and repeat them in your final message. Then continue the task. If the request leaves real choices open (scope, look, budget), instead ask the user up to 5 short numbered questions and end with [ask-user!]; write the requirements after they answer.`;
   const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, reqNote(sid, who), !reqsOf(sid)?.items?.length && checklistGate].filter(Boolean).join('\n\n');
   // Resumed CLI session: it already has the whole conversation, so send just what's new, exactly like typing in the terminal
   if (resumed) {
@@ -481,14 +483,14 @@ async function ask(sid, who, trigger, isLead) {
     if (request && !WRAP.test(request.text || '') && reqsOf(sid)?.requestAt !== request.at) {
       setReqs(sid, { items: [], target: null, requestAt: request.at });
     }
-    const writingChecklist = !reqsOf(sid)?.items?.length;
+    const writingChecklist = !!reqsOf(sid) && !reqsOf(sid).items.length, saidOf = (x) => x.said?.join('\n\n') || x.text;
     r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, notes, s), trigger, { lead: isLead, tag, ...((lockEdits || writingChecklist) && { readonly: true }) }); rd = r.rd; prov = r.prov; usage = r.usage;
-    if (writingChecklist) {
-      let requirements = applyReqTags(sid, r.text, who);
+    if (writingChecklist && !/\[ask-user/i.test(r.text)) { // questions first: the answer is a new request, which writes the checklist
+      let requirements = applyReqTags(sid, saidOf(r), who);
       if (!reqsOf(sid)?.items?.length) {
         const retry = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'Your previous response did not write any [req: ...] lines. Write 1 to 3 concrete, checkable requirements now, one per line, before doing anything else.', s), trigger, { lead: isLead, tag, readonly: true });
         usage = addUsage(usage, retry.usage); r = retry; rd = r.rd; prov = r.prov;
-        requirements = applyReqTags(sid, r.text, who);
+        requirements = applyReqTags(sid, saidOf(r), who);
       }
       if (!reqsOf(sid)?.items?.length) throw new Error('Could not start this task: the agent did not write requirements. Send the request again to retry.');
       const checklist = post(sid, who, [reqsOf(sid).items.map((i, n) => `${n + 1}. ${i.t}`).join('\n'), requirements.trim()].filter(Boolean).join('\n\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
@@ -1000,7 +1002,7 @@ function dispatchUser(sid, { text, files, reply }) {
     // User tags remain request context; only the agent can write the task checklist.
     const cnt = REQ_COUNT.exec(text)?.[1], n = cnt && (/^\d+$/.test(cnt) ? Math.max(1, Math.min(30, +cnt)) : 1);
     setReqs(sid, { items: [], target: n || null, requestAt: m.at });
-    post(sid, 'system', 'Waiting for the agent to write concrete, checkable requirements before starting work.', null, null, { muted: true });
+    post(sid, 'system', 'Writing requirements…', null, null, { muted: true });
   }
   if (!supercodeOn(sid) && !WRAP.test(text)) { rt.requests = [...(rt.requests || []), text].slice(-20); if (!rt.reviewRequestAt) rt.reviewRequestAt = m.at; }
   rt.turns = 0; rt.restarts = 0; rt.reviewRequest = (rt.requests || []).join('\n\n') || text; rt.idle = 0; rt.escalations = 0; rt.paused = false; rt.autoN = 0;

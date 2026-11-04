@@ -19,9 +19,10 @@
   Titlebar.setTitle(label(document.querySelector('nav button.on')));
   document.querySelectorAll('nav button[data-tab]').forEach((b) => b.addEventListener('click', () => Titlebar.setTitle(label(b))));
   const workflow = document.getElementById('tbSupercode'), normal = document.getElementById('tbNormal');
+  let procs = []; // re-checked on every chat switch, so another session's run doesn't lock this one
   const updateWorkflow = () => {
     const chat = window.ActiveChat;
-    workflow.disabled = normal.disabled = !chat?.sid || workflow.dataset.busy === 'true';
+    workflow.disabled = normal.disabled = !chat?.sid || procs.some(p => p.sid === chat.sid);
     const isSuper = !!chat?.supercode;
     const wasSuper = workflow.getAttribute('aria-checked') === 'true';
     if (isSuper && !wasSuper) {
@@ -48,7 +49,7 @@
     e.preventDefault(); const target = e.key === 'ArrowLeft' ? workflow : normal;
     target.focus(); target.click();
   };
-  const updateBusy = (procs) => { workflow.dataset.busy = String(procs.some(p => p.sid === window.ActiveChat?.sid)); updateWorkflow(); };
+  const updateBusy = (list) => { procs = list || []; updateWorkflow(); };
   window.api.on('procs',updateBusy);
   window.api.call('procs:list').then(updateBusy);
   updateWorkflow();
