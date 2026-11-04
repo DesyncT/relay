@@ -53,7 +53,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
     const publication = events.findIndex(e => e.text);
     assert.ok(publication > 0);
     assert.match(events[publication].text, /1\. Show requirements before editing/);
-    if (prose) assert.match(events[publication].text, /@codex Here is the plan\./);
+    if (prose) assert.equal(events[publication].text, '1. Show requirements before editing'); // the read-only run's prose ("plan mode is on…") is not posted
     assert.ok(events.slice(0, publication).every(e => e.readonly));
     assert.equal(events[publication + 1].readonly, false);
     assert.equal(reqs.items.length, 1);

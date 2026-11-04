@@ -172,7 +172,7 @@ function claudeRun(label, who, prompt, c = {}) {
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
   const chrome = !isAntigravity && !c.readonly && !c.safeReview ? ['--chrome'] : []; // Claude in Chrome: drive the user's real browser, like Codex's computer use
   let shared = []; if (!bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // Codex's skills, for Claude too
-  return run(label, c.cmd || settings.claudeCmd, ['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.readonly ? ['--permission-mode', 'plan', '--allowedTools', 'Read', 'Glob', 'Grep'] : bypass.has(c.sid) ? ['--dangerously-skip-permissions'] : editsOn(c.sid) ? ['--permission-mode', 'acceptEdits'] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], prompt, (l) => {
+  return run(label, c.cmd || settings.claudeCmd, ['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.readonly ? ['--tools', 'Read', 'Glob', 'Grep'] /* only read tools exist; plan mode made agents tell the user they were blocked */ : editsOn(c.sid) ? ['--dangerously-skip-permissions'] : [] /* edits on = full access: acceptEdits still denied shell commands */), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); } catch {}
     if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) said.push(b.text); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
@@ -197,8 +197,8 @@ function codexRun(prompt, images, c = {}) {
   setStatus('codex', 'thinking');
   // --image takes many values; the = form keeps the trailing "-" as the stdin prompt
   const imgs = images.map((a) => '--image=' + q(a.path));
-  const box = c.readonly ? 'read-only' : bypass.has(c.sid) ? null : editsOn(c.sid) ? 'workspace-write' : null;
-  const perm = !c.readonly && bypass.has(c.sid) ? ['--dangerously-bypass-approvals-and-sandbox'] : box ? (c.resumeId ? ['-c', `sandbox_mode=${box}`] : ['--sandbox', box]) : [];
+  const box = c.readonly ? 'read-only' : null; // edits on = full access: workspace-write blocked network (FTP, npm, git push)
+  const perm = !c.readonly && editsOn(c.sid) ? ['--dangerously-bypass-approvals-and-sandbox'] : box ? (c.resumeId ? ['-c', `sandbox_mode=${box}`] : ['--sandbox', box]) : [];
   const args = ['exec', ...(c.resumeId ? ['resume'] : []), '--json', '--enable', 'image_generation', ...perm, ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : []), '-'];
   const runModel = modelFromArgs(args, c.route?.meta?.model || (readText(path.join(HOME, '.codex', 'config.toml')).match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || 'gpt-unknown');
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
@@ -351,7 +351,7 @@ function reqNote(sid, who) {
   const r = reqsOf(sid); if (!r) return '';
   if (!supercodeOn(sid)) return r.items.length
     ? `Requirements (${r.items.filter((i) => i.done).length}/${r.items.length} done):\n${r.items.map((i, n) => `${n + 1}. [${i.done ? 'x' : ' '}] ${i.t}`).join('\n')}\nKeep these requirements visible in your response, work through them, and mark completed items with [req-done: 1, 2].`
-    : `Requirements: before coding, write ${r.target ? `exactly ${r.target}` : '1 to 3'} concrete, checkable requirements the finished work HAS to meet, one per line as [req: ...]. Show them at the start of your response, then complete them in this response. Never pad the list or include optional items or rules. Put the [req: ...] lines in your final message. Do not delegate. If the request leaves real choices open (scope, look, budget), instead ask the user up to 5 short numbered questions and end with [ask-user!]; write the requirements after they answer.`;
+    : ''; // empty list: checklistGate in promptFor asks for them
   const lead = RT(sid).leadNow;
   if (!r.items.length) return lead && lead !== who
     ? `Requirements: @${lead} is writing the checklist; wait for it, then work through it with them.`
@@ -405,7 +405,8 @@ function promptFor(sid, who, note, stand) {
   const firstAfter = sess.doneAt && messages.filter((m) => m.from === 'user').length <= 1;
   const resumed = !supercodeOn(sid) && sess.cli?.[who];
   const past = (!resumed || firstAfter) && pastNote(sess);
-  const checklistGate = `Requirements: first, write 1 to 3 concrete, checkable requirements for this task, each on its own [req: ...] line. Do not inspect or edit files until those lines are written, and repeat them in your final message. Then continue the task. If the request leaves real choices open (scope, look, budget), instead ask the user up to 5 short numbered questions and end with [ask-user!]; write the requirements after they answer.`;
+  // this run is read-only and only writes the checklist; telling it to start the task made agents report "blocked / plan mode" to the user
+  const checklistGate = `Requirements: this step only writes the requirements. Write ${reqsOf(sid)?.target ? `exactly ${reqsOf(sid).target}` : '1 to 3'} concrete, checkable requirements the finished work HAS to meet, each on its own [req: ...] line, then stop: no tools, no work on the task yet, no plan, and no remarks about permissions. Never pad the list or include optional items or rules. Your next run has full permissions and does the work. If the request leaves real choices open (scope, look, budget), instead ask the user up to 5 short numbered questions and end with [ask-user!]; write the requirements after they answer.`;
   const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, reqNote(sid, who), !reqsOf(sid)?.items?.length && checklistGate].filter(Boolean).join('\n\n');
   // Resumed CLI session: it already has the whole conversation, so send just what's new, exactly like typing in the terminal
   if (resumed) {
@@ -487,14 +488,14 @@ async function ask(sid, who, trigger, isLead) {
     const writingChecklist = !!reqsOf(sid) && !reqsOf(sid).items.length, saidOf = (x) => x.said?.join('\n\n') || x.text;
     r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, notes, s), trigger, { lead: isLead, tag, ...((lockEdits || writingChecklist) && { readonly: true }) }); rd = r.rd; prov = r.prov; usage = r.usage;
     if (writingChecklist && !/\[ask-user/i.test(r.text)) { // questions first: the answer is a new request, which writes the checklist
-      let requirements = applyReqTags(sid, saidOf(r), who);
+      applyReqTags(sid, saidOf(r), who);
       if (!reqsOf(sid)?.items?.length) {
         const retry = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'Your previous response did not write any [req: ...] lines. Write 1 to 3 concrete, checkable requirements now, one per line, before doing anything else.', s), trigger, { lead: isLead, tag, readonly: true });
         usage = addUsage(usage, retry.usage); r = retry; rd = r.rd; prov = r.prov;
-        requirements = applyReqTags(sid, saidOf(r), who);
+        applyReqTags(sid, saidOf(r), who);
       }
       if (!reqsOf(sid)?.items?.length) throw new Error('Could not start this task: the agent did not write requirements. Send the request again to retry.');
-      const checklist = post(sid, who, [reqsOf(sid).items.map((i, n) => `${n + 1}. ${i.t}`).join('\n'), requirements.trim()].filter(Boolean).join('\n\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
+      const checklist = post(sid, who, reqsOf(sid).items.map((i, n) => `${n + 1}. ${i.t}`).join('\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
       r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'The requirements are now written and shown in the chat. Continue the user task, satisfying them.', s), checklist, { lead: isLead, tag, ...(lockEdits && { readonly: true }) });
       rd = r.rd; prov = r.prov; usage = addUsage(usage, r.usage);
     }
