@@ -6,6 +6,23 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require.resolve('./main.js'), 'utf8');
 const parser = source.slice(source.indexOf('function applyReqTags('), source.indexOf('// A wrap-up'));
 const gate = source.slice(source.indexOf('    const request = msgs()'), source.indexOf('    if (supercodeOn(sid) && /\\[escalate'));
+const dispatch = source.slice(source.indexOf('const WRAP ='), source.indexOf("ipcMain.handle('chat:queue',"));
+
+function dispatchTaggedRequest() {
+  let reqs = { items: [{ t: 'Old request', done: true }], requestAt: 1 };
+  const messages = [], rt = {};
+  vm.runInNewContext(`${dispatch}\ndispatchUser('test', { text: '[req: User supplied requirement]' });`, {
+    store: { getSession: () => ({ lead: 'claude' }) }, RT: () => rt,
+    post: (_, from, text) => { const m = { from, text, at: 2 }; messages.push(m); return m; },
+    reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; },
+    REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => false,
+    onUserText: () => {}, AGENT_NAMES: ['claude', 'codex'], enqueue: () => {},
+  });
+  assert.equal(reqs.items.length, 0, 'User tags must not populate the agent checklist');
+  assert.match(messages[0].text, /\[req: User supplied requirement\]/);
+  assert.match(messages[1].text, /Waiting for the agent/);
+  return reqs;
+}
 
 async function check(responses, fails = false, initial = { items: [] }) {
   let reqs = initial;
@@ -47,5 +64,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
   await check(['Forgot again.', 'Still missing.'], true);
   await check(['[req: Show requirements before editing]'], false, { items: [{ t: 'Old request', done: false }], requestAt: 1 });
   await check(['Forgot again.', 'Still missing.'], true, { items: [{ t: 'Old completed request', done: true }], requestAt: 1 });
-  console.log('Requirement gate: 6 cases passed (prose, tags only, retry, blocked implementation, stale active and completed checklists).');
+  await check(['[req: Show requirements before editing]'], false, dispatchTaggedRequest());
+  await check(['Forgot again.', 'Still missing.'], true, dispatchTaggedRequest());
+  console.log('Requirement gate: 8 cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).');
 })().catch(error => { console.error(error); process.exitCode = 1; });

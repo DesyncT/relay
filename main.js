@@ -997,16 +997,10 @@ function dispatchUser(sid, { text, files, reply }) {
   // requests and changes pile up across messages until the user says wrap up; then reviewers judge all of it at once
   if (WRAP.test(text)) rt.wrapping = true;
   else {
-    // a new request (or a finished checklist, or the user naming a count like "just 1 requirement") starts a fresh checklist
-    const cur = reqsOf(sid), cnt = REQ_COUNT.exec(text)?.[1], n = cnt && (/^\d+$/.test(cnt) ? Math.max(1, Math.min(30, +cnt)) : 1);
-    const fresh = !cur || n || (cur.items.length && cur.items.every((i) => i.done)) || !WRAP.test(text);
-    // Publish an explicit checklist synchronously before dispatching any agent work.
-    const requirements = (text.match(/\[req:\s*([^\]\n]+?)\s*\]/gi) || []).map((tag) => tag.replace(/^\[req:\s*|\s*\]$/gi, '').trim()).filter(Boolean);
-    const items = fresh ? requirements.slice(0, n || 3).map((t) => ({ t: t.slice(0, 200), done: false })) : [...cur.items, ...requirements.map((t) => ({ t: t.slice(0, 200), done: false }))].slice(0, cur.target || 30);
-    if (fresh || requirements.length) {
-      setReqs(sid, { items, target: n || (fresh ? null : cur.target), requestAt: m.at });
-      post(sid, 'system', items.length ? `Requirements (0/${items.length} done):\n${items.map((item, i) => `${i + 1}. [ ] ${item.t}`).join('\n')}` : 'Waiting for the agent to write concrete, checkable requirements before starting work.', null, null, { muted: true });
-    }
+    // User tags remain request context; only the agent can write the task checklist.
+    const cnt = REQ_COUNT.exec(text)?.[1], n = cnt && (/^\d+$/.test(cnt) ? Math.max(1, Math.min(30, +cnt)) : 1);
+    setReqs(sid, { items: [], target: n || null, requestAt: m.at });
+    post(sid, 'system', 'Waiting for the agent to write concrete, checkable requirements before starting work.', null, null, { muted: true });
   }
   if (!supercodeOn(sid) && !WRAP.test(text)) { rt.requests = [...(rt.requests || []), text].slice(-20); if (!rt.reviewRequestAt) rt.reviewRequestAt = m.at; }
   rt.turns = 0; rt.restarts = 0; rt.reviewRequest = (rt.requests || []).join('\n\n') || text; rt.idle = 0; rt.escalations = 0; rt.paused = false; rt.autoN = 0;
