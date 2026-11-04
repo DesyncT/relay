@@ -995,10 +995,10 @@ function dispatchUser(sid, { text, files, reply }) {
   else {
     // a new request (or a finished checklist, or the user naming a count like "just 1 requirement") starts a fresh checklist
     const cur = reqsOf(sid), cnt = REQ_COUNT.exec(text)?.[1], n = cnt && (/^\d+$/.test(cnt) ? Math.max(1, Math.min(30, +cnt)) : 1);
-    const fresh = !cur || n || (cur.items.length && cur.items.every((i) => i.done));
-    // The provider's first reply is not a reliable enforcement point. Publish requirements before dispatching any work.
+    const fresh = !cur || n || (cur.items.length && cur.items.every((i) => i.done)) || !WRAP.test(text);
+    // Publish an explicit checklist synchronously before dispatching any agent work.
     const requirements = (text.match(/\[req:\s*([^\]\n]+?)\s*\]/gi) || []).map((tag) => tag.replace(/^\[req:\s*|\s*\]$/gi, '').trim()).filter(Boolean);
-    const items = fresh ? requirements.slice(0, n || 3).map((t) => ({ t: t.slice(0, 200), done: false })) : [...cur.items, ...requirements.map((t) => ({ t: t.slice(0, 200), done: false }))].slice(0, cur.target || 30);
+    const items = fresh ? (requirements.length ? requirements.slice(0, n || 3) : [text.trim().replace(/\s+/g, ' ').slice(0, 200) || 'Complete the user request']).slice(0, n || 3).map((t) => ({ t: t.slice(0, 200), done: false })) : [...cur.items, ...requirements.map((t) => ({ t: t.slice(0, 200), done: false }))].slice(0, cur.target || 30);
     if (fresh || requirements.length) {
       setReqs(sid, { items, target: n || (fresh ? null : cur.target) });
       post(sid, 'system', items.length ? `Requirements (0/${items.length} done):\n${items.map((item, i) => `${i + 1}. [ ] ${item.t}`).join('\n')}` : 'Waiting for the agent to write concrete, checkable requirements before starting work.', null, null, { muted: true });
