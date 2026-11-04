@@ -52,9 +52,17 @@ This task does not apply worker patches to the project checkout or declare the o
 
 ## Verification
 
-- 
-pm test passed, including requirement recovery and resume queue ordering regressions.
-- 
-pm run test:ui passed; dynamic arrow remained clear of the busy status and requirement bar.
+- `npm test` passed, including requirement recovery and resume queue ordering regressions.
+- `npm run test:ui` passed; dynamic arrow remained clear of the busy status and requirement bar.
 - Syntax checks for changed JavaScript modules and git diff --check passed.
+
+
+## Workspace retention and validation review fix
+
+- Open, blocked, cancelled, or failed-integration tasks retain their owned temporary workspaces for inspection and recovery. Cleanup is eligible only when every actionable assignment passed and integration passed.
+- Ownership markers now record task scope, assignment ID, Git repo, baseline commit/ref, and workspace mode. Recovery compares normalized saved scope to the assignment and validates the marker, actual Git common repository, baseline object/ref, and worktree registration.
+- Added regressions for assignment/workspace scope tampering, stale baseline commit/ref, repo rebinding, and cleanup eligibility.
+- Verification: 
+pm test, 
+pm run test:ui, syntax checks, and git diff --check passed.
 

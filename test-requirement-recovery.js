@@ -39,4 +39,10 @@ const integrated = recoverRequirementAssignments([
 assert.equal(integrated.kind, 'integrated', 'persisted final integration is not duplicated');
 const legacy = recoverRequirementAssignments([], valid);
 assert.equal(legacy.kind, 'legacy', 'sessions without assignments retain the normal lane-resume path');
+
+const { canCleanupRequirementWorkspaces } = require('./requirement-recovery');
+assert.equal(canCleanupRequirementWorkspaces([{ actionable:true, status:'open' }], 'passed'), false, 'open tasks retain their owned workspaces');
+assert.equal(canCleanupRequirementWorkspaces([{ actionable:true, status:'blocked' }], 'passed'), false, 'blocked tasks retain their owned workspaces');
+assert.equal(canCleanupRequirementWorkspaces([{ actionable:true, status:'passed' }], 'open'), false, 'failed integration retains workspaces for inspection and retry');
+assert.equal(canCleanupRequirementWorkspaces([{ actionable:true, status:'passed' }], 'passed'), true, 'only successful integration permits cleanup');
 console.log('requirement recovery tests passed');

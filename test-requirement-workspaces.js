@@ -25,8 +25,15 @@ try {
     assert.equal(result.mode, 'worktree');
     const task = result.tasks[0];
     assert.ok(task.baselineCommit); assert.ok(task.baselineRef); assert.ok(fs.existsSync(task.path));
-    assert.equal(validTaskWorkspace({ ...task, cleanup:result.cleanup[0] }), true, 'persisted ownership metadata validates a live task workspace');
-    assert.equal(validTaskWorkspace({ ...task, path:project, cleanup:result.cleanup[0] }), false, 'active project paths cannot be accepted as recovered task workspaces');
+    const saved = { ...task, cleanup:result.cleanup[0] };
+    const assignment = { id:'a', files:['./tracked.txt'] };
+    assert.equal(validTaskWorkspace(saved, assignment), true, 'persisted ownership metadata validates a live task workspace and exact scope');
+    assert.equal(validTaskWorkspace(saved, { id:'a', files:['nested/owned.txt'] }), false, 'stale assignment scope invalidates saved workspace');
+    assert.equal(validTaskWorkspace({ ...saved, files:['nested/owned.txt'] }, assignment), false, 'tampered workspace scope is rejected');
+    assert.equal(validTaskWorkspace({ ...saved, baselineCommit:'deadbeef' }, assignment), false, 'stale baseline commit is rejected');
+    assert.equal(validTaskWorkspace({ ...saved, repo:project }, assignment), false, 'workspace cannot be rebound to the active project repo');
+    assert.equal(validTaskWorkspace({ ...saved, baselineRef:'refs/heads/main' }, assignment), false, 'stale baseline ref is rejected');
+    assert.equal(validTaskWorkspace({ ...task, path:project, cleanup:result.cleanup[0] }, assignment), false, 'active project paths cannot be accepted as recovered task workspaces');
     fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'worker\n');
     fs.writeFileSync(path.join(task.path, 'ignored-by-scope.txt'), 'skip\n');
     const changes = collectTaskChanges(task);
@@ -36,7 +43,7 @@ try {
     assert.equal(read(project, 'tracked.txt'), 'worker\n');
     assert.equal(fs.existsSync(path.join(project, 'ignored-by-scope.txt')), false);
     cleanupTaskWorkspaces(result); assert.equal(fs.existsSync(task.path), false);
-    assert.equal(validTaskWorkspace({ ...task, cleanup:result.cleanup[0] }), false, 'deleted temporary workspaces fail recovery validation');
+    assert.equal(validTaskWorkspace(saved, assignment), false, 'deleted temporary workspaces fail recovery validation');
   }
 
   // Dirty tracked state, staged and unstaged edits, and untracked files are part of the captured baseline.

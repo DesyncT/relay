@@ -2,6 +2,11 @@
 
 const INTERRUPTED_INTEGRATION = new Set(['integrating', 'retrying', 'open']);
 
+function canCleanupRequirementWorkspaces(assignments, integrationStatus) {
+  const actionable = (Array.isArray(assignments) ? assignments : []).filter(a => a.actionable !== false);
+  return actionable.length > 0 && actionable.every(a => a.status === 'passed') && integrationStatus === 'passed';
+}
+
 function recoverRequirementAssignments(input, validateWorkspace = () => false) {
   const assignments = Array.isArray(input) ? JSON.parse(JSON.stringify(input)) : [];
   if (!assignments.length) return { kind:'legacy', assignments };
@@ -42,4 +47,4 @@ function recoverRequirementAssignments(input, validateWorkspace = () => false) {
   return { kind:hasActive || readyToIntegrate ? 'resume' : 'open', assignments, integrate:hasActive || readyToIntegrate };
 }
 
-module.exports = { recoverRequirementAssignments };
+module.exports = { recoverRequirementAssignments, canCleanupRequirementWorkspaces };

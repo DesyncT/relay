@@ -72,7 +72,7 @@ function sharedResult(projectPath, assignments, reason) {
     });
     const baselineRef = `isolated-${crypto.randomBytes(6).toString('hex')}`;
     const marker = path.join(root, OWNED_MARKER);
-    fs.writeFileSync(marker, JSON.stringify({ root, snapshot, baselineRef, tasks: tasks.map(task => task.path) }));
+    fs.writeFileSync(marker, JSON.stringify({ root, snapshot, baselineRef, tasks: tasks.map(task => ({ path:task.path, assignmentId:task.assignmentId, files:task.files, baselineCommit:task.baselineCommit, baselineRef:task.baselineRef, repo:task.repo, mode:task.mode })) }));
     const cleanup = [{ root, marker, snapshot, baselineRef, paths: tasks.map(task => task.path) }];
     return { mode: 'shared', base: null, tasks, sharedOverlaps: overlappingAssignments(assignments), reason,
       isolated: true, cleanup, cleanupTasks: () => cleanupTaskWorkspaces({ cleanup }) };
@@ -121,7 +121,7 @@ function createTaskWorkspaces(projectPath, sessionId, assignments) {
         repo: snapshot, mode: 'worktree' });
     }
     const ownershipPath = path.join(tempRoot, OWNED_MARKER);
-    fs.writeFileSync(ownershipPath, JSON.stringify({ root: tempRoot, snapshot, baselineRef, tasks: tasks.map(t => t.path) }));
+    fs.writeFileSync(ownershipPath, JSON.stringify({ root:tempRoot, snapshot, baselineRef, tasks:tasks.map(t => ({ path:t.path, assignmentId:t.assignmentId, files:t.files, baselineCommit:t.baselineCommit, baselineRef:t.baselineRef, repo:t.repo, mode:t.mode })) }));
     const cleanup = [{ root: tempRoot, marker: ownershipPath, snapshot, baselineRef, paths: tasks.map(t => t.path) }];
     return { mode: 'worktree', base: { path: snapshot, baselineCommit, baselineRef }, tasks,
       sharedOverlaps: overlappingAssignments(list), cleanup, cleanupTasks: () => cleanupTaskWorkspaces({ cleanup }) };
@@ -203,7 +203,7 @@ function cleanupTaskWorkspaces(workspaces) {
       if (fs.lstatSync(root).isSymbolicLink() || fs.lstatSync(marker).isSymbolicLink() || path.resolve(fs.realpathSync(root)) !== root) throw new Error('Refusing cleanup through a symbolic link');
       const recorded = JSON.parse(fs.readFileSync(marker, 'utf8'));
       if (path.resolve(recorded.root) !== root || path.resolve(recorded.snapshot) !== path.resolve(entry.snapshot) || recorded.baselineRef !== entry.baselineRef) throw new Error('Cleanup ownership marker mismatch');
-      const owned = new Set(recorded.tasks.map(p => path.resolve(p)));
+      const owned = new Set(recorded.tasks.map(task => path.resolve(typeof task === 'string' ? task : task.path)));
       if ((entry.paths || []).some(p => !owned.has(path.resolve(p)))) throw new Error('Cleanup path is not owned by this workflow');
       if (recorded.snapshot !== entry.snapshot) throw new Error('Cleanup snapshot mismatch');
       // These worktrees and ref exist only below the uniquely-created owned root.
@@ -213,9 +213,16 @@ function cleanupTaskWorkspaces(workspaces) {
   return errors;
 }
 
-function validTaskWorkspace(workspace) {
+function validTaskWorkspace(workspace, assignment) {
   try {
     if (!workspace || !Array.isArray(workspace.files) || !workspace.files.length) return false;
+    const normalizedFiles = normalizeOwnedPaths(workspace.files);
+    if (!normalizedFiles.length || normalizedFiles.length !== workspace.files.length || normalizedFiles.some((file, i) => file !== workspace.files[i])) return false;
+    if (assignment) {
+      const assignedFiles = normalizeOwnedPaths(assignment.files || assignment.fileOwnership);
+      if (!assignedFiles.length || JSON.stringify(assignedFiles) !== JSON.stringify(normalizedFiles)) return false;
+      if (String(workspace.assignmentId || workspace.id) !== String(assignment.id)) return false;
+    }
     if (workspace.mode !== 'worktree' && !(workspace.mode === 'shared' && workspace.isolated === true)) return false;
     const cleanup = workspace.cleanup || {};
     const root = path.resolve(cleanup.root || ''), marker = path.resolve(cleanup.marker || ''), taskPath = path.resolve(workspace.path || '');
@@ -224,9 +231,25 @@ function validTaskWorkspace(workspace) {
     if (path.resolve(fs.realpathSync(root)) !== root || !fs.statSync(root).isDirectory() || !fs.statSync(taskPath).isDirectory()) return false;
     const recorded = JSON.parse(fs.readFileSync(marker, 'utf8'));
     if (path.resolve(recorded.root) !== root || path.resolve(recorded.snapshot) !== path.resolve(cleanup.snapshot || '') || recorded.baselineRef !== cleanup.baselineRef) return false;
-    const recordedTasks = new Set((recorded.tasks || []).map(p => path.resolve(p)));
-    if (!recordedTasks.has(taskPath) || !(cleanup.paths || []).some(p => path.resolve(p) === taskPath)) return false;
-    if (!fs.existsSync(path.join(taskPath, '.git')) || !workspace.baselineCommit || !workspace.baselineRef) return false;
+    const taskRecord = (recorded.tasks || []).find(item => path.resolve(typeof item === 'string' ? item : item.path) === taskPath);
+    if (!taskRecord || !(cleanup.paths || []).some(p => path.resolve(p) === taskPath)) return false;
+    const record = typeof taskRecord === 'string' ? null : taskRecord;
+    if (!record || record.assignmentId !== workspace.assignmentId || record.mode !== workspace.mode || record.repo !== workspace.repo ||
+        record.baselineCommit !== workspace.baselineCommit || record.baselineRef !== workspace.baselineRef ||
+        JSON.stringify(normalizeOwnedPaths(record.files)) !== JSON.stringify(normalizedFiles)) return false;
+    if (!fs.existsSync(path.join(taskPath, '.git')) || !workspace.baselineCommit || !workspace.baselineRef || !workspace.repo) return false;
+    const actualRoot = path.resolve(gitText(taskPath, ['rev-parse', '--show-toplevel']));
+    if (actualRoot !== taskPath) return false;
+    const actualCommon = path.resolve(taskPath, gitText(taskPath, ['rev-parse', '--git-common-dir']));
+    const expectedCommon = path.resolve(workspace.repo, '.git');
+    if (actualCommon !== expectedCommon) return false;
+    if (gitText(workspace.repo, ['cat-file', '-e', `${workspace.baselineCommit}^{commit}`]) !== '') return false;
+    if (gitText(workspace.repo, ['rev-parse', workspace.baselineRef]) !== workspace.baselineCommit) return false;
+    if (workspace.mode === 'worktree') {
+      const worktrees = gitText(workspace.repo, ['worktree', 'list', '--porcelain']);
+      const listedPaths = worktrees.split(/\r?\n/).filter(line => line.startsWith('worktree ')).map(line => path.resolve(line.slice(9)));
+      if (!listedPaths.includes(taskPath)) return false;
+    } else if (gitText(taskPath, ['rev-parse', 'HEAD']) !== workspace.baselineCommit) return false;
     return true;
   } catch { return false; }
 }

@@ -15,7 +15,7 @@ const { providerArgs } = require('./permissions');
 const { createAssignments, nextEscalation } = require('./requirement-workflow');
 const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
-const { recoverRequirementAssignments } = require('./requirement-recovery');
+const { recoverRequirementAssignments, canCleanupRequirementWorkspaces } = require('./requirement-recovery');
 const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
@@ -441,12 +441,9 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     },
   });
   const promise = coordinator.start(assignments).then(async completed => {
-    if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) {
-      cleanupTaskWorkspaces(workspaces);
-      return completed;
-    }
+    if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
     const result = await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner);
-    if (epoch !== rt.epoch) { cleanupTaskWorkspaces(workspaces); return completed; }
+    if (epoch !== rt.epoch) return completed;
     const latest = reqsOf(sid) || {};
     if (result.status === 'passed') {
       setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true })), assignments:completed });
@@ -455,7 +452,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
       setReqs(sid, { ...latest, assignments:completed });
       post(sid, owner, `Integration remains open: ${result.findings || result.blocker}. Requirements are still unchecked.`, trigger, null, { muted:true });
     }
-    cleanupTaskWorkspaces(workspaces);
+    if (canCleanupRequirementWorkspaces(completed, result.status)) cleanupTaskWorkspaces(workspaces);
     return completed;
   }).finally(() => requirementCoordinators.delete(sid));
   requirementCoordinators.set(sid, { coordinator, promise, workspaces });
@@ -983,7 +980,7 @@ function resumeSessions() {
     if (Array.isArray(persistedAssignments) && persistedAssignments.length) {
       const rt = RT(s.id);
       Object.assign(rt, { wrapping:!!r?.wrapping, requests:r?.requests || [], reviewRequest:(r?.requests || []).join('\n\n'), reviewRequestAt:r?.reviewRequestAt, building:!!r?.building, restarts:r?.restarts || 0 });
-      const recovered = recoverRequirementAssignments(persistedAssignments, workspace => validTaskWorkspace(workspace));
+      const recovered = recoverRequirementAssignments(persistedAssignments, (workspace, assignment) => validTaskWorkspace(workspace, assignment));
       const reqs = s.reqs || {};
       if (recovered.kind === 'integrated') {
         const items = (reqs.items || []).map(item => ({ ...item, done:true }));
