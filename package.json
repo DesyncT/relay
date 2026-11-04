@@ -11,7 +11,7 @@
   "scripts": {
     "start": "electron .",
     "check": "node usage.js",
-    "test": "node test-prompt-caching.js && node test-requirement-gate.js && node test-question-controls.js && node test-requirement-workflow.js",
+    "test": "node test-prompt-caching.js && node test-requirement-gate.js && node test-question-controls.js && node test-requirement-workflow.js && node test-requirement-workspaces.js",
     "test:ui": "electron test-renderer.js",
     "dist": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always"
