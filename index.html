@@ -10,8 +10,6 @@
 <link rel="stylesheet" href="panels.css">
 <!-- Design pass follows unslop by Damir Sokolovsky (@heydamir), CC BY 4.0 -->
 <style>
-  *:focus, *:focus-visible, *:focus-within { outline: none !important; box-shadow: none !important; }
-
   :root {
     /* graphite ramp */
     --deep:#0f0f10; --bg:#141415; --card:#19191b; --raised:#232325;
@@ -224,6 +222,10 @@
   .opt:hover { background:color-mix(in srgb, var(--raised) 85%, #fff); } .opt:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
   .opt.pri { background:#ededed; color:#141415; border-color:transparent; } .opt.pri:hover { background:#fff; }
   .opt:disabled { opacity:.5; cursor:default; pointer-events:none; }
+  /* question choices: lettered cards so a pick reads as A / B / C */
+  .opts.lettered { counter-reset:opt; gap:8px; } .opts.lettered .opt { height:36px; padding:0 14px 0 6px; gap:10px; } .opts.lettered .opt::before { counter-increment:opt; content:counter(opt, upper-alpha); display:inline-grid; place-items:center; width:22px; height:22px; border-radius:6px; background:var(--card); color:var(--text-2); font-size:12px; font-weight:500; }
+  .opts.lettered .opt.pri::before { background:rgba(20,20,21,.12); color:#141415; }
+  .opts.lettered .opt-own { height:36px; min-height:36px; flex-basis:100%; }
   /* .opts prefix beats workbench.css's input:not([type=checkbox]) so it matches the .opt buttons beside it */
   .opts .opt-own { flex:1 1 220px; width:auto; min-width:0; height:32px; min-height:32px; box-sizing:border-box; padding:0 12px; border-radius:8px; background:var(--raised); border:1px solid var(--line-strong); color:var(--text); font:inherit; font-size:14px; transition:border-color .15s var(--ease); }
   .opts .opt-own:hover { border-color:var(--muted); } .opts .opt-own:focus { border-color:var(--muted); outline:none; } .opts .opt-own:disabled { opacity:.5; }
@@ -991,14 +993,14 @@ const stamp = (at) => { // Discord style: Today at 12:04 / Yesterday at 9:15 / 1
 };
 // block pass on escaped text: lists, headings, quotes. Plain lines stay as-is (pre-wrap keeps their newlines), so plain messages don't shift.
 function mdBlocks(t) {
-  const L = t.split('\n'), out = [], ul = /^[-*] +(.*)$/, ol = /^\d+\. +(.*)$/, q = /^&gt; ?(.*)$/;
+  const L = t.split('\n'), out = [], ul = /^[-*] +(.*)$/, ol = /^(\d+)\. +(.*)$/, q = /^&gt; ?(.*)$/;
   let buf = [], i = 0, m;
   const flush = () => { if (buf.length) out.push(buf.join('\n')); buf = []; };
   while (i < L.length) {
     const re = ul.test(L[i]) ? ul : ol.test(L[i]) ? ol : q.test(L[i]) ? q : null;
     if (re) {
-      const items = []; while (i < L.length && (m = re.exec(L[i]))) { items.push(m[1]); i++; }
-      flush(); out.push(re === q ? `<blockquote>${items.join('\n')}</blockquote>` : `<${re === ul ? 'ul' : 'ol'}>${items.map((x) => `<li>${x}</li>`).join('')}</${re === ul ? 'ul' : 'ol'}>`);
+      const items = [], start = re === ol ? +ol.exec(L[i])[1] : 1; while (i < L.length && (m = re.exec(L[i]))) { items.push(m[re === ol ? 2 : 1]); i++; }
+      flush(); out.push(re === q ? `<blockquote>${items.join('\n')}</blockquote>` : `<${re === ul ? 'ul' : `ol start="${start}"`}>${items.map((x) => `<li>${x}</li>`).join('')}</${re === ul ? 'ul' : 'ol'}>`);
     } else if ((m = /^(#{1,3}) +(.*)$/.exec(L[i]))) { flush(); out.push(`<div class="h${m[1].length}">${m[2]}</div>`); i++; }
     else buf.push(L[i++]);
   }
@@ -1067,7 +1069,7 @@ function attNode(a) {
 }
 // reply target + "waiting for you" state
 let replying = null, waitFor = null, openTitle = '';
-const placeholder = () => { const p = waitFor ? 'Reply to ' + waitFor : 'Message ' + (openTitle || 'Relay'); $('#input').placeholder = p + '  ·  / for commands'; $('#input').setAttribute('aria-label', p); };
+const placeholder = () => { const p = waitFor ? 'Type your answer' : 'Message ' + (openTitle || 'Relay'); $('#input').placeholder = p + (waitFor ? '' : '  ·  / for commands'); $('#input').setAttribute('aria-label', p); };
 function renderChip() {
   if (!replying) return $('#rchip').replaceChildren();
   const x = el('button', { innerHTML: svgI('<path d="M18 6 6 18M6 6l12 12"/>'), title: 'Cancel reply' });
@@ -1245,6 +1247,11 @@ function renderFailureCard(m) {
 }
 
 function addMsg(m, live) {
+  // Also recover controls in older saved agent messages that were not parsed.
+  if (['claude', 'codex', 'antigravity'].includes(m.from) && /\[ask-user[!:\s\]]/i.test(m.text || '')) {
+    const question = parseTurn(m.text, m.from);
+    m = { ...m, ...question };
+  }
   const log = $('#log');
   $('#empty')?.remove();
   if (lastOpts && (m.from === 'user' || m.askUser)) { lastOpts.remove(); lastOpts = null; }
@@ -1264,8 +1271,7 @@ function addMsg(m, live) {
     const cont = !m.sub && prev && prev.from === m.from && prev.via === m.via && messageProvider(prev) === messageProvider(m) && m.at - prev.at < 3e5 && !m.replyTo;
     prev = m;
     const t = el('span', { className: 't', textContent: cont ? hm(m.at) : stamp(m.at), title: new Date(m.at).toLocaleString() });
-    const atMe = m.askUser && !new RegExp('@' + profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\W|$)', 'i').test(m.text || '') ? `@${profile.name} ` : ''; // an ask reads as a mention of the user
-    const body = [el('div', { className: 'body', innerHTML: md(atMe + (m.text || '')) }), ...(m.activity?.length ? [actList(m.activity), ...actThumbs(m.activity)] : []), ...(m.attachments?.length ? [el('div', { className: 'atts' }, ...m.attachments.map(attNode))] : []), ...fileCards(m), ...(m.askUser ? [lastOpts = choiceBar(m.options?.length ? m.options : ['Approve', 'Reject'], m.optionInfo)] : []), ...(m.askUser ? [el('div', { className: 'wait', textContent: 'Waiting for you' })] : [])], r = m.replyTo;
+    const body = [el('div', { className: 'body', innerHTML: md(m.text || '') }), ...(m.activity?.length ? [actList(m.activity), ...actThumbs(m.activity)] : []), ...(m.attachments?.length ? [el('div', { className: 'atts' }, ...m.attachments.map(attNode))] : []), ...fileCards(m), ...(m.askUser ? [lastOpts = choiceBar(m.options?.length ? m.options : ['Approve', 'Reject'], m.optionInfo, m.options?.length ? 'lettered' : '')] : []), ...(m.askUser ? [el('div', { className: 'wait', textContent: 'Choose an option or write your own answer' })] : [])], r = m.replyTo;
     let rl;
     if (r) { rl = el('div', { className: 'reply' }, avatar(r.from, 1, r.via, messageProvider(r)), el('b', { textContent: disp(visibleSpeaker(r)), style: `color:${nameColor(visibleSpeaker(r))}` }), el('span', { textContent: r.text.replace(/\s+/g, ' ') })); rl.onclick = () => jump(r); }
     row = cont ? el('div', { className: 'msg cont' }, t, ...body, actions(m)) : el('div', { className: 'msg grp' + (r ? ' rp' : '') },
@@ -1428,18 +1434,11 @@ function choiceBar(opts, info, cls = '') {
   const bar = el('div', { className: ('opts ' + cls).trim(), role: 'group', ariaLabel: 'Choices' });
   const done = () => { for (const x of bar.querySelectorAll('button, input')) x.disabled = true; };
   for (const [i, o] of opts.entries()) {
-    const b = el('button', { className: 'opt' + (i ? '' : ' pri'), textContent: o, title: info?.[i] || '' });
+    const b = el('button', { type: 'button', className: 'opt' + (i ? '' : ' pri'), title: info?.[i] || '' }, el('span', { className: 'opt-copy' }, el('span', { textContent: o }), ...(info?.[i] ? [el('small', { textContent: info[i] })] : [])));
     b.onclick = (e) => { e.stopPropagation(); done(); sendChat(o); };
     bar.append(b);
   }
-  const own = el('input', { className: 'opt-own', type: 'text', placeholder: 'Or type your answer…', maxLength: 2000 });
-  own.setAttribute('aria-label', 'Type your own answer');
-  own.onclick = (e) => e.stopPropagation();
-  own.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter' && own.value.trim()) { const v = own.value.trim(); done(); sendChat(v); } };
-  bar.append(own);
-  if (!info?.some(Boolean)) return bar;
-  const list = el('ul', { className: 'opt-info' }, ...opts.map((o, i) => info[i] ? el('li', {}, el('b', { textContent: o }), ' — ' + info[i]) : '').filter(Boolean));
-  return el('div', { className: 'opt-wrap' }, list, bar);
+  return bar;
 }
 // ---------- slash commands: run locally in the renderer / main, never sent to the agents ----------
 function card(...kids) { // local system card from "Relay": muted, not persisted, not part of the agents' context
@@ -1538,12 +1537,12 @@ function renderTyping() {
 // Requirements checklist progress (main.js reqs): bar + count, click to see the list
 function renderReqs(r) {
   const box = $('#reqbar'), items = r?.items || [];
-  box.hidden = !r; box.classList.toggle('has', items.length > 0); // shine only while requirements are being written
+  box.hidden = !r || (!!r.idle && !items.length); box.classList.toggle('has', items.length > 0); // shine only while requirements are being written
   if (!r) return box.replaceChildren();
   // the bar counts partial progress of requirements an agent is on ([req-now: 3 60%]), the label counts finished ones
   const done = items.filter((i) => i.done).length, part = (i) => i.done ? 100 : i.by ? i.pct || 0 : 0;
   const pct = items.length ? Math.round(items.reduce((s, i) => s + part(i), 0) / items.length) : 0;
-  const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements · written with your next request' : `Waiting for ${r.target ? r.target + ' ' : ''}requirements…`;
+  const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements' : 'Clarifying your request';
   const who = (i) => el('span', { className: 'rq-who' }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), el('span', { className: 'rq-mini' }, el('i', { style: `width:${i.pct || 0}%` })), el('span', { className: 'mono', textContent: `${i.pct || 0}%` }));
   const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
   // one line: Requirements · 93% (accent) · bar · 1 of 3 done · @claude #1 — full texts live in the dropdown and tooltips
@@ -1797,36 +1796,28 @@ function toggleLeadMenu(open = $('#leadMenu').hidden, kb) { $('#leadMenu').hidde
 $('#leadPick').onclick = (e) => toggleLeadMenu(undefined, e.detail === 0);
 document.addEventListener('mousedown', (e) => { if (!$('#leadMenu').hidden && !e.target.closest('#leadMenu, #leadPick')) toggleLeadMenu(false); });
 $('#leadMenu').onkeydown = (e) => { if (e.key === 'Escape') { toggleLeadMenu(false); $('#leadPick').focus(); } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const b = [...$('#leadMenu').children], i = b.indexOf(document.activeElement); b[(i + (e.key === 'ArrowDown' ? 1 : -1) + b.length) % b.length].focus(); } };
-// mode picker: one chip, per session. Auto = cheap voters answer routine questions + edits; Manual = edits off; Accept edits; Plan = nothing gets built. Bypass is a separate, in-memory-only switch.
-const MODES = [['auto', 'Auto', 'Agents handle tasks directly; file edits allowed', 1], ['manual', 'Manual', 'Always ask before making changes', 0], ['edits', 'Accept edits', 'Automatically accept all file edits', 1], ['plan', 'Plan', 'Plan only, nothing gets built', 0]];
-let modeCur = 'manual', bypassOn = false;
-function renderMode(mode, bp) {
-  if (mode) modeCur = mode; if (bp != null) bypassOn = !!bp;
-  const m = MODES.find((x) => x[0] === modeCur) || MODES[1], c = $('#modeChip'), warn = bypassOn || m[3];
-  c.classList.toggle('on', !!warn && !bypassOn); c.classList.toggle('bp', bypassOn);
-  c.innerHTML = (warn ? svgI('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>') : '') + (bypassOn ? 'Bypass' : m[1]);
+// This controls who answers routine decisions; permissions are always full.
+const MODES = [['edits', 'Full access', 'Agents can edit files and run commands'], ['auto', 'Auto', 'Full access; agents also resolve routine decisions']];
+let modeCur = 'edits';
+function renderMode(mode) {
+  if (mode) modeCur = mode === 'auto' ? 'auto' : 'edits';
+  const m = MODES.find(x => x[0] === modeCur), c = $('#modeChip');
+  c.classList.remove('bp', 'on'); c.textContent = m[1];
+  c.title = 'Filesystem and network access are always enabled';
   if (!$('#modeMenu').hidden) drawMode();
 }
 function pickMode(k) { if (!openSid) return; renderMode(k); api.call('chat:mode', openSid, k); toggleModeMenu(false); $('#input').focus(); }
-function drawMode(confirm) {
-  const box = $('#modeMenu');
-  if (confirm) {
-    const no = el('button', { className: 'b ghost', textContent: 'Cancel' }), yes = el('button', { className: 'b danger', textContent: 'Enable bypass' });
-    no.onclick = () => drawMode(); yes.onclick = () => { api.call('chat:bypass', openSid, true); toggleModeMenu(false); };
-    box.replaceChildren(el('div', { className: 'mm-h', textContent: 'Bypass permissions' }), el('p', { className: 'mm-p', textContent: 'Agents can run any command and change any file without asking. This lasts until you restart the app.' }), el('div', { className: 'mm-a' }, no, yes));
-    return yes.focus();
-  }
-  const rows = MODES.map(([k, n, d], i) => {
-    const b = el('button', { className: 'mi mm' }, el('span', { className: 'mm-t' }, el('b', { textContent: n }), el('span', { textContent: d })), ...(k === modeCur && !bypassOn ? [el('span', { className: 'ck', innerHTML: svgI('<path d="M20 6 9 17l-5-5"/>') })] : []), el('kbd', { textContent: String(i + 1) }));
-    b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', k === modeCur && !bypassOn); b.onclick = () => pickMode(k); return b;
+function drawMode() {
+  const rows = MODES.map(([k, n, d]) => {
+    const b = el('button', { type:'button', className:'mi mm' }, el('span', {className:'mm-t'}, el('b', {textContent:n}), el('span', {textContent:d})));
+    b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', k === modeCur); b.onclick = () => pickMode(k); return b;
   });
-  const bp = el('button', { className: 'mm-en', textContent: bypassOn ? 'Disable' : 'Enable' }); bp.onclick = () => bypassOn ? (api.call('chat:bypass', openSid, false), toggleModeMenu(false)) : drawMode(true);
-  box.replaceChildren(el('div', { className: 'mm-h', textContent: 'Mode' }), ...rows, el('div', { className: 'mm-sep' }), el('div', { className: 'mm-bp' }, el('span', { className: 'mm-t' }, el('b', { textContent: 'Bypass permissions' }), el('span', { textContent: 'Agents run anything without asking' })), bp));
+  $('#modeMenu').replaceChildren(...rows);
 }
 function toggleModeMenu(open = $('#modeMenu').hidden, kb) { $('#modeMenu').hidden = !open; $('#modeChip').setAttribute('aria-expanded', open); if (open) { drawMode(); if (kb) $('#modeMenu .mi')?.focus(); } }
 $('#modeChip').onclick = (e) => toggleModeMenu(undefined, e.detail === 0);
 document.addEventListener('mousedown', (e) => { if (!$('#modeMenu').hidden && !e.target.closest('#modeMenu, #modeChip')) toggleModeMenu(false); });
-document.addEventListener('keydown', (e) => { if ($('#modeMenu').hidden) return; if (e.key === 'Escape') { toggleModeMenu(false); $('#modeChip').focus(); } else if (/^[1-4]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !$('#modeMenu .mm-p')) { e.preventDefault(); pickMode(MODES[+e.key - 1][0]); } });
+document.addEventListener('keydown', (e) => { if ($('#modeMenu').hidden) return; if (e.key === 'Escape') { toggleModeMenu(false); $('#modeChip').focus(); } else if (/^[1-2]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !$('#modeMenu .mm-p')) { e.preventDefault(); pickMode(MODES[+e.key - 1][0]); } });
 api.on('chat:mode', (d) => { if (d.sid === openSid) renderMode(d.mode, d.bypass); });
 function refreshCfg() { return api.call('settings:get').then((s) => { cfg = s; renderLead(openSid ? leadCur : s.lead || leadCur); }).catch(() => {}); }
 renderLead('claude'); renderMode(); refreshCfg();
@@ -2070,7 +2061,6 @@ async function loadSettings() {
     provToggles,
     el('label', { style: 'margin-top:0' }, 'Connected models', el('span', { className: 'hint', textContent: 'Connect any LLM (Ollama, OpenRouter, DeepSeek, Kimi, GLM…) and pick it in the chat model menu' })),
     connectedModels(),
-    el('label', { htmlFor: 's-edit', style: 'display:flex;align-items:center;gap:8px;margin:0 0 12px;color:var(--text);cursor:pointer;white-space:nowrap' }, el('input', { id: 's-edit', type: 'checkbox', checked: !!s.edit, style: 'display:inline-block;width:16px;height:16px' }), 'Let agents edit files', el('span', { className: 'hint', textContent: 'Claude runs with acceptEdits, Codex with a workspace-write sandbox', style: 'margin:0' })),
     el('label', { htmlFor: 's-auto', style: 'display:flex;align-items:center;gap:8px;margin:0 0 20px;color:var(--text);cursor:pointer;white-space:nowrap' }, el('input', { id: 's-auto', type: 'checkbox', checked: s.defaultMode === 'auto', style: 'display:inline-block;width:16px;height:16px' }), 'Start new sessions in Auto mode', el('span', { className: 'hint', textContent: 'Judges vote on actions automatically before asking for your decision', style: 'margin:0' })), ...FIELDS.flatMap(([k, n, hint, type]) => [
     el('label', { htmlFor: 's-' + k }, n, ...(hint ? [el('span', { className: 'hint', textContent: hint })] : [])),
     type === 'textarea'
@@ -2102,7 +2092,7 @@ $('#saveSettings').onclick = async () => {
     alert('At least one provider must remain enabled.');
     return;
   }
-  const payload = { ...Object.fromEntries(FIELDS.map(([k]) => [k, $('#s-' + k).value])), edit: $('#s-edit').checked, defaultMode: $('#s-auto')?.checked ? 'auto' : ($('#s-edit')?.checked ? 'edits' : 'manual'), disabledProviders: disabled };
+  const payload = { ...Object.fromEntries(FIELDS.map(([k]) => [k, $('#s-' + k).value])), edit: true, defaultMode: $('#s-auto')?.checked ? 'auto' : 'edits', disabledProviders: disabled };
   await api.call('settings:save', payload);
   cfg.disabledProviders = disabled;
   refreshQuota();

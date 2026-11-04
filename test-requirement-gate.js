@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require.resolve('./main.js'), 'utf8');
 const parser = source.slice(source.indexOf('function applyReqTags('), source.indexOf('// A wrap-up'));
 const gate = source.slice(source.indexOf('    const request = msgs()'), source.indexOf('    if (supercodeOn(sid) && /\\[escalate'));
-const askGate = source.slice(source.indexOf('  const lastUser = sess.messages'), source.indexOf('  const notes = [resumed'));
+const askGate = source.slice(source.indexOf('  let asked = 0;'), source.indexOf('  const notes = [resumed'));
 const dispatch = source.slice(source.indexOf('const WRAP ='), source.indexOf("ipcMain.handle('chat:queue',"));
 
 function dispatchTaggedRequest() {
@@ -16,7 +16,7 @@ function dispatchTaggedRequest() {
     store: { getSession: () => ({ lead: 'claude' }) }, RT: () => rt,
     post: (_, from, text) => { const m = { from, text, at: 2 }; messages.push(m); return m; },
     reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; },
-    REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => false,
+    REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => false, isConversation: require('./turn').isConversation,
     onUserText: () => {}, AGENT_NAMES: ['claude', 'codex'], enqueue: () => {},
   });
   assert.equal(reqs.items.length, 0, 'User tags must not populate the agent checklist');
@@ -30,7 +30,7 @@ let cases = 0;
 // Round 1 asks the user questions, round 2 (the turn after an agent question) writes the list
 function gateFor(messages, reqs = { items: [] }, writeNow) {
   cases += 1;
-  return vm.runInNewContext(`${askGate}; checklistGate`, { sid: 'test', sess: { messages }, reqsOf: () => reqs, writeNow });
+  return vm.runInNewContext(`${askGate}; checklistGate`, { sid: 'test', sess: { messages }, reqsOf: () => reqs, writeNow, MAX_QUESTIONS: 4 });
 }
 
 async function check(responses, fails = false, initial = { items: [] }) {
@@ -46,7 +46,7 @@ async function check(responses, fails = false, initial = { items: [] }) {
     promptFor: () => '', addUsage: () => null,
     post: (_, who, text) => { events.push({ text }); return { text }; },
     seatRun: async (_, who, phase, prompt, trigger, options) => {
-      events.push({ readonly: !!options.readonly });
+      events.push({ readonly: !!options.requirementsOnly });
       const res = responses.shift() || 'Implementation complete';
       return { ...(typeof res === 'string' ? { text: res } : res), rd: { meta: {} }, prov: who };
     },
@@ -99,10 +99,14 @@ async function asks(responses, initial) {
   await check(['Each on its own [req: ...] line.\n- [req: Show requirements before editing]']);
   await asks(['1. Which page? 2. Which colours? [ask-user!]'], { items: [] });
   await asks(['Restarted, all good.'], null); // after a wrap-up there is no checklist to write
-  const user = { from: 'user', text: 'Build it' }, agentAsk = { from: 'claude', text: 'Which page?', askUser: true }, agentSaid = { from: 'claude', text: 'Done.' };
-  assert.match(gateFor([user]), /only asks questions/);
-  assert.match(gateFor([user, agentAsk, user]), /only writes the requirements/);
-  assert.match(gateFor([user, agentSaid, user]), /only asks questions/);
+  const user = { from: 'user', text: 'Build it' }, ask = { from: 'claude', text: 'Which page?', askUser: true }, said = { from: 'claude', text: 'Done.' };
+  assert.match(gateFor([user]), /one question at a time/); // first run asks one question
+  assert.match(gateFor([user]), /\[ask-user!: Option A \| Option B \| Option C\]/);
+  assert.doesNotMatch(gateFor([user]), /numbered questions/);
+  assert.match(gateFor([user, ask, user]), /answered your earlier question/); // after one answer it may ask the next
+  assert.match(gateFor([user, ask, user, ask, user, ask, user]), /answered your earlier question/);
+  assert.match(gateFor([user, ask, user, ask, user, ask, user, ask, user]), /only writes the requirements/); // capped at 4 questions
+  assert.match(gateFor([user, said, user]), /one question at a time/); // a plain reply is not a question: new task, asks again
   assert.match(gateFor([user], { items: [], target: 2 }), /exactly 2/);
   assert.match(gateFor([user], { items: [] }, true), /only writes the requirements/);
   console.log(`Requirement gate: ${cases} cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).`);

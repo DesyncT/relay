@@ -5,6 +5,35 @@ const NAMES = ['claude', 'codex'];
 const mentions = (text) => NAMES.filter((a) => new RegExp(`@${a}\\b`, 'i').test(text));
 const otherOf = (who) => (who === 'claude' ? 'codex' : 'claude');
 
+// Common conversational replies need no model call. Keep matches anchored so a
+// greeting followed by a work request still reaches the normal task flow.
+function conversationReply(text, { awaiting = false, busy = false, items = [], doneAt = null } = {}) {
+  const t = String(text || '').toLowerCase().replace(/[’]/g, "'").trim().replace(/[?!.]+$/g, '').replace(/\s+/g, ' ');
+  if (/^(?:(?:hi|hey|hello|hiya|yo|greetings)(?: there| relay| guys| everyone)?|good (?:morning|afternoon|evening))$/.test(t)) return 'Hello.';
+  if (/^(?:thanks(?: a lot| so much)?|thank you(?: very much)?|thx|ty|cheers|much appreciated)$/.test(t)) return 'You’re welcome.';
+  if (/^(?:how (?:are|r) (?:you|u)(?: doing)?|how'?s it going|what'?s up|sup)$/.test(t)) return 'Ready to help.';
+  if (/^(?:who (?:are|r) (?:you|u)|what (?:are|r) (?:you|u))$/.test(t)) return 'I’m Relay, your coding assistant.';
+  if (/^(?:help|what can (?:you|u) do|how can (?:you|u) help(?: me)?|what (?:are )?your capabilities)$/.test(t)) return 'I can answer questions, define requirements, and work on code in your project.';
+  const done = !busy && !awaiting && (items.length ? items.every(i => i.done) : !!doneAt);
+  if (/^(?:(?:are )?(?:you|u)(?: guys)? (?:done|finished)(?: yet)?|(?:is|has) (?:it|the task|the work) (?:done|finished|ready)|(?:done|finished|ready)(?: yet)?|all done)$/.test(t)) return done ? 'Yes.' : awaiting ? 'No—waiting for your answer to the question above.' : 'No.';
+  if (/^(?:status(?: update)?|progress|any (?:updates|progress)|what(?:'s| is) (?:the |your )?(?:status|progress)|(?:are (?:you|u) )?still working|how far (?:along )?are (?:you|u)|how'?s (?:it|the task|the work) going)$/.test(t)) return awaiting ? 'Waiting for your answer to the question above.' : busy ? 'Still working.' : done ? 'Done.' : 'No task is running.';
+  if (/^what(?:'s| is) (?:left|remaining)(?: to do)?$/.test(t)) {
+    const remaining = items.filter(i => !i.done);
+    return awaiting ? 'Your answer to the question above.' : remaining.length ? remaining.map(i => '- ' + i.t).join('\n') : 'No outstanding requirements.';
+  }
+  return null;
+}
+
+// Informational questions get one brief read-only answer; work requests retain
+// the requirements gate. Never treat a request as small talk just for saying hi.
+function isConversation(text) {
+  const t = String(text || '').trim();
+  if (conversationReply(t) !== null) return true;
+  if (/^how (?:do|can|should|would) i\b/i.test(t) && !/\b(?:and|then)\s+(?:you\s+)?(?:build|fix|change|deploy|publish|run)\b/i.test(t)) return true;
+  return /^(?:what|why|how|when|where|who|which|is|are|does|can|could|explain|define|describe|tell me (?:about|why|how)|do (?:you|u|they|we))\b.+/i.test(t)
+    && !/\b(?:build|create|make|fix|change|edit|update|add|remove|delete|implement|redesign|deploy|publish|release|install|refactor|test|debug|hide|show|polish|improve|optimize|clean|organize|rename|move|upload|commit|push|restart|run)\b/i.test(t);
+}
+
 // Delegation lines anywhere in a message: [sub: <title> | <task>], max 3. Stripped from the shown text.
 const SUB = /^[ \t]*\[sub:\s*([^|\]\n]+?)\s*\|\s*([^\]\n]+?)\s*\][ \t]*$/gim;
 function parseSubs(raw) {
@@ -17,8 +46,10 @@ function parseTurn(raw0, who, trigger) {
   let { text: raw, subs } = parseSubs(raw0);
   const files = []; // [file: path] lines: files the agent shares as cards (max 4)
   raw = raw.replace(/^[ \t]*\[file:\s*([^\]\n]+?)\s*\][ \t]*$/gim, (_m, p) => { files.push(p); return ''; }).replace(/\n{3,}/g, '\n\n');
-  const m =/\s*\[(pass @(claude|codex)|ask-user(!)?(?:[:\s]([^\]]*))?|done)\][\s.]*$/i.exec(raw.trimEnd());
-  const text = m ? raw.trimEnd().slice(0, m.index).trim() : raw.trim();
+  // Question controls are metadata even when the model adds prose after them.
+  const m = /\s*\[(ask-user()(!)?(?:[:\s]([^\]]*))?)\]/i.exec(raw)
+    || /\s*\[(pass @(claude|codex)|ask-user(!)?(?:[:\s]([^\]]*))?|done)\][\s.]*$/i.exec(raw.trimEnd());
+  const text = m ? (raw.slice(0, m.index) + (/^ask-user/i.test(m[1]) ? raw.slice(m.index + m[0].length) : '')).replace(/\s*\[ask-user!?(?:[:\s][^\]]*)?\]/gi, '').trim() : raw.trim();
   const tag = m ? (/^ask-user/i.test(m[1]) ? 'ask-user' : m[1].toLowerCase()) : '';
   // [ask-user: A | B | C], each optionally "Label :: what picking it does"
   const picks = m && m[4] ? m[4].split('|').map((o) => o.split('::')).filter(([l]) => l.trim()).slice(0, 4) : [];
@@ -33,7 +64,11 @@ function parseTurn(raw0, who, trigger) {
 
 // Which agent(s) answer a user message. Planning: one leader (the Lead setting; 'random' flips a coin per message),
 // only explicitly mentioned agents join. Building (the user said go): both at once.
-function route(text, lead, building, rng = Math.random) {
+function route(text, lead, building, rng = Math.random, interviewing = false) {
+  if (interviewing) {
+    const l = NAMES.includes(lead) ? lead : rng() < 0.5 ? 'claude' : 'codex';
+    return { first: [l], after: null, lead: l };
+  }
   const at = mentions(text);
   if (at.length === 1) return { first: at, after: null }; // mentioning both = the normal lead-then-teammate flow below
   const l = lead === 'random' ? (rng() < 0.5 ? 'claude' : 'codex') : NAMES.includes(lead) ? lead : 'claude';
@@ -188,7 +223,7 @@ function formatFailureInfo(errText, provider = 'claude') {
   };
 }
 
-const exported = { parseTurn, parseSubs, mentions, route, stale, isGo, otherOf, NAMES, cleanErrorMessage, formatFailureInfo };
+const exported = { parseTurn, parseSubs, mentions, route, stale, isGo, otherOf, isConversation, conversationReply, NAMES, cleanErrorMessage, formatFailureInfo };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = exported;
 }
