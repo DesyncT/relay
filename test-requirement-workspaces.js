@@ -44,7 +44,7 @@ try {
     fs.writeFileSync(path.join(project, 'new.txt'), 'untracked baseline\n');
     const beforeStatus = git(project, 'status', '--porcelain=v1');
     const beforeIndex = git(project, 'write-tree');
-    const result = createTaskWorkspaces(project, 'dirty-session', [{ id: 'dirty', requirementIndex: 0, files: [] }]);
+    const result = createTaskWorkspaces(project, 'dirty-session', [{ id: 'dirty', requirementIndex: 0, files: ['tracked.txt'] }]);
     assert.equal(read(result.tasks[0].path, 'tracked.txt'), 'unstaged baseline\n');
     assert.equal(read(result.tasks[0].path, 'new.txt'), 'untracked baseline\n');
     fs.writeFileSync(path.join(result.tasks[0].path, 'tracked.txt'), 'worker result\n');
@@ -93,12 +93,10 @@ try {
     const task = result.tasks[0];
     fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'allowed worker change\n');
     fs.writeFileSync(path.join(task.path, 'nested', 'owned.txt'), 'unrelated worker change\n');
-    task.files = []; // Forge a patch broader than the assignment, as a compromised worker could.
     const changes = collectTaskChanges(task);
-    changes.paths = ['tracked.txt'];
-    changes.scope = ['tracked.txt'];
-    const conflicts = applyTaskChanges(project, changes);
-    assert.ok(conflicts.length, 'mismatched patch scope must conflict');
+    task.files = []; // An empty scope must never become a whole-repository patch.
+    assert.throws(() => collectTaskChanges(task), /scope|unscoped/i);
+    assert.ok(applyTaskChanges(project, { ...changes, scope:[] }).length, 'integrator rejects a patch without explicit file scope');
     assert.equal(read(project, 'tracked.txt'), 'base\n');
     assert.equal(read(project, 'nested/owned.txt'), 'owned base\n');
     cleanupTaskWorkspaces(result);

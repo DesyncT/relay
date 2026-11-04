@@ -99,7 +99,8 @@ function createTaskWorkspaces(projectPath, sessionId, assignments) {
 }
 
 function collectTaskChanges(workspace) {
-  if (!workspace || workspace.mode === 'shared') return { paths: [], patch: Buffer.alloc(0), mode: 'shared', assignmentId: workspace && workspace.assignmentId };
+  if (!workspace || !Array.isArray(workspace.files) || !workspace.files.length) throw new Error('Cannot collect changes from a task without an explicit file scope');
+  if (workspace.mode === 'shared') return { paths: [], patch: Buffer.alloc(0), mode: 'shared', assignmentId: workspace && workspace.assignmentId };
   const baseline = workspace.baselineCommit;
   const scope = workspace.files;
   const addArgs = ['add', '-A', '--'];
@@ -133,6 +134,8 @@ function applyTaskChanges(projectPath, changes) {
   const patch = Buffer.isBuffer(changes && changes.patch) ? changes.patch : Buffer.from(changes && changes.patch || '');
   const paths = normalizeOwnedPaths(changes && changes.paths);
   if (!patch.length) return [];
+  const scope = normalizeOwnedPaths(changes.scope);
+  if (!scope.length) return [{ paths, error:'Patch has no explicit assignment scope' }];
   if (!paths.length) return [{ paths: [], error: 'Patch has no declared reviewed paths' }];
   // Validate in a disposable copy first so a failed multi-file patch cannot leave partial edits behind.
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-req-apply-'));
@@ -141,7 +144,6 @@ function applyTaskChanges(projectPath, changes) {
     copyProjectSnapshot(project, candidate);
     const actualPaths = readPatchPaths(candidate, patch);
     const declared = new Set(paths);
-    const scope = normalizeOwnedPaths(changes.scope);
     const outsideDeclared = actualPaths.filter(p => !declared.has(p));
     const outsideScope = scope.length ? actualPaths.filter(p => !scope.includes(p)) : [];
     if (outsideDeclared.length || outsideScope.length) {

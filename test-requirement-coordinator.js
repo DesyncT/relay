@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const { createRequirementCoordinator } = require('./requirement-coordinator');
+const { createAssignments } = require('./requirement-workflow');
 
-const task = (id, files = []) => ({ id, requirementIndex: Number(id), task: id, owner: 'claude', provider: 'claude', model: 'claude-haiku-5-5', effort: 'low', files, fileOwnership: files, status: 'queued', reviewAttempts: 0 });
+const task = (id, files = [`${id}.js`]) => ({ id, requirementIndex: Number(id), task: id, owner: 'claude', provider: 'claude', model: 'claude-haiku-5-5', effort: 'low', files, fileOwnership: files, status: 'queued', reviewAttempts: 0 });
 async function schedulerPersistsBeforeStartingAndCapsConcurrency() {
   const events = [];
   let active = 0, max = 0;
@@ -67,10 +68,25 @@ async function exhaustedFailureStaysOpen() {
   assert.equal(a.blocker, 'review-failed-exhausted');
 }
 
+async function unscopedFallbackNeverStarts() {
+  const a = { ...task('4'), files:[], fileOwnership:[], status:'queued', blocker:null };
+  let starts = 0;
+  const c = createRequirementCoordinator({
+    persist: () => {}, emit: () => {}, runTask: async () => { starts++; return { paths:['whole-repo.js'], evidence:'unsafe' }; },
+    reviewTask: async () => ({ verdict:'PASS', evidence:'should never run' }),
+  });
+  await c.start([a]);
+  assert.equal(a.status, 'blocked');
+  assert.equal(a.blocker, 'missing-file-scope');
+  assert.equal(starts, 0, 'unscoped fallback never reaches the worker runner');
+  assert.deepEqual(a.changedPaths, undefined, 'unscoped fallback never produces a collectable patch');
+}
+
 (async () => {
   await schedulerPersistsBeforeStartingAndCapsConcurrency();
   await sharedFolderSerializesOverlappingPaths();
   await reviewEvidenceUnknownAndFailEscalation();
   await exhaustedFailureStaysOpen();
+  await unscopedFallbackNeverStarts();
   console.log('requirement coordinator tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

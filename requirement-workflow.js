@@ -32,15 +32,17 @@ function createAssignments(items, plan, routes, availableProviders) {
     const entries = byIndex.get(index) || [];
     const proposal = entries.length === 1 ? entries[0] : null;
     const proposedRoute = proposal && routeAt(routes, proposal.provider);
-    const valid = proposal && typeof proposal.task === 'string' && proposal.task.trim() &&
+    const validRouteTask = proposal && typeof proposal.task === 'string' && proposal.task.trim() &&
       providers.has(proposal.provider) && proposedRoute && proposal.model === proposedRoute.model &&
       proposal.effort === proposedRoute.effort && EFFORTS.includes(proposal.effort) &&
       typeof proposal.model === 'string' && proposal.model.trim();
-    if (proposal && !valid) throw new Error(`Invalid route or task for requirement ${index}`);
+    if (proposal && !validRouteTask) throw new Error(`Invalid route or task for requirement ${index}`);
+    const proposedFiles = validRouteTask ? normalizeFiles(proposal.files || proposal.fileOwnership) : [];
+    const valid = Boolean(validRouteTask && proposedFiles.length);
     let task, provider, model, effort, files, coordinatorOwned = false;
     if (valid) {
       ({ task, provider, model, effort } = proposal);
-      files = normalizeFiles(proposal.files || proposal.fileOwnership);
+      files = proposedFiles;
     } else {
       const fallbackProvider = [...providers].find(name => routeAt(routes, name) &&
         typeof routeAt(routes, name).model === 'string' && routeAt(routes, name).model.trim() && EFFORTS.includes(routeAt(routes, name).effort));
@@ -51,10 +53,13 @@ function createAssignments(items, plan, routes, availableProviders) {
       files = [];
       coordinatorOwned = true;
     }
-    return { id: `requirement-${index}`, requirementIndex: index, task: task.trim(), provider, model, effort, files, fileOwnership: files, status: 'queued', coordinatorOwned, escalationTier: 0 };
+    return { id: `requirement-${index}`, requirementIndex: index, task: task.trim(), provider, model, effort, files, fileOwnership: files, status: coordinatorOwned ? 'blocked' : 'queued', ...(coordinatorOwned && { blocker:'missing-file-scope' }), coordinatorOwned, escalationTier: 0 };
   });
 }
-function normalizeFiles(value) { return [...new Set((Array.isArray(value) ? value : []).filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().replace(/\\/g, '/')))]; }
+function normalizeFiles(value) {
+  return [...new Set((Array.isArray(value) ? value : []).filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().replace(/\\/g, '/').replace(/^(?:\.\/)+/, ''))
+    .filter(x => x && x !== '.' && !x.startsWith('/') && !/^[a-zA-Z]:\//.test(x) && !x.split('/').includes('..')))];
+}
 
 function nextEscalation(assignment, routes, availableProviders) {
   const current = { model: assignment.model, effort: assignment.effort };

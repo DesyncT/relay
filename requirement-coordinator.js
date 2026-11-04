@@ -1,6 +1,15 @@
 'use strict';
 
 const { readyAssignments } = require('./requirement-workflow');
+const hasExplicitScope = assignment => {
+  const files = assignment.fileOwnership || assignment.files || [];
+  if (!Array.isArray(files)) return false;
+  return files.some(file => {
+    if (typeof file !== 'string' || !file.trim()) return false;
+    const normalized = file.trim().replace(/\\/g, '/').replace(/^(?:\.\/)+/, '');
+    return normalized && normalized !== '.' && !normalized.split('/').includes('..') && !normalized.startsWith('/') && !/^[a-zA-Z]:\//.test(normalized);
+  });
+};
 
 function createRequirementCoordinator({ persist = () => {}, emit = () => {}, runTask, reviewTask, nextRoute = () => null, limit = 3, workspaceMode = 'worktree' }) {
   let assignments = [];
@@ -36,6 +45,9 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
         }
       });
     }
+    if (active === 0 && !assignments.some(x => x.status === 'queued' || x.status === 'running')) {
+      const done = settled; settled = null; done?.(assignments);
+    }
   }
   async function execute(a) {
     while (a.status === 'running') {
@@ -63,6 +75,9 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
   function start(input) {
     if (settled) return Promise.reject(new Error('Requirement workflow is already running'));
     assignments = Array.isArray(input) ? input : [];
+    for (const assignment of assignments) if (!hasExplicitScope(assignment)) {
+      assignment.status = 'blocked'; assignment.blocker = 'missing-file-scope'; assignment.coordinatorOwned = true;
+    }
     // This synchronous write is intentionally before launch() can start any worker.
     persist(assignments);
     emit({ assignments, assignment: null });

@@ -11,7 +11,7 @@ const { phaseFor, argsFor, mergeRoutes, resolved, modelFromArgs } = require('./r
 const { isLimitError, parseReset } = require('./limits');
 const registerPanels = require('./panels-main');
 const models = require('./models');
-const { fullAccessArgs } = require('./permissions');
+const { providerArgs } = require('./permissions');
 const { createAssignments, nextEscalation } = require('./requirement-workflow');
 const { createTaskWorkspaces, collectTaskChanges } = require('./requirement-workspaces');
 const { createRequirementCoordinator } = require('./requirement-coordinator');
@@ -176,7 +176,7 @@ function claudeRun(label, who, prompt, c = {}) {
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
   const chrome = !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Claude in Chrome: drive the user's real browser, like Codex's computer use
   let shared = []; if (!bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // Codex's skills, for Claude too
-  return run(label, c.cmd || settings.claudeCmd, fullAccessArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude'), prompt, (l) => {
+  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); } catch {}
     if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) said.push(b.text); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
@@ -201,7 +201,7 @@ function codexRun(prompt, images, c = {}) {
   setStatus('codex', 'thinking');
   // --image takes many values; the = form keeps the trailing "-" as the stdin prompt
   const imgs = images.map((a) => '--image=' + q(a.path));
-  const args = fullAccessArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', '--enable', 'image_generation', ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex').concat('-');
+  const args = providerArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', '--enable', 'image_generation', ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex', { readonly:c.readonly }).concat('-');
   const runModel = modelFromArgs(args, c.route?.meta?.model || (readText(path.join(HOME, '.codex', 'config.toml')).match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || 'gpt-unknown');
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
     const e = json(l), it = e.item || {};
@@ -377,11 +377,12 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch) {
   const routes = settings.routes || {};
   const assignments = createAssignments(checklist, plan, routes, available);
   for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
+  const runnableAssignments = assignments.filter(a => a.status === 'queued');
   let workspaces;
-  try { workspaces = createTaskWorkspaces(cwdFor(sid), sid, assignments); }
-  catch (error) { workspaces = { mode:'shared', tasks: assignments.map(a => ({ id:a.id, path:cwdFor(sid), taskPath:cwdFor(sid), files:a.files, mode:'shared' })), reason:error.message }; }
+  try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
+  catch (error) { workspaces = { mode:'shared', tasks: runnableAssignments.map(a => ({ id:a.id, path:cwdFor(sid), taskPath:cwdFor(sid), files:a.files, mode:'shared' })), reason:error.message }; }
   const byId = new Map(workspaces.tasks.map(w => [w.assignmentId || w.id, w]));
-  for (const a of assignments) Object.assign(a, { workspace: byId.get(a.id) || { path:cwdFor(sid), mode:'shared', files:a.files }, workspaceMode:workspaces.mode });
+  for (const a of assignments) Object.assign(a, { workspace: byId.get(a.id) || null, workspaceMode:workspaces.mode });
   const providerOrder = available.length ? available : [owner];
   const coordinator = createRequirementCoordinator({
     limit: 3, workspaceMode: workspaces.mode,
@@ -389,12 +390,16 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch) {
     emit: ({ assignments: current }) => send('reqs:update', { sid, reqs:reqsOf(sid), assignments:current }),
     nextRoute: a => nextEscalation(a, routes, available),
     runTask: async a => {
+      if (a.status !== 'running' || a.blocker === 'missing-file-scope' || !a.files?.length || !a.workspace?.files?.length) throw new Error('Task cannot run without an explicit assigned file scope');
       if (epoch !== rt.epoch) throw new Error('Workflow cancelled');
       const ws = a.workspace;
       const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.`;
       const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
       let changes = { paths:[], patch:Buffer.alloc(0) };
-      if (ws.mode !== 'shared') changes = collectTaskChanges(ws);
+      if (ws.mode !== 'shared') {
+        if (!ws.files?.length) throw new Error('Task cannot collect changes without an explicit assigned file scope');
+        changes = collectTaskChanges(ws);
+      }
       const paths = ws.mode === 'shared' ? [...new Set((result.activity || []).filter(x => ['create','edit','delete'].includes(x.kind)).map(x => x.file || x.abs).filter(Boolean))] : changes.paths;
       a.patch = changes.patch?.toString('base64') || '';
       let checkEvidence = 'No package test script was available.';

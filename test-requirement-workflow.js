@@ -18,6 +18,14 @@ assert.equal(assignments.length, 2, 'actionable requirements each receive exactl
 assert.deepEqual(assignments.map(a => a.requirementIndex), [0, 2]);
 assert.equal(assignments[0].status, 'queued');
 assert.equal(createAssignments(items, [], routes, ['codex']).length, 2, 'missing proposals fall back per actionable requirement');
+const unscoped = createAssignments(items, [{ ...plan[0], files: [] }, plan[1]], routes, ['codex']);
+assert.equal(unscoped[0].coordinatorOwned, true, 'unscoped proposals retain checklist coverage through coordinator fallback');
+assert.equal(unscoped[0].status, 'blocked', 'unscoped fallback cannot run');
+assert.equal(unscoped[0].blocker, 'missing-file-scope', 'unscoped task explains why it is blocked');
+const wholeRepo = createAssignments(items, [{ ...plan[0], files: ['.'] }, plan[1]], routes, ['codex']);
+assert.equal(wholeRepo[0].status, 'blocked', 'a whole-repository marker is not accepted as a file scope');
+const traversalScope = createAssignments(items, [{ ...plan[0], files: ['../outside.js'] }, plan[1]], routes, ['codex']);
+assert.equal(traversalScope[0].status, 'blocked', 'a path outside the repository cannot create a runnable scope');
 const duplicateFallback = createAssignments(items, [plan[0], plan[0]], routes, ['codex']);
 assert.equal(duplicateFallback.length, 2, 'duplicate proposals do not drop coverage');
 assert.equal(duplicateFallback[0].coordinatorOwned, true, 'duplicate proposals use a coordinator-owned fallback');
