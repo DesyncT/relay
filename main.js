@@ -347,6 +347,9 @@ const reqsOf = (sid) => sessOf(sid)?.reqs || null;
 function setReqs(sid, reqs) { try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs }); }
 function reqNote(sid, who) {
   const r = reqsOf(sid); if (!r) return '';
+  if (!supercodeOn(sid)) return r.items.length
+    ? `Requirements (${r.items.filter((i) => i.done).length}/${r.items.length} done):\n${r.items.map((i, n) => `${n + 1}. [${i.done ? 'x' : ' '}] ${i.t}`).join('\n')}\nKeep these requirements visible in your response, work through them, and mark completed items with [req-done: 1, 2].`
+    : `Requirements: before coding, write ${r.target ? `exactly ${r.target}` : '1 to 3'} concrete, checkable requirements the finished work HAS to meet, one per line as [req: ...]. Show them at the start of your response, then complete them in this response. Never pad the list or include optional items or rules. Do not delegate.`;
   const lead = RT(sid).leadNow;
   if (!r.items.length) return lead && lead !== who
     ? `Requirements: @${lead} is writing the checklist; wait for it, then work through it with them.`
@@ -399,7 +402,7 @@ function promptFor(sid, who, note, stand) {
   const firstAfter = sess.doneAt && messages.filter((m) => m.from === 'user').length <= 1;
   const resumed = !supercodeOn(sid) && sess.cli?.[who];
   const past = (!resumed || firstAfter) && pastNote(sess);
-  const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, supercodeOn(sid) && reqNote(sid, who)].filter(Boolean).join('\n\n');
+  const notes = [resumed && firstAfter && 'The previous task is wrapped up and closed. Treat the message above as a NEW task.', past, standNote, note, reqNote(sid, who)].filter(Boolean).join('\n\n');
   // Resumed CLI session: it already has the whole conversation, so send just what's new, exactly like typing in the terminal
   if (resumed) {
     const lastUser = messages.findLastIndex((m) => m.from === 'user');
@@ -975,12 +978,12 @@ function dispatchUser(sid, { text, files, reply }) {
   const m = post(sid, 'user', text, reply, files);
   // requests and changes pile up across messages until the user says wrap up; then reviewers judge all of it at once
   if (WRAP.test(text)) rt.wrapping = true;
-  else if (supercodeOn(sid)) {
+  else {
     // a new request (or a finished checklist, or the user naming a count like "just 1 requirement") starts a fresh checklist
     const cur = reqsOf(sid), cnt = REQ_COUNT.exec(text)?.[1], n = cnt && (/^\d+$/.test(cnt) ? Math.max(1, Math.min(30, +cnt)) : 1);
     if (!cur || n || (cur.items.length && cur.items.every((i) => i.done))) setReqs(sid, { items: [], target: n || null });
   }
-  else { rt.requests = [...(rt.requests || []), text].slice(-20); if (!rt.reviewRequestAt) rt.reviewRequestAt = m.at; }
+  if (!supercodeOn(sid) && !WRAP.test(text)) { rt.requests = [...(rt.requests || []), text].slice(-20); if (!rt.reviewRequestAt) rt.reviewRequestAt = m.at; }
   rt.turns = 0; rt.restarts = 0; rt.reviewRequest = (rt.requests || []).join('\n\n') || text; rt.idle = 0; rt.escalations = 0; rt.paused = false; rt.autoN = 0;
   onUserText(sid, text); // the user approved the plan: from here both agents may work in parallel (and Plan / Manual flip to Accept edits)
   // Planning: only the lead or explicitly mentioned agents. Building: both at once.

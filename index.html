@@ -1566,7 +1566,7 @@ function renderReqs(r) {
   }
   box.replaceChildren(sum, list);
 }
-api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(d.reqs || (window.ActiveChat?.supercode ? { items: [], idle: true } : null)); }); // a closed task leaves the idle bar
+api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(d.reqs || { items: [], idle: true }); }); // a closed task leaves the idle bar
 api.on('agent:status', (d) => { const a = actBy[d.sid] ||= {}; if (d.status) a[d.who] = d; else delete a[d.who]; if (d.sid === openSid) { renderTyping(); renderSpend(); } });
 setInterval(renderTyping, 1000);
 // Compact provider availability; reset details stay available on hover.
@@ -1790,7 +1790,7 @@ $('#normalEffort').onclick = () => toggleNormalEffortMenu();
 api.on('workflow:changed',d => {
   if (window.ActiveChat?.sid !== d.sid) return;
   window.ActiveChat.supercode = d.supercode;
-  api.call('chat:info', d.sid).then((i) => { if (openSid === d.sid) renderReqs(i?.supercode ? i.reqs || { items: [], idle: true } : null); });
+  api.call('chat:info', d.sid).then((i) => { if (openSid === d.sid) renderReqs(i?.reqs || { items: [], idle: true }); });
   renderLead(leadCur); window.dispatchEvent(new Event('active-chat'));
 });
 function toggleLeadMenu(open = $('#leadMenu').hidden, kb) { $('#leadMenu').hidden = !open; $('#leadPick').setAttribute('aria-expanded', open); if (open && kb) $('#leadMenu .mi')?.focus(); }
@@ -1857,7 +1857,7 @@ async function openSession(id, show = true) {
   msgs.forEach((m) => addMsg(m));
   if (window._initialLogScrollPending) { scrollLogToBottom(); window._initialLogScrollPending = false; }
   updateScrollButton();
-  emptyState(); placeholder(); renderTyping(); renderSpend(); renderReqs(info?.supercode ? info.reqs || { items: [], idle: true } : null); // always shown in supercode
+  emptyState(); placeholder(); renderTyping(); renderSpend(); renderReqs(info ? info.reqs || { items: [], idle: true } : null);
   window.ActiveChat = {sid:openSid,supercode:!!info?.supercode,chatModels:info?.chatModels || {},chatEffort:info?.chatEffort || 'low'};
   window.dispatchEvent(new Event('active-chat'));
   renderLead(info?.lead || cfg.lead || 'claude'); renderMode(info?.mode || 'manual', !!info?.bypass); toggleModeMenu(false);
