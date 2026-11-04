@@ -11,7 +11,11 @@ const { phaseFor, argsFor, mergeRoutes, resolved, modelFromArgs } = require('./r
 const { isLimitError, parseReset } = require('./limits');
 const registerPanels = require('./panels-main');
 const models = require('./models');
-const { fullAccessArgs } = require('./permissions');
+const { providerArgs } = require('./permissions');
+const { createAssignments, nextEscalation, scopeCovers } = require('./requirement-workflow');
+const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
+const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
+const { recoverRequirementAssignments, canCleanupRequirementWorkspaces } = require('./requirement-recovery');
 const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
@@ -173,7 +177,7 @@ function claudeRun(label, who, prompt, c = {}) {
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
   const chrome = !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Claude in Chrome: drive the user's real browser, like Codex's computer use
   let shared = []; if (!bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // Codex's skills, for Claude too
-  return run(label, c.cmd || settings.claudeCmd, fullAccessArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude'), prompt, (l) => {
+  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); } catch {}
     if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) said.push(b.text); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
@@ -198,7 +202,7 @@ function codexRun(prompt, images, c = {}) {
   setStatus('codex', 'thinking');
   // --image takes many values; the = form keeps the trailing "-" as the stdin prompt
   const imgs = images.map((a) => '--image=' + q(a.path));
-  const args = fullAccessArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', '--enable', 'image_generation', ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex').concat('-');
+  const args = providerArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', '--enable', 'image_generation', ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex', { readonly:c.readonly }).concat('-');
   const runModel = modelFromArgs(args, c.route?.meta?.model || (readText(path.join(HOME, '.codex', 'config.toml')).match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || 'gpt-unknown');
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
     const e = json(l), it = e.item || {};
@@ -293,9 +297,14 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
   for (let i = 0; ; i++) {
     const enhanced = supercodeOn(sid);
     // Normal chats always run on the provider you picked (no silent swaps), like using Claude Code / Codex directly
-    const prov = enhanced ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat;
+    const prov = c.routeOverride?.provider || (enhanced ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat);
     if (!prov) throw bothErr();
     const rd = routeFor(prov, phase);
+    if (c.routeOverride) {
+      const route = { model: c.routeOverride.model, effort: c.routeOverride.effort };
+      rd.extra = argsFor(prov, phase, { [prov]: { [phase]: route } }, settings[prov + 'Args']);
+      rd.meta = { phase, ...route };
+    }
     let cm = null;
     // Your routing settings (rd) are the model. A hard/escalated run may only move UP a tier, never swap to a weaker or different-tier model.
     if (c.escalate && !splitArgs(settings[prov + 'Args']).some((x) => /^(?:-m|--model)(?:=|$)/.test(x))) {
@@ -316,6 +325,11 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
       cm = models.resolve(settings, model);
       if (cm) { rd.extra = cm.args; rd.meta = { phase, model: cm.model, effort: null }; } // connected model: runs on its connection's engine
     } else if ((cm = models.resolve(settings, sessOf(sid)?.chatModels?.[prov]))) { rd.extra = cm.args; rd.meta = { phase, model: cm.model, effort: null }; } // team on a connected model
+    if (c.routeOverride) {
+      const route = { model:c.routeOverride.model, effort:c.routeOverride.effort };
+      rd.extra = argsFor(prov, phase, { [prov]: { [phase]: route } }, settings[prov + 'Args']);
+      rd.meta = { phase, ...route }; cm = null;
+    }
     // Normal chats continue the CLI's own session (full memory, tools and context, like the terminal); supercode rebuilds the prompt each turn
     const ck = cm ? prov + ':' + cm.conn.id : prov; // CLI session id is kept per connection
     const resumeId = !enhanced && !c.sub && !c.conversation && prov !== 'antigravity' ? sessOf(sid)?.cli?.[ck] : null;
@@ -345,7 +359,185 @@ ipcMain.handle('skills:list', (_e, sid) => {
 // ---- Requirements checklist: written at the start of a request, ticked off by agents, wraps the session up at 100% ----
 // session.reqs = { items: [{ t, done }], target: n | null }. Kept at the end of the prompt so the cached prefix stays stable.
 const reqsOf = (sid) => sessOf(sid)?.reqs || null;
-function setReqs(sid, reqs) { try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs }); }
+function setReqs(sid, reqs) {
+  const before = savedWorkspaceRoots(sid);
+  try { store.updateSession(sid, { reqs }); } catch {} send('reqs:update', { sid, reqs });
+  reclaimWorkspaces(sid, before);
+}
+const requirementCoordinators = new Map();
+// Open/blocked task workspaces stay for inspection while their assignments are saved; once nothing saved points at one
+// (a new request, cleared requirements or chat) it is unreachable, so it is deleted. Cleanup itself verifies the ownership marker.
+const savedWorkspaceRoots = (sid) => workspacesFromAssignments(reqsOf(sid)?.assignments || []).cleanup;
+function reclaimWorkspaces(sid, entries) {
+  if (!entries?.length || requirementCoordinators.has(sid)) return; // still in use: the workflow's finally retries
+  const kept = new Set(savedWorkspaceRoots(sid).map(e => e.root));
+  const orphans = entries.filter(e => !kept.has(e.root));
+  if (orphans.length) cleanupTaskWorkspaces({ cleanup: orphans });
+}
+// Deleting a session, or a project with its sessions, drops their saved assignments too.
+for (const [name, sessionIds] of [['deleteSession', (id) => [id]], ['removeProject', (id) => store.listSessions(id).map((s) => s.id)]]) {
+  const original = store[name];
+  store[name] = (id) => {
+    const saved = sessionIds(id).map((sid) => [sid, savedWorkspaceRoots(sid)]);
+    const result = original(id);
+    for (const [sid, entries] of saved) reclaimWorkspaces(sid, entries);
+    return result;
+  };
+}
+async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = null) {
+  const rt = RT(sid), existing = requirementCoordinators.get(sid);
+  if (existing) return existing.promise;
+  const checklist = reqsOf(sid)?.items || [];
+  const available = AGENT_NAMES.filter(p => !isDown(p) && settings.routes?.[p]?.coding);
+  const routes = settings.routes || {};
+  let assignments, workspaces;
+  if (recovery) {
+    assignments = recovery.assignments;
+    workspaces = recovery.workspaces;
+    owner = assignments.find(a => a.owner)?.owner || owner;
+  } else {
+    const planPrompt = `Plan parallel implementation tasks for this completed checklist. Return ONLY a JSON array. Each entry has requirementIndex (zero-based checklist index), task (concrete worker instruction), provider (one of ${available.join(', ')}), model, effort, and files (exact repository-relative paths owned by this task). Assign exactly one entry per actionable requirement. Assign disjoint paths when possible; do not invent paths or include preservation-only constraints. Checklist: ${JSON.stringify(checklist)}`;
+    let plan = [];
+    try {
+      const planned = await seatRun(sid, owner, 'coding', () => planPrompt, trigger, { quiet: true, requirementsOnly: true });
+      const raw = planned.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) plan = parsed;
+    } catch {}
+    if (epoch !== rt.epoch) return null;
+    assignments = createAssignments(checklist, plan, routes, available);
+    for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
+    const runnableAssignments = assignments.filter(a => a.status === 'queued');
+    try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
+    catch (error) { workspaces = { mode:'shared', blocked:true, tasks: runnableAssignments.map(a => ({ id:a.id, assignmentId:a.id, path:null, taskPath:null, files:a.files, mode:'shared', blocked:true })), reason:error.message }; }
+    const cleanup = workspaces.cleanup?.[0] || null;
+    const byId = new Map(workspaces.tasks.map(w => [w.assignmentId || w.id, w]));
+    for (const a of assignments) {
+      const workspace = byId.get(a.id);
+      Object.assign(a, { workspace:workspace ? { ...workspace, ...(cleanup && { cleanup:{ ...cleanup } }) } : null, workspaceMode:workspaces.mode });
+    }
+  }
+  if (epoch !== rt.epoch) return null;
+  const providerOrder = available.length ? available : [owner];
+  const coordinator = createRequirementCoordinator({
+    limit: 3, workspaceMode: workspaces.mode,
+    persist: current => setReqs(sid, { ...reqsOf(sid), assignments: current.map(a => ({ ...a, workspace: a.workspace && { ...a.workspace } })) }),
+    emit: ({ assignments: current }) => send('reqs:update', { sid, reqs:reqsOf(sid), assignments:current }),
+    nextRoute: a => nextEscalation(a, routes, available),
+    runTask: async a => {
+      if (a.status !== 'running' || a.blocker === 'missing-file-scope' || !a.files?.length || !a.workspace?.files?.length) throw new Error('Task cannot run without an explicit assigned file scope');
+      if (epoch !== rt.epoch) throw new Error('Workflow cancelled');
+      const ws = a.workspace;
+      const workerPath = ws.path && path.resolve(ws.path), projectPath = path.resolve(cwdFor(sid));
+      if (!workerPath || ws.blocked || (process.platform === 'win32' ? workerPath.toLowerCase() === projectPath.toLowerCase() : workerPath === projectPath)) throw new Error('Task cannot run without an isolated workspace');
+      const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.`;
+      const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
+      let changes = { paths:[], patch:Buffer.alloc(0) };
+      if (ws.mode !== 'shared' || ws.isolated) {
+        if (!ws.files?.length) throw new Error('Task cannot collect changes without an explicit assigned file scope');
+        changes = collectTaskChanges(ws);
+      }
+      const paths = ws.mode === 'shared' && !ws.isolated ? [...new Set((result.activity || []).filter(x => ['create','edit','delete'].includes(x.kind)).map(x => x.file || x.abs).filter(Boolean))] : changes.paths;
+      a.patch = changes.patch?.toString('base64') || '';
+      let checkEvidence = 'No package test script was available.';
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(path.join(ws.path, 'package.json'), 'utf8'));
+        if (packageJson.scripts?.test) checkEvidence = (await run('requirement check', 'npm', ['test'], '', null, { cwd:ws.path, sid, sub:a.id })).slice(-5000);
+      } catch (error) { if (fs.existsSync(path.join(ws.path, 'package.json'))) checkEvidence = `Automated check failed: ${String(error.message || error).slice(-1500)}`; }
+      return { paths, evidence:result.text, checkEvidence, activity:result.activity || [], usage:result.usage };
+    },
+    reviewTask: async (a, work) => {
+      const outcomes = await Promise.all(providerOrder.slice(0, judgeCount('reviewerCount')).map(async (provider, index) => {
+        const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
+        const effort = 'low';
+        const route = { extra:argsFor(provider,'other',{ [provider]:{ other:{ model, effort } } },''), meta:{ phase:'review', model, effort } };
+        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; an unavailable check is UNKNOWN. Do not edit files or trust the worker report. Return exactly VERDICT: PASS, FAIL, or UNKNOWN on line 1, then EVIDENCE: specific observations. For FAIL include FILE, LINE, ACTUAL and EXPECTED fields. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
+        try {
+          const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
+          let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
+          if (verdict === 'FAIL' && !['FILE','LINE','ACTUAL','EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(result.text))) verdict = 'UNKNOWN';
+          return { verdict, evidence:result.text.slice(0,1800), provider, model, effort };
+        } catch (error) { return { verdict:'UNKNOWN', evidence:String(error.message), provider, model, effort }; }
+      }));
+      const verdict = outcomes.some(x => x.verdict === 'FAIL') ? 'FAIL' : outcomes.every(x => x.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
+      return { verdict, reviewers:outcomes, evidence:outcomes.map(x => `${x.provider}: ${x.verdict} — ${x.evidence}`).join('\n') };
+    },
+  });
+  const promise = coordinator.start(assignments).then(async completed => {
+    if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
+    const result = await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner);
+    if (epoch !== rt.epoch) return completed;
+    const latest = reqsOf(sid) || {};
+    if (result.status === 'passed') {
+      setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true })), assignments:completed });
+      post(sid, owner, `Integrated the passed requirement tasks. Full project checks and independent final review passed; all ${latest.items?.length || 0} requirements are complete.`, trigger, null, { muted:true });
+    } else {
+      setReqs(sid, { ...latest, assignments:completed });
+      post(sid, owner, `Integration remains open: ${result.findings || result.blocker}. Requirements are still unchecked.`, trigger, null, { muted:true });
+    }
+    if (canCleanupRequirementWorkspaces(completed, result.status)) cleanupTaskWorkspaces(workspaces);
+    return completed;
+  }).finally(() => { requirementCoordinators.delete(sid); reclaimWorkspaces(sid, workspaces.cleanup); });
+  requirementCoordinators.set(sid, { coordinator, promise, workspaces });
+  return promise;
+}
+async function integrateRequirementTasks(sid, assignments, trigger, epoch, workspaces, routes, available, owner) {
+  const rt = RT(sid), projectPath = cwdFor(sid);
+  // Taken once before the first patch: a retry must undo an earlier attempt's out-of-scope edit, not hide it. ponytail: Git roots only; non-Git projects are not checked
+  let before;
+  return runRequirementIntegration(assignments, {
+    nextRoute: assignment => nextEscalation(assignment, routes, available),
+    persist: current => setReqs(sid, { ...reqsOf(sid), assignments:current.map(a => ({ ...a, workspace:a.workspace && { ...a.workspace } })) }),
+    integrate: async (integrator, changes) => {
+      if (epoch !== rt.epoch) throw new Error('Integration cancelled');
+      before ??= projectChanges(projectPath);
+      const conflicts = [];
+      if (!integrator.retryCount) for (const change of changes) if (change.patch.length) conflicts.push(...applyTaskChanges(projectPath, change));
+      const assigned = assignments.filter(a => a.status === 'passed').map(a => ({ id:a.id, task:a.task, requirement:a.requirementIndex, files:a.changedPaths || [], patchIncluded:changes.some(c => c.assignmentId === a.id && c.patch.length) }));
+      const prompt = `${ACCESS_NOTE}\nYou are the single integration agent for the passed requirement tasks. Inspect the active project and integrate/reconcile their combined work, resolving overlaps and preserving existing user changes. Task summaries and patch application state: ${JSON.stringify(assigned)}\nPatch conflicts or scope errors: ${JSON.stringify(conflicts).slice(0,5000)}\n${integrator.previousFindings ? `Previous final-review findings to repair: ${integrator.previousFindings}` : ''}\nRequirements, including preservation constraints: ${JSON.stringify(reqsOf(sid)?.items || [])}\nOnly make changes needed to combine these passed tasks. Run the full project checks and report the exact command and result. Do not claim checks passed if they could not run.`;
+      const integrated = await seatRun(sid, integrator.owner || owner, 'coding', () => prompt, trigger, { quiet:true, cwd:projectPath, sub:'req-integration', routeOverride:{ provider:integrator.provider, model:integrator.model, effort:integrator.effort } });
+      if (epoch !== rt.epoch) throw new Error('Integration cancelled');
+      let checkEvidence = 'No full project check could be run.';
+      let hasFullCheck = false;
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf8'));
+        if (packageJson.scripts?.test) { checkEvidence = await run('requirement integration check', 'npm', ['test'], '', null, { cwd:projectPath, sid, sub:'req-integration-check' }); hasFullCheck = true; }
+      } catch (error) {
+        // run() also rejects a silent exit 0; the exit code, not the output wording, is the verdict
+        hasFullCheck = error?.code === 0;
+        checkEvidence = hasFullCheck ? 'npm test exited 0 with no output.' : `Full project check failed: ${String(error.message || error)}`;
+      }
+      const scopes = changes.flatMap(c => c.scope);
+      const outside = (touchedSince(projectPath, before) || []).filter(file => !scopes.some(scope => scopeCovers(scope, file)));
+      if (outside.length) checkEvidence = `The integration edited files outside the passed tasks' scopes: ${outside.join(', ')}. Revert those edits; only the task scopes may change.
+${checkEvidence}`;
+      const checksPassed = hasFullCheck && !outside.length;
+      return { checksPassed, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
+    },
+    review: (integrator, changes, integrated) => reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
+  });
+}
+async function reviewIntegratedResult(sid, integrator, changes, epoch) {
+  const rt = RT(sid), available = AGENT_NAMES.filter(p => !isDown(p));
+  if (!available.length) return { verdict:'UNKNOWN', evidence:'No independent reviewer provider is available.' };
+  const reviewers = selectIndependentReviewers(available, integrator.provider, judgeCount('reviewerCount'));
+  if (!reviewers.length) return { verdict:'UNKNOWN', evidence:'No independent reviewer provider is available.' };
+  const results = await Promise.all(reviewers.map(async (provider, index) => {
+    const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
+    const effort = 'low';
+    const route = { extra:argsFor(provider, 'other', { [provider]:{ other:{ model, effort } } }, ''), meta:{ phase:'review', model, effort } };
+    const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. Return VERDICT: PASS, FAIL, or UNKNOWN on line 1 and concrete EVIDENCE. For FAIL include FILE, LINE, ACTUAL, EXPECTED.`;
+    try {
+      const result = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:`req-final-review-${index}`, route });
+      let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
+      if (verdict === 'FAIL' && !['FILE','LINE','ACTUAL','EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(result.text))) verdict = 'UNKNOWN';
+      return { verdict, evidence:result.text.slice(0,1800), provider, model, effort };
+    } catch (error) { return { verdict:'UNKNOWN', evidence:String(error.message || error), provider, model, effort }; }
+  }));
+  if (epoch !== rt.epoch) return { verdict:'UNKNOWN', evidence:'Final review cancelled.' };
+  const verdict = results.some(r => r.verdict === 'FAIL') ? 'FAIL' : results.every(r => r.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
+  return { verdict, reviewers:results, evidence:results.map(r => `${r.provider}: ${r.verdict} — ${r.evidence}`).join('\n') };
+}
 function reqNote(sid, who) {
   const r = reqsOf(sid); if (!r) return '';
   if (!supercodeOn(sid)) return r.items.length
@@ -519,6 +711,10 @@ async function ask(sid, who, trigger, isLead) {
       }
       if (!reqsOf(sid)?.items?.length) throw new Error('Could not start this task: the agent did not write requirements. Send the request again to retry.');
       const checklist = post(sid, who, reqsOf(sid).items.map((i, n) => `${n + 1}. ${i.t}`).join('\n'), null, null, { ...(isLead && { lead: true }), route: rd.meta });
+      if (supercodeOn(sid)) {
+        await startRequirementWorkflow(sid, who, checklist, ep);
+        return { next:[], msg:checklist, ended:true };
+      }
       r = await seatRun(sid, who, phase, (s) => promptFor(sid, who, 'The requirements are now written and shown in the chat. Continue the user task, satisfying them.', s), checklist, { lead: isLead, tag, ...(lockEdits && { requirementsOnly: true }) });
       rd = r.rd; prov = r.prov; usage = addUsage(usage, r.usage);
     }
@@ -791,11 +987,11 @@ async function autoAnswer(sid, who, q, options, ep) {
   enqueue(sid, who, m);
 }
 
-function enqueue(sid, who, trigger, after, lead) {
+function enqueue(sid, who, trigger, after, lead, options = {}) {
   const lane = RT(sid).lanes[who];
   // Once the user has queued another prompt, don't schedule another agent follow-up;
   // the user queue drains as soon as every active lane settles.
-  if (userQueues.get(sid)?.length) return;
+  if (userQueues.get(sid)?.length && !options.resume) return;
   if (lane.next) { lane.next.trigger = trigger; lane.next.after = after || lane.next.after; lane.next.lead = lane.next.lead || lead; } // already waiting: answer the newest message instead
   else { lane.next = { trigger, after, lead }; if (!lane.busy) pump(sid, who); }
   saveResume(sid);
@@ -818,9 +1014,55 @@ function restartRelay(by) {
   saveAllResume(by);
   setTimeout(() => { app.relaunch(); app.quit(); }, 800);
 }
+function workspacesFromAssignments(assignments) {
+  const tasks = assignments.map(a => a.workspace).filter(Boolean);
+  const cleanup = [...new Map(tasks.map(w => [w.cleanup?.root, w.cleanup]).filter(([root, entry]) => root && entry)).values()];
+  return { mode:assignments.find(a => a.workspaceMode)?.workspaceMode || tasks[0]?.mode || 'shared', tasks, cleanup };
+}
 function resumeSessions() {
   for (const meta of store.listSessions()) {
     const s = sessOf(meta.id), r = s?.resume;
+    const persistedAssignments = s?.reqs?.assignments;
+    if (Array.isArray(persistedAssignments) && persistedAssignments.length) {
+      const rt = RT(s.id);
+      Object.assign(rt, { wrapping:!!r?.wrapping, requests:r?.requests || [], reviewRequest:(r?.requests || []).join('\n\n'), reviewRequestAt:r?.reviewRequestAt, building:!!r?.building, restarts:r?.restarts || 0 });
+      const recovered = recoverRequirementAssignments(persistedAssignments, (workspace, assignment) => validTaskWorkspace(workspace, assignment));
+      const reqs = s.reqs || {};
+      if (recovered.kind === 'integrated') {
+        const items = (reqs.items || []).map(item => ({ ...item, done:true }));
+        setReqs(s.id, { ...reqs, items, assignments:recovered.assignments });
+        if (!reqs.items?.every(item => item.done)) post(s.id, 'system', 'Recovered the already completed requirement integration; no worker or integrator was restarted.', null, null, { muted:true });
+        saveResume(s.id); drainUserQueue(s.id); continue;
+      }
+      setReqs(s.id, { ...reqs, assignments:recovered.assignments });
+      if (recovered.kind === 'integration-interrupted' || recovered.kind === 'integration-open') {
+        const explanation = recovered.kind === 'integration-interrupted'
+          ? 'Requirement integration was interrupted by restart and remains open.'
+          : 'Requirement integration remains open from its saved state.';
+        post(s.id, 'system', `${explanation} It was not run a second time; review the saved integration findings before continuing.`, null, null, { muted:true });
+        saveResume(s.id); drainUserQueue(s.id); continue;
+      }
+      if (recovered.kind === 'resume') {
+        const lastUser = s.messages.findLast(m => m.from === 'user');
+        const unavailable = recovered.assignments.filter(a => a.blocker === 'workspace-unavailable');
+        const suffix = unavailable.length ? ` These assignments are left open because their temporary workspaces are unavailable: ${unavailable.map(a => `${a.id} (${a.error})`).join('; ')}.` : '';
+        const note = post(s.id, 'system', `Relay restarted during requirement work. Resuming saved task workspaces and review state; queued user messages will wait until this work settles.${suffix}`, null, null, { muted:true });
+        const owner = recovered.assignments.find(a => a.owner)?.owner || r?.who?.[0] || s.lead || settings.lead || 'claude';
+        const workspaces = workspacesFromAssignments(recovered.assignments);
+        startRequirementWorkflow(s.id, owner, lastUser || note, rt.epoch, { assignments:recovered.assignments, workspaces })
+          .catch(error => {
+            const latest = reqsOf(s.id) || {};
+            const failed = recovered.assignments.map(a => ['queued','running','reviewing'].includes(a.status) ? { ...a, status:'open', blocker:'recovery-failed', error:String(error.message || error) } : a);
+            setReqs(s.id, { ...latest, assignments:failed });
+            post(s.id, 'system', `Requirement recovery failed and remains open: ${String(error.message || error).slice(-500)}`, null, null, { muted:true });
+          })
+          .finally(() => { saveResume(s.id); drainUserQueue(s.id); });
+        continue;
+      }
+      const open = recovered.assignments.filter(a => ['open','blocked','failed'].includes(a.status));
+      if (open.length) post(s.id, 'system', `Requirement work remains open after restart: ${open.map(a => `${a.id}: ${a.blocker || a.status} — ${a.error || ''}`).join('; ')}`, null, null, { muted:true });
+      saveResume(s.id); drainUserQueue(s.id); continue;
+    }
     if (!r?.who?.length) continue;
     const rt = RT(s.id);
     Object.assign(rt, { wrapping: r.wrapping, requests: r.requests, reviewRequest: r.requests.join('\n\n'), reviewRequestAt: r.reviewRequestAt, building: r.building, restarts: r.restarts || 0 });
@@ -828,7 +1070,7 @@ function resumeSessions() {
     const note = post(s.id, 'system', r.by
       ? `Relay restarted${r.by === 'you' ? '' : ` for ${r.by}`} and is now running the latest code. ${names}: check that the changes really work now, tell your teammate what you see, then continue.`
       : `Relay closed while ${names} ${r.who.length > 1 ? 'were' : 'was'} working. Pick up where you left off: check the files for edits you already made, tell your teammate where you are, then continue.`, null, null, { muted: true });
-    for (const who of r.who) enqueue(s.id, who, note);
+    for (const who of r.who) enqueue(s.id, who, note, null, false, { resume:true });
   }
 }
 
@@ -966,7 +1208,7 @@ ipcMain.handle('chat:workflow', (_e, sid, enabled) => {
   send('workflow:changed', { sid, supercode:!!enabled });
   return { sid, supercode:!!enabled };
 });
-ipcMain.handle('chat:clear', (_e, sid) => { stopSubs(sid); store.updateSession(sid, { subs: [] }); store.clearSession(sid); const r = RT(sid); r.building = r.awaiting = false; r.leadNow = null; });
+ipcMain.handle('chat:clear', (_e, sid) => { stopSubs(sid); store.updateSession(sid, { subs: [] }); const saved = savedWorkspaceRoots(sid); store.clearSession(sid); reclaimWorkspaces(sid, saved); const r = RT(sid); r.building = r.awaiting = false; r.leadNow = null; });
 
 // Profile: display name + picture. The renderer gets the picture as a data URL (file:// images may be blocked by the CSP).
 const PROFILE_DIR = path.join(DATA, 'profile');
@@ -1022,7 +1264,7 @@ const userQueues = {
 };
 const drainingUserQueue = new Set();
 const queueUpdate = (sid) => send('chat:queue', { sid, items: (userQueues.get(sid) || []) });
-const chatBusy = (sid) => Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive);
+const chatBusy = (sid) => Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive) || requirementCoordinators.has(sid);
 function drainUserQueue(sid) {
   if (drainingUserQueue.has(sid)) return;
   const q = userQueues.get(sid);
