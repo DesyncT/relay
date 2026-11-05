@@ -32,6 +32,10 @@ app.whenReady().then(async () => {
         const fs = require('original-fs'), path = require('node:path'), assert = require('node:assert/strict');
         try {
           const api = require(workerData.module);
+          const plain=path.join(workerData.project,'plain');fs.mkdirSync(plain);fs.writeFileSync(path.join(plain,'page.php'),'original');
+          assert.equal(api.inspectProjectSetup(plain).requiresGitRepository,false);
+          const baseline=api.projectBaseline(plain);assert.equal(baseline.kind,'folder');assert.equal(api.baselineUnchanged(plain,baseline),true);
+          fs.writeFileSync(path.join(plain,'page.php'),'changed');assert.equal(api.baselineUnchanged(plain,baseline),false);
           const result = api.createTaskWorkspaces(workerData.project, 'electron', [{ id:'test', files:['file.txt'], preserveIgnored:true }]);
           assert.equal(result.blocked, undefined, result.reason);
           assert.equal(result.mode, 'worktree');

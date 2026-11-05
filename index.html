@@ -1633,8 +1633,9 @@ function easyChoiceBar(message,sid) {
     finally {pending=false;if(active())for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=false;}
   };
   const button=(label,action)=>{const b=el('button',{type:'button',className:'opt',textContent:label,disabled:!active()});b.onclick=action;return b;};
-  const recommended=(identity.state==='ready' && message.easyRecommended==='Fix it' ? 'Do it' : message.easyRecommended) || (identity.state==='questioning'?easyCurrent?.question?.recommended:identity.state==='ready'?'Do it':identity.state==='blocked'?'Review and retry':null);
-  for(const label of (message.options || []).filter(label=>label!=='Cancel').map(label=>identity.state==='ready' && label==='Fix it'?'Do it':label)) {
+  const recommended=identity.state==='blocked' ? 'Fix setup and retry' : (identity.state==='ready' && message.easyRecommended==='Fix it' ? 'Do it' : message.easyRecommended) || (identity.state==='questioning'?easyCurrent?.question?.recommended:identity.state==='ready'?'Do it':identity.state==='blocked'?'Fix setup and retry':null);
+  const options=identity.state==='blocked' && !(message.options || []).includes('Fix setup and retry') ? ['Fix setup and retry',...(message.options || [])] : message.options || [];
+  for(const label of options.filter(label=>label!=='Cancel').map(label=>identity.state==='ready' && label==='Fix it'?'Do it':label)) {
     const choice=button(label,()=>{
       if(label==='Change an answer') {
         const list=el('div',{className:'opts',role:'group',ariaLabel:'Earlier answers'});
@@ -1644,7 +1645,7 @@ function easyChoiceBar(message,sid) {
       if(label==='Edit summary') {
         $('#input').placeholder='Tell me what to change in the summary';$('#input').focus();return;
       }
-      const action={'Do it':'confirm','Cancel':'cancel','Show the fix summary':'summary','Review and retry':'retry','Retry with stronger route':'stronger'}[label] || 'answer';
+      const action={'Do it':'confirm','Fix setup and retry':'repair','Cancel':'cancel','Show the fix summary':'summary','Review and retry':'retry','Retry with stronger route':'stronger'}[label] || 'answer';
       submit(action,action==='answer'?{answer:label}:{});
     });
     if(label===recommended) {choice.classList.add('recommended');choice.append(el('span',{className:'recommend-label',textContent:'Recommended'}));}
@@ -2240,7 +2241,7 @@ async function openSession(id, show = true) {
   msgs.forEach((m) => addMsg(m, false, true));
   if(easyCurrent && !msgs.some(m=>m.easycode?.requestId===easyCurrent.id && m.easycode.revision===easyCurrent.revision && m.easycode.state===easyCurrent.state)) {
     const request=easyCurrent, s=request.scope;
-    const options=request.state==='blocked'?['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])]:request.state==='ready'?['Do it',...(request.history.length?['Change an answer']:[]),'Edit summary']:request.state==='questioning'?[...request.question.options]:[];
+    const options=request.state==='blocked'?['Fix setup and retry','Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])]:request.state==='ready'?['Do it',...(request.history.length?['Change an answer']:[]),'Edit summary']:request.state==='questioning'?[...request.question.options]:[];
     addMsg({from:'system',text:request.state==='blocked'?`Stopped: ${request.error}`:request.state==='ready'?`${s.summary}\n\nPreserve: ${s.preserve.join('; ')}\nSuccess: ${s.acceptance.join('; ')}\nFiles: ${s.files.join(', ')}\nChecks: ${s.checks.join('; ')}`:request.question?.text || request.state,askUser:!!options.length,options,easyAgent:info?.lead,easyRecommended:request.question?.recommended,easyHistory:request.history.map(q=>({question:q.text,answer:q.answer})),easycode:{requestId:request.id,revision:request.revision,questionId:request.question?.id,state:request.state},at:Date.now()},false,true);
   }
   if (window._initialLogScrollPending) { scrollLogToBottom(); window._initialLogScrollPending = false; }

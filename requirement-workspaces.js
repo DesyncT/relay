@@ -12,7 +12,7 @@ const { scopeCovers, pathsOverlap } = require('./requirement-workflow');
 const OWNED_MARKER = '.relay-requirement-workspaces.json';
 function runGit(cwd, args, input) {
   return execFileSync('git', args, {
-    cwd, input, encoding: 'buffer', maxBuffer: 128 * 1024 * 1024,
+    cwd, input, stdio:'pipe', encoding: 'buffer', maxBuffer: 128 * 1024 * 1024,
     windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
   });
 }
@@ -244,6 +244,61 @@ function projectChanges(project) {
     }));
   } catch { return null; }
 }
+// Git roots use tracked change fingerprints; ordinary folders use file hashes.
+// Both protect the original project while the worker edits an isolated snapshot.
+function projectBaseline(project) {
+  const changes=projectChanges(project);
+  if(changes)try {return {kind:'git',changes,head:gitText(project,['rev-parse','HEAD'])};}catch{} // An unborn repository uses the folder baseline.
+  const files=new Map();
+  const walk=(directory,relative='')=>{
+    for(const entry of fs.readdirSync(directory,{withFileTypes:true})) {
+      if(entry.name==='.git')continue;
+      const name=relative ? relative+'/'+entry.name : entry.name, full=path.join(directory,entry.name);
+      if(entry.isSymbolicLink())throw Error('Cannot safely snapshot symbolic link: '+name);
+      if(entry.isDirectory())walk(full,name);
+      else if(entry.isFile()) {
+        const hash=crypto.createHash('sha256'), buffer=Buffer.allocUnsafe(65536), descriptor=fs.openSync(full,'r');
+        try {let count;while((count=fs.readSync(descriptor,buffer,0,buffer.length,null)))hash.update(buffer.subarray(0,count));}
+        finally {fs.closeSync(descriptor);}
+        files.set(name,hash.digest('hex'));
+      } else throw Error('Unsupported project file: '+name);
+    }
+  };
+  walk(project);return {kind:'folder',files};
+}
+function baselineUnchanged(project,before) {
+  if(!before)return false;
+  try {
+    if(before.kind==='git')return gitText(project,['rev-parse','HEAD'])===before.head && touchedSince(project,before.changes)?.length===0;
+    if(before.kind!=='folder')return false;
+    const after=projectBaseline(project);
+    return after.kind==='folder' && before.files.size===after.files.size && [...before.files].every(([name,hash])=>after.files.get(name)===hash);
+  } catch {return false;}
+}
+function inspectProjectSetup(project,scope) {
+  if(!fs.statSync(project).isDirectory())throw Error('The project folder is unavailable. Choose an existing folder.');
+  fs.accessSync(project,fs.constants.R_OK | fs.constants.W_OK);
+  fs.accessSync(os.tmpdir(),fs.constants.R_OK | fs.constants.W_OK);
+  let gitVersion;
+  try {gitVersion=gitText(project,['--version']);}
+  catch {throw Error('Git could not start. Install Git or restart Relay after installing it, then choose Fix setup and retry.');}
+  let gitRoot=null;
+  try {gitRoot=gitText(project,['rev-parse','--show-toplevel']);}catch{}
+  let scripts={};
+  const packageFile=path.join(project,'package.json');
+  if(fs.existsSync(packageFile))scripts=JSON.parse(fs.readFileSync(packageFile,'utf8')).scripts || {};
+  for(const command of scope?.checks || []) {
+    const executable=command.trim().match(/^([a-z0-9_-]+)(?:\.cmd)?(?:\s|$)/i)?.[1];
+    if(executable && /^(node|npm|npx|pnpm|yarn|php|python|python3|pytest|composer|go|cargo|dotnet|bun)$/.test(executable)) {
+      try {execFileSync(process.platform==='win32'?'where.exe':'which',[executable],{windowsHide:true,stdio:'pipe'});}
+      catch {throw Error('The check needs '+executable+', which is not available. Use Fix setup and retry to find a supported check.');}
+    }
+    const script=command.trim().match(/^npm(?:\.cmd)?\s+(?:run\s+([\w:-]+)|(test|start|stop|restart))(?:\s|$)/i);
+    if(script && !scripts[script[1] || script[2]])throw Error('The project has no npm script named '+(script[1] || script[2])+'. Use an existing verification command.');
+  }
+  return {gitVersion,scripts,projectKind:gitRoot && path.resolve(gitRoot)===path.resolve(project)?'git':'folder',workspace:'isolated snapshot',requiresGitRepository:false};
+}
+
 function touchedSince(project, before) {
   const after = before && projectChanges(project);
   if (!after) return null;
@@ -291,4 +346,4 @@ function validTaskWorkspace(workspace, assignment) {
   } catch { return false; }
 }
 
-module.exports = { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince };
+module.exports = { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince, projectBaseline, baselineUnchanged, inspectProjectSetup };

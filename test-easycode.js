@@ -49,9 +49,23 @@ async function test() {
   await broken.start('s','fix');assert.equal(malformed,2);assert.equal(current.state,'blocked');
   let release;
   const late=easy.createController({get:()=>current,save:(_s,r)=>{current=r;},discover:()=>new Promise(resolve=>{release=resolve;}),execute:async()=>{}});
-  const pending=late.start('s','fix');
+  const pending=late.start('s','fix');await Promise.resolve();
   await late.action('s',{requestId:current.id,revision:current.revision,action:'cancel'});
   release(question);await pending;assert.equal(current.state,'cancelled');
+  let recovery, setupBroken=true, discoveries=0;
+  const recoverer=easy.createController({get:()=>recovery,save:(_sid,r)=>{recovery=r;},
+    preflight:async()=>{if(setupBroken)throw Error('Git executable unavailable');return {projectKind:'folder',requiresGitRepository:false};},
+    discover:async(_sid,prompt)=>{discoveries++;assert.match(prompt,/requiresGitRepository/);return ready;},execute:async()=>assert.fail('Recovery must require confirmation')});
+  await recoverer.start('s','Improve the sidebar');assert.equal(recovery.state,'blocked');assert.equal(discoveries,0);
+  recovery.history=[{id:'past',text:'Which density?',answer:'Compact',options:['Compact','Roomy']}];
+  setupBroken=false;
+  await recoverer.action('s',{requestId:recovery.id,revision:recovery.revision,action:'repair'});
+  assert.equal(recovery.state,'ready');assert.equal(recovery.history[0].answer,'Compact');assert.equal(recovery.originalRequest,'Improve the sidebar');assert.equal(recovery.lastFailure,'Git executable unavailable');assert.equal(discoveries,1);
+  let setupRelease, waitingSetup, lateDiscoveries=0;
+  const cancelledSetup=easy.createController({get:()=>waitingSetup,save:(_sid,r)=>{waitingSetup=r;},preflight:()=>new Promise(resolve=>{setupRelease=resolve;}),discover:async()=>{lateDiscoveries++;return ready;},execute:async()=>assert.fail('Cancelled setup cannot run')});
+  const setupPending=cancelledSetup.start('s','Fix the page');
+  await cancelledSetup.action('s',{requestId:waitingSetup.id,revision:waitingSetup.revision,action:'cancel'});
+  setupRelease({projectKind:'folder'});await setupPending;assert.equal(waitingSetup.state,'cancelled');assert.equal(lateDiscoveries,0);
   const branchScopes=[];
   for(const branch of ['Login','Checkout']) {
     let state;

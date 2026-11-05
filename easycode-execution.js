@@ -6,7 +6,7 @@ async function executeRequest(request,deps) {
   const guard=()=>{if(deps.isCancelled())throw Object.assign(Error('Request cancelled; integration stopped.'),{cancelled:true});};
   const assignment={id:`easy-${request.id}`,requirementIndex:0,task:scope.summary,owner:deps.route.provider,...deps.route,files:scope.files,fileOwnership:scope.files,status:'queued',reviewEvidence:[]};
   const before=await deps.baseline();guard();
-  if(before===null || before===undefined)throw Error('Cannot record a safe project baseline. Use a Git project root before running this change.');
+  if(before===null || before===undefined)throw Error('Could not record the project files before starting. Use Fix setup and retry to check the folder and required tools.');
   const workspace=await deps.createWorkspace(assignment);
   assignment.workspace=workspace;deps.save(assignment);guard();
   if(!workspace?.path || !workspace.isolated && workspace.mode!=='worktree' || workspace.blocked || workspace.path===deps.projectPath)throw Error('An isolated workspace is required.');

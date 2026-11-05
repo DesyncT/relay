@@ -414,7 +414,7 @@ app.whenReady().then(async () => {
   assert.equal(easy.custom[2],'Cannot sign in');assert.equal(easy.count,1,'Controls cannot submit to another session');
   for(const key of ['noInlineAnswer','noCancel','recommended','agent','liveStatus'])assert.equal(easy[key],true,key);
   assert.equal(easy.staleDisabled,true);assert.equal(easy.back[2].action,'edit');assert.equal(easy.back[2].index,0);
-  assert.equal(easy.editable,true);assert.equal(easy.confirmations,1);assert.equal(easy.runningDisabled,true);assert.equal(easy.retry[2].action,'retry');
+  assert.equal(easy.editable,true);assert.equal(easy.confirmations,1);assert.equal(easy.runningDisabled,true);assert.equal(easy.retry[2].action,'repair');
   await win.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
   fs.writeFileSync(path.join(output,'easycode-blocked.png'),(await win.webContents.capturePage()).toPNG());
   console.log('Renderer layout, adaptive EasyCode controls, session identity, confirmation, retry and custom-answer checks passed. Screenshots: ' + output);

@@ -1545,7 +1545,7 @@ function saveEasycode(sid, request) {
     options=['Do it',...(request.history.length?['Change an answer']:[]),'Edit summary'];
   } else if(request.state==='blocked') {
     text=[`Stopped: ${request.error || 'Verification needs review.'}`,...(request.evidence || []).map(c=>`${c.command}: ${c.exitCode===0?'passed':`exit ${c.exitCode ?? 'unavailable'}`}\n${c.exitCode===0?'':String(c.output || '').slice(-1200)}`),...(request.worker?.workspace?.path?[`Saved work: ${request.worker.workspace.path}`]:[])].join('\n\n');
-    options=['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])];
+    options=['Fix setup and retry','Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])];
   }
   else if(request.state==='running') text='Working on your confirmed change. One worker, with at most one targeted repair.';
   else if(request.state==='verifying')text='Checking the change in your project.';
@@ -1554,7 +1554,7 @@ function saveEasycode(sid, request) {
   const activeWorker=['running','verifying','succeeded','blocked'].includes(request.state) && request.worker;
   const agent=activeWorker?.provider || easyOwner(sid) || 'codex';
   const route=activeWorker ? {model:activeWorker.model,effort:activeWorker.effort} : settings.routes?.[agent]?.other;
-  if(text)post(sid,agent,text,null,null,{route,easycode:controls,easyRecommended:request.state==='questioning'?request.question.recommended:request.state==='ready'?'Do it':request.state==='blocked'?'Review and retry':null,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
+  if(text)post(sid,agent,text,null,null,{route,easycode:controls,easyRecommended:request.state==='questioning'?request.question.recommended:request.state==='ready'?'Do it':request.state==='blocked'?'Fix setup and retry':null,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
 }
 async function easyChecks(sid,cwd,commands) {
   const results=[];
@@ -1586,12 +1586,13 @@ async function executeEasycode(sid,request) {
     return {verdict:readVerdict(result.text),evidence:result.text.slice(-5000)};
   };
   let verificationBaseline;
-  const snapshot=async()=>{const changes=await offThread('projectChanges',projectPath);if(!changes)return null;return {changes,head:require('child_process').execFileSync('git',['rev-parse','HEAD'],{cwd:projectPath,windowsHide:true,encoding:'utf8'}).trim()};};
-  const unchanged=async before=>{if(!before)return false;const touched=await offThread('touchedSince',projectPath,before.changes);const head=require('child_process').execFileSync('git',['rev-parse','HEAD'],{cwd:projectPath,windowsHide:true,encoding:'utf8'}).trim();return head===before.head && Array.isArray(touched) && touched.length===0;};
+  const snapshot=()=>offThread('projectBaseline',projectPath);
+  const unchanged=before=>offThread('baselineUnchanged',projectPath,before);
   return executeRequest(request,{route,projectPath,isCancelled:cancelled,
     baseline:snapshot,unchanged,verifyIntegrated:()=>unchanged(verificationBaseline),
     createWorkspace:async a=>{
       const workspaces=await offThread('createTaskWorkspaces',projectPath,sid,[{...a,preserveIgnored:true}]);
+      if(workspaces.blocked)throw Error(workspaces.reason || 'Could not create an isolated workspace.');
       const workspace=workspaces.tasks?.[0];
       if(workspace)workspace.cleanup=workspaces.cleanup?.[0];
       return workspace;
@@ -1627,6 +1628,7 @@ async function executeEasycode(sid,request) {
   });
 }
 const easyController=easycode.createController({get:sid=>sessOf(sid)?.easycode,save:saveEasycode,
+  preflight:(sid,request)=>offThread('inspectProjectSetup',cwdFor(sid),request.scope),
   discover:async(sid,prompt)=>{
     const owner=easyOwner(sid);if(!owner)throw Error('No discovery provider available.');
     const result=await seatRun(sid,owner,'other',()=>prompt,null,{quiet:false,onProgress:chatProgress(sid,owner,'Discovery',settings.routes[owner].other),readonly:true,requirementsOnly:true,safeReview:true,sub:'easy-discovery',timeoutMs:90000,routeOverride:{provider:owner,...settings.routes[owner].other}});
@@ -1651,6 +1653,7 @@ async function easyAction(sid,payload) {
   if(!payload.fromComposer && request?.id===payload.requestId && request.revision===payload.revision) {
     const label=payload.action==='answer' && request.state==='questioning' && request.question?.id===payload.questionId && typeof payload.answer==='string' && payload.answer.trim() ? payload.answer
       : payload.action==='confirm' && request.state==='ready' ? 'Do it'
+      : payload.action==='repair' && request.state==='blocked' ? 'Fix setup and retry'
       : payload.action==='retry' && request.state==='blocked' ? 'Review and retry'
       : payload.action==='stronger' && request.state==='blocked' ? 'Retry with stronger route'
       : payload.action==='edit' && ['questioning','ready','blocked'].includes(request.state) && request.history?.[payload.index ?? request.history.length-1] ? 'Change an answer'
@@ -1670,6 +1673,7 @@ function dispatchEasycode(sid,text,message) {
     easyAction(sid,{requestId:request.id,revision:request.revision,questionId:request.question.id,action:'answer',answer:text,fromComposer:true}).catch(e=>post(sid,'system',e.message));return;
   }
   if(request?.state==='ready') {act(/^(?:fix it|go ahead|approve|yes|do it)[.!\s]*$/i.test(text.trim())?{action:'confirm'}:{action:'editSummary',answer:text});return;}
+  if(request?.state==='blocked' && /^(?:fix|fix setup|fix setup and retry)[.!\s]*$/i.test(text.trim())) {act({action:'repair'});return;}
   if(request?.state==='blocked' && /^(?:retry|review and retry|try again|continue)[.!\s]*$/i.test(text.trim())) {act({action:'retry'});return;}
   easyBusy.add(sid);sendWorking();
   easyController.start(sid,text).catch(e=>post(sid,'system',e.message)).finally(()=>{easyBusy.delete(sid);sendWorking();drainUserQueue(sid);});

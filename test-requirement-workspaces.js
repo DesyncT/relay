@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
+const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince, projectBaseline, baselineUnchanged, inspectProjectSetup } = require('./requirement-workspaces');
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-workspaces-test-'));
 function git(cwd, ...args) { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
@@ -18,6 +18,35 @@ function repo(name) {
 function read(dir, file) { return fs.readFileSync(path.join(dir, file), 'utf8').replace(/\r\n/g, '\n'); }
 
 try {
+  // Plain project folders need the same change protection without creating .git there.
+  {
+    const project=path.join(tempRoot,'plain-baseline');fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project,'file.txt'),'original');
+    const baseline=projectBaseline(project);
+    assert.equal(baseline.kind,'folder');assert.equal(baselineUnchanged(project,baseline),true);
+    fs.writeFileSync(path.join(project,'file.txt'),'changed');assert.equal(baselineUnchanged(project,baseline),false);
+    fs.writeFileSync(path.join(project,'file.txt'),'original');assert.equal(baselineUnchanged(project,baseline),true);
+    fs.writeFileSync(path.join(project,'new.txt'),'new');assert.equal(baselineUnchanged(project,baseline),false);
+    fs.unlinkSync(path.join(project,'new.txt'));fs.unlinkSync(path.join(project,'file.txt'));assert.equal(baselineUnchanged(project,baseline),false);
+    assert.equal(fs.existsSync(path.join(project,'.git')),false);
+    const setup=inspectProjectSetup(project);assert.equal(setup.projectKind,'folder');assert.equal(setup.requiresGitRepository,false);
+    fs.writeFileSync(path.join(project,'package.json'),JSON.stringify({scripts:{check:'node --version'}}));
+    assert.throws(()=>inspectProjectSetup(project,{checks:['npm run missing']}),/no npm script/);
+    assert.doesNotThrow(()=>inspectProjectSetup(project,{checks:['npm run check']}));
+    fs.writeFileSync(path.join(project,'file.txt'),'original');
+    const isolated=createTaskWorkspaces(project,'plain-integration',[{id:'plain',files:['file.txt'],preserveIgnored:true}]);
+    fs.writeFileSync(path.join(isolated.tasks[0].path,'file.txt'),'updated');
+    const patch=collectTaskChanges(isolated.tasks[0]);
+    assert.equal(fs.readFileSync(path.join(project,'file.txt'),'utf8'),'original');
+    assert.deepEqual(applyTaskChanges(project,patch),[]);
+    assert.equal(fs.readFileSync(path.join(project,'file.txt'),'utf8'),'updated');
+    assert.equal(fs.existsSync(path.join(project,'.git')),false);cleanupTaskWorkspaces(isolated);
+    const unborn=path.join(tempRoot,'unborn');fs.mkdirSync(unborn);git(unborn,'init','-q');
+    fs.writeFileSync(path.join(unborn,'new.txt'),'new');assert.equal(projectBaseline(unborn).kind,'folder');
+    const tracked=repo('git-baseline');const gitBaseline=projectBaseline(tracked);
+    assert.equal(gitBaseline.kind,'git');assert.equal(baselineUnchanged(tracked,gitBaseline),true);
+    git(tracked,'commit','--allow-empty','-qm','new head');assert.equal(baselineUnchanged(tracked,gitBaseline),false);
+  }
   // EasyCode's single workspace needs the same installed dependencies and local
   // configuration as the project, without sharing writable files with it.
   {
