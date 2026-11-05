@@ -117,6 +117,16 @@ function createTaskWorkspaces(projectPath, sessionId, assignments) {
       const taskPath = path.join(tempRoot, 'tasks', `${safeId}-${tasks.length}`);
       fs.mkdirSync(path.dirname(taskPath), { recursive: true });
       runGit(snapshot, ['worktree', 'add', '--detach', taskPath, baselineCommit]);
+      if(assignment.preserveIgnored) {
+        // Keep installed dependencies and local configuration available, but do
+        // not link writable worker inputs back into the user's project.
+        const ignored=runGit(snapshot,['ls-files','--others','--ignored','--exclude-standard','-z']).toString('utf8').split('\0').filter(Boolean);
+        for(const file of ignored) {
+          const destination=path.join(taskPath,file);
+          fs.mkdirSync(path.dirname(destination),{recursive:true});
+          fs.copyFileSync(path.join(snapshot,file),destination,fs.constants.COPYFILE_FICLONE);
+        }
+      }
       tasks.push({ id, assignmentId: id, requirementIndex: assignment.requirementIndex, path: taskPath, taskPath,
         files: normalizeOwnedPaths(assignment.files || assignment.fileOwnership), baselineCommit, baselineRef,
         repo: snapshot, mode: 'worktree' });
@@ -137,6 +147,12 @@ function collectTaskChanges(workspace) {
   if (workspace.mode === 'shared' && !workspace.isolated) return { paths: [], patch: Buffer.alloc(0), mode: 'shared', assignmentId: workspace && workspace.assignmentId };
   const baseline = workspace.baselineCommit;
   const scope = workspace.files;
+  if(workspace.strictScope) {
+    const tracked=runGit(workspace.path,['diff','--name-only','-z',baseline,'--']).toString('utf8').split('\0').filter(Boolean);
+    const untracked=runGit(workspace.path,['ls-files','--others','--exclude-standard','-z']).toString('utf8').split('\0').filter(Boolean);
+    const outside=[...tracked,...untracked].filter(file=>!scope.some(owned=>scopeCovers(owned,file)));
+    if(outside.length)throw Object.assign(new Error(`Worker changed files outside its scope: ${outside.join(', ')}`),{nonRetryable:true});
+  }
   const addArgs = ['add', '-A', '--'];
   if (scope.length) addArgs.push(...scope); else addArgs.push('.');
   runGit(workspace.path, addArgs);

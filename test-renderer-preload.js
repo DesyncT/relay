@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
     if (channel === 'chat:info') return Promise.resolve(savedSessions.get(args[0]) || null);
     if (channel === 'chat:history' || channel === 'subagents:list' || channel === 'chat:queue') return Promise.resolve([]);
     if (channel === 'chat:send') return Promise.resolve({});
+    if (channel === 'easycode:action') return Promise.resolve({});
     return new Promise(() => {}); // Hold unrelated startup work outside this fixture.
   },
 });

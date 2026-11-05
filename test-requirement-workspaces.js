@@ -18,6 +18,21 @@ function repo(name) {
 function read(dir, file) { return fs.readFileSync(path.join(dir, file), 'utf8').replace(/\r\n/g, '\n'); }
 
 try {
+  // EasyCode's single workspace needs the same installed dependencies and local
+  // configuration as the project, without sharing writable files with it.
+  {
+    const project=repo('ignored-inputs');
+    fs.writeFileSync(path.join(project,'.gitignore'),'node_modules/\n.env\n');
+    fs.mkdirSync(path.join(project,'node_modules'),{recursive:true});
+    fs.writeFileSync(path.join(project,'node_modules','dependency.js'),'module.exports=42;');
+    fs.writeFileSync(path.join(project,'.env'),'LOCAL_TEST=true');
+    const result=createTaskWorkspaces(project,'ignored-session',[{id:'a',files:['tracked.txt'],preserveIgnored:true}]);
+    assert.equal(read(result.tasks[0].path,'node_modules/dependency.js'),'module.exports=42;');
+    assert.equal(read(result.tasks[0].path,'.env'),'LOCAL_TEST=true');
+    fs.writeFileSync(path.join(result.tasks[0].path,'node_modules','dependency.js'),'changed');
+    assert.equal(read(project,'node_modules/dependency.js'),'module.exports=42;','Worker inputs are isolated copies');
+    cleanupTaskWorkspaces(result);
+  }
   // A clean checkout yields independently writable task worktrees and transfers scoped changes.
   {
     const project = repo('clean');
@@ -36,6 +51,7 @@ try {
     assert.equal(validTaskWorkspace({ ...task, path:project, cleanup:result.cleanup[0] }, assignment), false, 'active project paths cannot be accepted as recovered task workspaces');
     fs.writeFileSync(path.join(task.path, 'tracked.txt'), 'worker\n');
     fs.writeFileSync(path.join(task.path, 'ignored-by-scope.txt'), 'skip\n');
+    assert.throws(()=>collectTaskChanges({...task,strictScope:true}),/outside its scope/,'EasyCode rejects out-of-scope changes instead of hiding them');
     const changes = collectTaskChanges(task);
     assert.deepEqual(changes.paths, ['tracked.txt']);
     assert.match(changes.patch.toString('utf8'), /worker/);

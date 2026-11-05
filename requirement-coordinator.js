@@ -11,7 +11,7 @@ const hasExplicitScope = assignment => {
   });
 };
 
-function createRequirementCoordinator({ persist = () => {}, emit = () => {}, runTask, reviewTask, nextRoute = () => null, autoFix = async () => null, limit = 3, workspaceMode = 'worktree' }) {
+function createRequirementCoordinator({ persist = () => {}, emit = () => {}, runTask, reviewTask, nextRoute = () => null, autoFix = async () => null, limit = 3, workspaceMode = 'worktree', maxAttempts = null, requireChecks = false }) {
   let assignments = [];
   let active = 0;
   const inFlight = new Set(); // ids whose execute() is running; only a recovered 'reviewing' task (not in flight) resumes
@@ -73,28 +73,36 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
       if (a.status === 'reviewing') {
         work = { paths:a.changedPaths || [], evidence:a.workerEvidence || '', checkEvidence:a.checkEvidence || '' };
       } else {
+        a.implementationAttempts = (a.implementationAttempts || 0) + 1;
         a.attemptedRoutes = [...(a.attemptedRoutes || []), {provider:a.provider,model:a.model,effort:a.effort,at:Date.now()}];
         try { work = await runTask(a); }
         catch (error) {
           if (cancelled || stoppedTasks.has(a.id)) return;
           a.workerFailures = [...(a.workerFailures || []), {provider:a.provider,model:a.model,error:String(error?.message || error),at:Date.now()}];
-          if (retry(a,'worker-failed',error)) continue;
+          if (maxAttempts && !error?.nonRetryable && !error?.cancelled && a.implementationAttempts < maxAttempts) { save(a); continue; }
+          if (!maxAttempts && retry(a,'worker-failed',error)) continue;
           a.status = 'blocked'; a.blocker = error?.cancelled ? 'cancelled' : 'worker-failed'; a.error = String(error?.message || error); a.ended = Date.now(); save(a); return;
         }
         if (cancelled || stoppedTasks.has(a.id)) return;
         a.changedPaths = [...new Set(Array.isArray(work?.paths) ? work.paths : [])];
         a.workerEvidence = work?.evidence ?? work?.text ?? '';
         a.checkEvidence = work?.checkEvidence || '';
+        a.commandEvidence = work?.checks || [];
         a.status = 'reviewing'; a.progress = 90; save(a);
       }
       let review;
       try { review = await reviewTask(a, work); }
       catch (error) { review = { verdict: 'UNKNOWN', evidence: String(error?.message || error) }; }
       if (cancelled || stoppedTasks.has(a.id)) return;
-      const verdict = ['PASS', 'FAIL', 'UNKNOWN'].includes(String(review?.verdict).toUpperCase()) ? String(review.verdict).toUpperCase() : 'UNKNOWN';
+      const checksPassed = !requireChecks || (a.commandEvidence?.length > 0 && a.commandEvidence.every(check => check.exitCode === 0));
+      const verdict = !checksPassed ? 'FAIL' : ['PASS', 'FAIL', 'UNKNOWN'].includes(String(review?.verdict).toUpperCase()) ? String(review.verdict).toUpperCase() : 'UNKNOWN';
       a.reviewAttempts = (a.reviewAttempts || 0) + 1;
       a.reviewEvidence = [...(a.reviewEvidence || []), { verdict, evidence: review?.evidence ?? review?.reason ?? '', at: Date.now(), reviewers: review?.reviewers || [] }];
       if (verdict === 'PASS') { a.status = 'passed'; a.progress = 100; a.blocker = null; a.ended = Date.now(); save(a); return; }
+      if (maxAttempts) {
+        if ((a.implementationAttempts || 0) < maxAttempts) { a.status='running'; a.progress=0; save(a); continue; }
+        a.status='blocked'; a.blocker=checksPassed ? 'review-failed' : 'verification-failed'; a.ended=Date.now(); save(a); return;
+      }
       if (verdict === 'UNKNOWN') {
         // inconclusive: ask the reviewers once more, then let a stronger worker gather verifiable evidence; only then is it the user's call
         a.unknownStreak = (a.unknownStreak || 0) + 1;

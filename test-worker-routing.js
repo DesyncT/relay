@@ -46,7 +46,7 @@ assert.equal(nextWorkerRoute(first,initialWorkerRoutes(configured,{codex:'gpt-6-
   require('node:vm').runInNewContext(`${interrupt};interruptSession('one',state);`,{
     state:{epoch:0,lanes:{}},requirementCoordinators:new Map([['one',{coordinator:{cancel:()=>{coordinatorCancelled=true;}}}]]),
     procs:new Map([['worker',{sid:'one',sub:'requirement-1'}],['review',{sid:'one',sub:'req-review-1'}],['integration',{sid:'one',sub:'req-integration'}],['other',{sid:'two'}]]),
-    killProc:process=>killed.push(process),stopSubs:()=>{},
+    killProc:process=>killed.push(process),stopSubs:()=>{},sessOf:()=>null,
   });
   assert.equal(killed.length,3,'Stop kills workers, reviewers and integration for its own session');
   assert.equal(coordinatorCancelled,true);

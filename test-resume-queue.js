@@ -12,7 +12,7 @@ const userQueues = { get:() => queued, set:(_sid, items) => { queued.splice(0, q
 const requirementCoordinators = new Map();
 const requirementRetries = new Set();
 const context = {
-  RT:() => rt, userQueues, requirementCoordinators, requirementRetries, subsOf:() => [], subLive:() => false, saveResume:() => {},
+  easyBusy:new Set(),RT:() => rt, userQueues, requirementCoordinators, requirementRetries, subsOf:() => [], subLive:() => false, saveResume:() => {},
   pump:(_sid, _who) => { const trigger = lane.next.trigger; lane.next = null; lane.busy = true; events.push(trigger.text); },
   send:() => {}, queueUpdate:() => {}, dispatchUser:(_sid, item) => events.push(item.text),
 };

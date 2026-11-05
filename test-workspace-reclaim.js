@@ -16,7 +16,7 @@ const store = {
   listSessions: (pid) => Object.keys(sessions).filter((sid) => sessions[sid].projectId === pid).map((id) => ({ id })),
 };
 const reqsOf = (sid) => sessions[sid]?.reqs || null;
-const env = new Function('store', 'reqsOf', 'send', 'cleanupTaskWorkspaces','requirementSubagents','supercodeOn', `${code}\nreturn { setReqs, requirementCoordinators };`)(store, reqsOf, () => {}, cleanupTaskWorkspaces,require('./requirement-subagents').requirementSubagents,()=>true);
+const env = new Function('store', 'reqsOf', 'send', 'cleanupTaskWorkspaces','requirementSubagents','supercodeOn','sessOf', `${code}\nreturn { setReqs, requirementCoordinators };`)(store, reqsOf, () => {}, cleanupTaskWorkspaces,require('./requirement-subagents').requirementSubagents,()=>true,sid=>sessions[sid]);
 
 const project = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-reclaim-test-'));
 try {
@@ -27,6 +27,11 @@ try {
   env.setReqs('s', { items: [], assignments: [assignment] });
   env.setReqs('s', { ...reqsOf('s'), items: [{ t: 'x', done: false }] });
   assert.ok(fs.existsSync(ws.cleanup[0].root), 'an open task keeps its workspace while its assignment is saved');
+  sessions.s.easycodeArchive=[{worker:assignment}];
+  env.setReqs('s',{items:[],assignments:[]});
+  assert.ok(fs.existsSync(ws.cleanup[0].root),'Archived EasyCode work survives a new request');
+  env.setReqs('s',{items:[],assignments:[assignment]});
+  sessions.s.easycodeArchive=[];
   env.requirementCoordinators.set('s', {});
   env.setReqs('s', { items: [], target: null });
   assert.ok(fs.existsSync(ws.cleanup[0].root), 'a running workflow keeps its workspaces');

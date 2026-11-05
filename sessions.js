@@ -48,7 +48,11 @@ function createSessions({ dataDir, send = () => {} }) {
   const meta = (id) => { const s = index.find((x) => x.id === id); if (!s) throw new Error('unknown session'); return s; };
   const full = (id) => {
     const m = meta(id);
-    if (!cache.has(id)) cache.set(id, read(sfile(id), null) || { ...m, messages: [] });
+    if (!cache.has(id)) {
+      const loaded=read(sfile(id), null) || { ...m, messages: [] };
+      if(loaded.easycode) loaded.easycode=require('./easycode').recoverRequest(loaded.easycode);
+      cache.set(id,loaded);
+    }
     const session = cache.get(id);
     session.supercode ??= m.supercode ?? false;
     return session;
@@ -110,7 +114,7 @@ function createSessions({ dataDir, send = () => {} }) {
     cache.set(s.id, s); persist(s); emit('sessions', s.id);
     return { ...s };
   }
-  function updateSession(id, patch) { const s = full(id); if (typeof patch.supercode === 'boolean') s.supercode = patch.supercode; if (patch.chatModels && typeof patch.chatModels === 'object') s.chatModels = { ...s.chatModels, ...patch.chatModels }; if (['low','medium','high'].includes(patch.chatEffort)) s.chatEffort = patch.chatEffort; if (patch.lead != null) s.lead = patch.lead; if (patch.subs) s.subs = patch.subs; if (patch.queuedMessages) s.queuedMessages = patch.queuedMessages; if (patch.mode) s.mode = patch.mode; if (patch.usedSkills) s.usedSkills = patch.usedSkills; if ('resume' in patch) s.resume = patch.resume; if ('reqs' in patch) s.reqs = patch.reqs; if ('doneAt' in patch) s.doneAt = patch.doneAt; if (Array.isArray(patch.memory)) s.memory = patch.memory; if (Array.isArray(patch.tasks)) s.tasks = patch.tasks; if (patch.cli) s.cli = patch.cli; if (patch.spend) s.spend = patch.spend; persist(s); emit('sessions', id); } // per-session lead agent
+  function updateSession(id, patch) { const s = full(id); if (typeof patch.supercode === 'boolean') s.supercode = patch.supercode; if (patch.chatModels && typeof patch.chatModels === 'object') s.chatModels = { ...s.chatModels, ...patch.chatModels }; if (['low','medium','high'].includes(patch.chatEffort)) s.chatEffort = patch.chatEffort; if (patch.lead != null) s.lead = patch.lead; if (patch.subs) s.subs = patch.subs; if (patch.queuedMessages) s.queuedMessages = patch.queuedMessages; if (patch.mode) s.mode = patch.mode; if (patch.usedSkills) s.usedSkills = patch.usedSkills; if ('resume' in patch) s.resume = patch.resume; if ('reqs' in patch) s.reqs = patch.reqs; if ('easycode' in patch) s.easycode = patch.easycode; if ('easycodeArchive' in patch) s.easycodeArchive = patch.easycodeArchive; if ('doneAt' in patch) s.doneAt = patch.doneAt; if (Array.isArray(patch.memory)) s.memory = patch.memory; if (Array.isArray(patch.tasks)) s.tasks = patch.tasks; if (patch.cli) s.cli = patch.cli; if (patch.spend) s.spend = patch.spend; persist(s); emit('sessions', id); } // per-session lead agent
   function renameSession(id, title) {
     const t = String(title || '').trim(); if (!t) return;
     const s = full(id); s.title = t; s.auto = false; persist(s); emit('sessions', id);
@@ -124,7 +128,7 @@ function createSessions({ dataDir, send = () => {} }) {
     return active;
   }
   const getSession = (id) => full(id);
-  function clearSession(id) { const s = full(id); s.messages = []; s.queuedMessages = []; s.cli = {}; s.doneAt = null; s.tasks = []; s.reqs = null; s.spend = null; s.unread = false; persist(s); emit('sessions', id); }
+  function clearSession(id) { const s = full(id); s.messages = []; s.queuedMessages = []; s.cli = {}; s.doneAt = null; s.tasks = []; s.reqs = null; s.easycode = null; s.easycodeArchive = []; s.spend = null; s.unread = false; persist(s); emit('sessions', id); }
 
   function appendMessage(id, msg) {
     const s = full(id);

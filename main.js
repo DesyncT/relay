@@ -14,7 +14,9 @@ const models = require('./models');
 const { providerArgs } = require('./permissions');
 const { createAssignments, scopeCovers } = require('./requirement-workflow');
 const { initialWorkerRoutes, balanceWorkers, nextWorkerRoute } = require('./worker-routing');
-const { normalPrompt } = require('./normal-code');
+const { normalPrompt, createProgressStream } = require('./normal-code');
+const easycode = require('./easycode');
+const { executeRequest } = require('./easycode-execution');
 const { requirementSubagents } = require('./requirement-subagents');
 const { validTaskWorkspace } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
@@ -131,17 +133,22 @@ function run(label, cmd, args, prompt, onLine, o = {}) {
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     const id = nextId++;
     procs.set(id, { id, label, child, started: Date.now(), sid: o.sid, sub: o.sub, tag: o.tag });
+    const timeout=o.timeoutMs && setTimeout(()=>{const record=procs.get(id);if(record){record.timedOut=true;killProc(record,true);}},o.timeoutMs);
+    timeout?.unref?.();
     send('procs', procList());
     let out = '', err = '', buf = '';
     const lines = (flush) => { const ls = buf.split('\n'); buf = flush ? '' : ls.pop(); ls.forEach((l) => l.trim() && onLine(l)); };
     child.stdout.on('data', (d) => { out += d; if (onLine) { buf += d; lines(); } });
     child.stderr.on('data', (d) => (err += d));
-    child.on('error', reject);
+    child.on('error', error=>{clearTimeout(timeout);procs.delete(id);reject(error);});
     child.on('close', (code) => {
+      clearTimeout(timeout);
       if (onLine) lines(true);
+      const cancelled=procs.get(id)?.cancelled,timedOut=procs.get(id)?.timedOut;
       procs.delete(id);
       send('procs', procList());
-      if (code === 0 && out.trim()) resolve(out.trim());
+      if (o.commandEvidence) resolve({command:o.commandEvidence,exitCode:timedOut?null:code,output:(timedOut?'Command timed out.\n':'')+(out + '\n' + err).trim().slice(-6000)});
+      else if (code === 0 && out.trim()) resolve(out.trim());
       else {
         // drop Claude's routine "rate_limit_event" status lines: they're in every run and made any failure look like a quota hit
         const raw = ((err && out) ? `${err}\n${out}` : (err || out)).split('\n').filter((l) => !l.includes('"rate_limit_event"')).join('\n');
@@ -150,7 +157,7 @@ function run(label, cmd, args, prompt, onLine, o = {}) {
         failure.raw = raw;
         failure.code = code;
         failure.cmd = cmd;
-        if (procs.get(id)?.cancelled) failure.cancelled = true;
+        if (cancelled) failure.cancelled = true;
         reject(failure);
       }
     });
@@ -190,6 +197,7 @@ const splitArgs = (s) => (s || '').split(/\s+/).filter(Boolean);
 // Claude Code: stream-json. The final text is the result event.
 function claudeRun(label, who, prompt, c = {}) {
   let result = '', failed = false, model = '', usage = null;
+  const progress = createProgressStream(c.onProgress);
   const said = []; // every text block: [req:] lines often sit before the tool calls, not in the final result
   const act = [];
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, w, st, c.route?.meta); // quiet: subagent runs have their own panel
@@ -202,14 +210,14 @@ function claudeRun(label, who, prompt, c = {}) {
   return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); } catch {}
-    if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) said.push(b.text); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
+    if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) { said.push(b.text); progress.push(b.text); } if (b.type === 'tool_use') progress.flush(); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
     else if (e.type === 'system' && e.subtype === 'init') { model = e.model || ''; if (e.session_id) c.onSession?.(e.session_id); }
     else if (e.type === 'result') {
       result = e.result || ''; failed = !!e.is_error;
       const u = e.usage || {};
       usage = mkUsage(model || Object.keys(e.modelUsage || {})[0] || 'claude', (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), u.cache_read_input_tokens || 0, u.output_tokens || 0, e.total_cost_usd);
     }
-  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env }).then(() => { if (failed || !result.trim()) throw new Error(cleanErrorMessage(result.trim() || 'claude returned no result', who)); return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] }; })
+  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env,timeoutMs:c.timeoutMs }).then(() => { if (failed || !result.trim()) throw new Error(cleanErrorMessage(result.trim() || 'claude returned no result', who)); progress.finish(result); return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] }; })
     .finally(() => setStatus(who, null));
 }
 
@@ -218,6 +226,7 @@ const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
 function codexRun(prompt, images, c = {}) {
   try { require('./shareskills').sync(DATA); } catch {} // Claude's skills and plugin skills, for Codex too
   let text = '', inp = 0, cac = 0, out = 0, errText = '';
+  const progress = createProgressStream(c.onProgress);
   const said = []; // every agent message, not just the last
   const act = [], seat = c.seat || 'codex';
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, seat, st, c.route?.meta);
@@ -234,13 +243,14 @@ function codexRun(prompt, images, c = {}) {
     if (e.type === 'turn.started') setStatus('codex', 'thinking');
     if (e.type === 'turn.completed' && e.usage) { inp += (e.usage.input_tokens || 0) - (e.usage.cached_input_tokens || 0); cac += e.usage.cached_input_tokens || 0; out += e.usage.output_tokens || 0; }
     if (!it.type) return;
-    if (it.type === 'agent_message') { setStatus('codex', 'typing'); if (e.type === 'item.completed' && it.text) said.push(text = it.text); }
+    if (['command_execution','file_change','patch','web_search','mcp_tool_call'].includes(it.type)) progress.flush();
+    if (it.type === 'agent_message') { setStatus('codex', 'typing'); if (e.type === 'item.completed' && it.text) { said.push(text = it.text); progress.push(it.text); } }
     else if (it.type === 'reasoning') setStatus('codex', 'thinking');
     else if (it.type === 'command_execution') setStatus('codex', 'running ' + String(it.command || '').replace(/^"[^"]*powershell[^"]*"\s+-Command\s+/i, '').replace(/^['"]|['"]$/g, '').slice(0, 40));
     else if (/file_change|patch/.test(it.type)) setStatus('codex', 'coding ' + base(it.changes?.[0]?.path));
     else if (it.type === 'web_search') setStatus('codex', 'searching');
     else if (it.type === 'mcp_tool_call') setStatus('codex', 'using ' + (it.tool || 'tool'));
-  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env }).then(() => { if (!text.trim()) throw new Error(cleanErrorMessage(errText || 'codex returned no message', 'codex')); return { text: text.trim(), said, usage: mkUsage(runModel, inp, cac, out), activity: act }; })
+  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env,timeoutMs:c.timeoutMs }).then(() => { if (!text.trim()) throw new Error(cleanErrorMessage(errText || 'codex returned no message', 'codex')); progress.finish(text); return { text: text.trim(), said, usage: mkUsage(runModel, inp, cac, out), activity: act }; })
     .finally(() => setStatus('codex', null));
 }
 
@@ -410,7 +420,7 @@ const requirementCoordinators = new Map();
 const requirementRetries = new Set();
 // Open/blocked task workspaces stay for inspection while their assignments are saved; once nothing saved points at one
 // (a new request, cleared requirements or chat) it is unreachable, so it is deleted. Cleanup itself verifies the ownership marker.
-const savedWorkspaceRoots = (sid) => workspacesFromAssignments(reqsOf(sid)?.assignments || []).cleanup;
+const savedWorkspaceRoots = (sid) => workspacesFromAssignments([...(reqsOf(sid)?.assignments || []),...(sessOf(sid)?.easycodeArchive || []).map(r=>r.worker).filter(Boolean),...(sessOf(sid)?.easycode?.worker?[sessOf(sid).easycode.worker]:[])]).cleanup;
 // Copying the project per task, git and hashing every file run in a worker thread: on a big site they froze the window ("not responding")
 function offThread(name, ...args) {
   const { Worker } = require('worker_threads');
@@ -852,7 +862,9 @@ async function ask(sid, who, trigger, isLead) {
       const result = await seatRun(sid,who,'coding',(_stand,state)=>{
         const session=store.getSession(sid);
         return normalPrompt(session,who,state.resumed);
-      },trigger);
+      },trigger,{onProgress: text => {
+        if (ep === rt.epoch && !rt.paused) post(sid,who,text,null,null,{progress:true});
+      }});
       if (ep !== rt.epoch) return {next:[]};
       const msg = post(sid,who,result.text,null,null,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta});
       if (result.usage) send('agent:usage',{sid,who,...result.usage});
@@ -1218,6 +1230,11 @@ function workspacesFromAssignments(assignments) {
 function resumeSessions() {
   for (const meta of store.listSessions()) {
     const s = sessOf(meta.id), r = s?.resume;
+    if(s?.supercode && (s.easycode || r || s.reqs?.assignments?.length)) {
+      store.updateSession(s.id,{resume:null});
+      if(!s.easycode) {const legacy=easycode.createRequest(s.messages.findLast(m=>m.from==='user')?.text || 'Review interrupted work');saveEasycode(s.id,{...legacy,state:'blocked',error:'Saved legacy work needs review. It was not restarted.'});}
+      continue;
+    }
     const persistedAssignments = s?.reqs?.assignments;
     if (Array.isArray(persistedAssignments) && persistedAssignments.length) {
       const rt = RT(s.id);
@@ -1342,9 +1359,9 @@ ipcMain.handle('subagents:list', (_e, sid) => [...subsOf(sid).map((r) => ({ ...r
 ipcMain.handle('subagents:retry', (_e, id, alternate=false) => {
   for(const session of store.listSessions()) {
     const worker=requirementSubagents(session.id,reqsOf(session.id)).find(worker=>worker.id===id);
-    if(worker) return retryRequirement(session.id,worker.assignmentId,alternate);
+    if(worker) {if(supercodeOn(session.id))throw Error('Use the EasyCode request controls to review and retry.');return retryRequirement(session.id,worker.assignmentId,alternate);}
     const legacy=subsOf(session.id).find(worker=>worker.id===id);
-    if(legacy) return spawnSubs(legacy.sid,legacy.owner,[{title:legacy.title,task:legacy.task}]);
+    if(legacy) {if(supercodeOn(session.id))throw Error('Start an EasyCode request and confirm its scope before retrying legacy work.');return spawnSubs(legacy.sid,legacy.owner,[{title:legacy.title,task:legacy.task}]);}
   }
   throw new Error('This subagent no longer exists.');
 });
@@ -1352,6 +1369,7 @@ ipcMain.handle('subagents:stop', (_e, id) => {
   for(const session of store.listSessions()) {
     const worker=requirementSubagents(session.id,reqsOf(session.id)).find(worker=>worker.id===id);
     if(worker) {
+      if(sessOf(session.id)?.easycode) {interruptSession(session.id);return true;}
       requirementCoordinators.get(session.id)?.coordinator.stopTask(worker.assignmentId);
       for(const process of procs.values()) if(process.sid===session.id && (process.sub===worker.assignmentId || String(process.sub).startsWith(`req-review-${worker.assignmentId}-`))) killProc(process);
       return true;
@@ -1361,7 +1379,7 @@ ipcMain.handle('subagents:stop', (_e, id) => {
 });
 
 // sidebar spinner: which chats have an agent running right now
-const workingIds = () => [...rts].filter(([, rt]) => Object.values(rt.lanes).some((l) => l.busy)).map(([sid]) => sid);
+const workingIds = () => [...new Set([...easyBusy,...[...rts].filter(([, rt]) => Object.values(rt.lanes).some((l) => l.busy)).map(([sid]) => sid)])];
 const sendWorking = () => send('sessions:working', workingIds());
 ipcMain.handle('sessions:working', () => workingIds());
 
@@ -1422,7 +1440,7 @@ ipcMain.handle('chat:export', async (event, sid) => {
 // per-session settings the chat header needs: title, lead (falls back to the global default), project
 ipcMain.handle('chat:info', (_e, sid) => {
   const s = store.getSession(sid), p = store.listProjects().find((x) => x.id === s.projectId);
-  return { spend: s.spend || null, reqs: s.supercode ? s.reqs || null : null, supercode:!!s.supercode, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
+  return { easycode:s.easycode || null, spend: s.spend || null, reqs: s.supercode ? s.reqs || null : null, supercode:!!s.supercode, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
 });
 // End task: stop the agents, drop the requirements and close the task (know-how stays), so the next message starts fresh
 ipcMain.handle('chat:endTask', (_e, sid) => {
@@ -1439,7 +1457,7 @@ ipcMain.handle('chat:workflow', (_e, sid, enabled) => {
   send('workflow:changed', { sid, supercode:!!enabled });
   return { sid, supercode:!!enabled };
 });
-ipcMain.handle('chat:clear', (_e, sid) => { stopSubs(sid); store.updateSession(sid, { subs: [] }); const saved = savedWorkspaceRoots(sid); store.clearSession(sid); reclaimWorkspaces(sid, saved); const r = RT(sid); r.building = r.awaiting = false; r.leadNow = null; });
+ipcMain.handle('chat:clear', (_e, sid) => { interruptSession(sid); stopSubs(sid); store.updateSession(sid, { subs: [] }); const saved = savedWorkspaceRoots(sid); store.clearSession(sid); reclaimWorkspaces(sid, saved); const r = RT(sid); r.building = r.awaiting = false; r.leadNow = null; });
 
 // Profile: display name + picture. The renderer gets the picture as a data URL (file:// images may be blocked by the CSP).
 const PROFILE_DIR = path.join(DATA, 'profile');
@@ -1493,9 +1511,138 @@ const userQueues = {
   set: (sid, items) => store.updateSession(sid, { queuedMessages: items }),
   delete: (sid) => store.updateSession(sid, { queuedMessages: [] }),
 };
+const easyBusy = new Set();
+let easyExecutionTail = Promise.resolve();
+const easyOwner = sid => {
+  const selected = sessOf(sid)?.lead || settings.lead;
+  return AGENT_NAMES.includes(selected) && !isDown(selected) ? selected : AGENT_NAMES.find(p=>!isDown(p) && settings.routes?.[p]?.other);
+};
+function saveEasycode(sid, request) {
+  const previous=sessOf(sid)?.easycode;
+  if(previous?.worker && previous.id!==request.id)store.updateSession(sid,{easycodeArchive:[...(sessOf(sid)?.easycodeArchive || []),previous]});
+  store.updateSession(sid,{easycode:request,resume:null});
+  RT(sid).awaiting=['questioning','ready','blocked'].includes(request.state);
+  send('easycode:update',{sid,request});
+  if(previous?.state===request.state && previous?.revision===request.revision)return;
+  const controls={requestId:request.id,revision:request.revision,questionId:request.question?.id,state:request.state};
+  let text='',options=[];
+  if(request.state==='questioning') {
+    text=request.question.text;
+    options=[...request.question.options,'Not sure — investigate for me',...(request.history.length>=5?['Show the fix summary','Keep narrowing it down']:[]),...(request.history.length?['Change an answer']:[]),'Cancel'];
+  } else if(request.state==='ready') {
+    const s=request.scope;
+    text=[s.summary,`Preserve: ${s.preserve.join('; ') || 'Existing behavior outside this change.'}`,`Files: ${s.files.join(', ')}`,`Success: ${s.acceptance.join('; ')}`,`Checks: ${s.checks.join('; ')}`].join('\n\n');
+    options=['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary','Cancel'];
+  } else if(request.state==='blocked') {
+    text=[`Stopped: ${request.error || 'Verification needs review.'}`,...(request.evidence || []).map(c=>`${c.command}: ${c.exitCode===0?'passed':`exit ${c.exitCode ?? 'unavailable'}`}\n${c.exitCode===0?'':String(c.output || '').slice(-1200)}`),...(request.worker?.workspace?.path?[`Saved work: ${request.worker.workspace.path}`]:[])].join('\n\n');
+    options=['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[]),'Cancel'];
+  }
+  else if(request.state==='running') text='Working on your confirmed change. One worker, with at most one targeted repair.';
+  else if(request.state==='verifying')text='Checking the change in your project.';
+  else if(request.state==='succeeded')text=`Verified the change.\nFiles: ${request.changedPaths.join(', ') || 'No file changes needed.'}\n${request.evidence.map(c=>`${c.command}: exit ${c.exitCode}`).join('\n')}`;
+  else if(request.state==='cancelled')text='Cancelled. Any saved work is retained.';
+  if(text)post(sid,'system',text,null,null,{easycode:controls,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
+}
+async function easyChecks(sid,cwd,commands) {
+  const results=[];
+  for(const command of commands) {
+    if(sessOf(sid)?.easycode?.state==='cancelled')throw Error('Request cancelled');
+    try {results.push(await run('EasyCode verification',command,[],'',null,{cwd,sid,sub:'easy-check',timeoutMs:Math.max(1,limit('soloMinutes'))*60000,commandEvidence:command}));}
+    catch(error) {results.push({command,exitCode:null,output:String(error.message || error)});}
+  }
+  return results;
+}
+async function executeEasycode(sid,request) {
+  const epoch=RT(sid).epoch,projectPath=cwdFor(sid),owner=easyOwner(sid);
+  if(!owner)throw Error('No configured worker is available.');
+  const configured=settings.routes?.[owner]?.coding;
+  if(!configured)throw Error('Configure a worker model first.');
+  let route=request.workerRoute || {provider:owner,...configured};
+  const cap=settings.taskMaxModel?.[route.provider];
+  const ladder=require('./worker-routing').LADDERS?.[route.provider];
+  if(ladder && cap && ladder.indexOf(route.model)>ladder.indexOf(cap) && ladder.includes(cap))route={...route,model:cap};
+  const cancelled=()=>epoch!==RT(sid).epoch || sessOf(sid)?.easycode?.id!==request.id || sessOf(sid)?.easycode?.state==='cancelled';
+  const review=async(a,cwd,scope,work)=>{
+    const reviewer=easyOwner(sid);if(!reviewer)return {verdict:'UNKNOWN',evidence:'No reviewer available'};
+    const modelRoute=settings.routes?.[reviewer]?.other;
+    const result=await seatRun(sid,reviewer,'other',()=>`Read-only scoped diff review. Do not edit, delegate, vote or broaden scope. Verify the confirmed change, preservation constraints and ALL acceptance checks from evidence. Missing or failing evidence must not pass. End with VERDICT: PASS or VERDICT: FAIL.\nScope: ${JSON.stringify(scope)}\nChanged files: ${JSON.stringify(work.paths)}\nActual command results: ${JSON.stringify(work.checks)}\nWorkspace baseline: ${a.workspace?.baselineCommit || ''}`,null,{quiet:true,readonly:true,requirementsOnly:true,safeReview:true,cwd,sub:'easy-review',timeoutMs:90000,routeOverride:{provider:reviewer,...modelRoute}});
+    return {verdict:readVerdict(result.text),evidence:result.text.slice(-5000)};
+  };
+  let verificationBaseline;
+  const snapshot=async()=>{const changes=await offThread('projectChanges',projectPath);if(!changes)return null;return {changes,head:require('child_process').execFileSync('git',['rev-parse','HEAD'],{cwd:projectPath,windowsHide:true,encoding:'utf8'}).trim()};};
+  const unchanged=async before=>{if(!before)return false;const touched=await offThread('touchedSince',projectPath,before.changes);const head=require('child_process').execFileSync('git',['rev-parse','HEAD'],{cwd:projectPath,windowsHide:true,encoding:'utf8'}).trim();return head===before.head && Array.isArray(touched) && touched.length===0;};
+  return executeRequest(request,{route,projectPath,isCancelled:cancelled,
+    baseline:snapshot,unchanged,verifyIntegrated:()=>unchanged(verificationBaseline),
+    createWorkspace:async a=>{
+      const workspaces=await offThread('createTaskWorkspaces',projectPath,sid,[{...a,preserveIgnored:true}]);
+      const workspace=workspaces.tasks?.[0];
+      if(workspace)workspace.cleanup=workspaces.cleanup?.[0];
+      return workspace;
+    },
+    save:a=>{
+      const prior=sessOf(sid)?.easycode?.worker;
+      if(a.workspace?.path && (cancelled() || (prior?.workspace?.path && prior.workspace.path!==a.workspace.path))) {
+        const session=sessOf(sid);if(session)store.updateSession(sid,{easycodeArchive:[...(session.easycodeArchive || []),cancelled()?{...request,worker:a}:{...session.easycode,worker:prior}]});
+      }
+      if(cancelled())return;
+      setReqs(sid,{items:[{t:request.scope.summary,done:a.integrationStatus==='passed'}],assignments:[{...a}],easycode:true});
+      const current=sessOf(sid).easycode;
+      store.updateSession(sid,{easycode:{...current,attempts:a.implementationAttempts || 0,changedPaths:a.changedPaths || [],worker:a,evidence:a.integratedChecks || a.commandEvidence || [],baselineChecks:a.baselineChecks || []}});
+      if(a.integrationStatus==='verifying' && current.state==='running')saveEasycode(sid,{...sessOf(sid).easycode,state:'verifying'});
+      else send('easycode:update',{sid,request:sessOf(sid).easycode});
+    },
+    work:(a,prompt)=>seatRun(sid,owner,'coding',()=>prompt,null,{quiet:true,cwd:a.workspace.path,sub:a.id,timeoutMs:Math.max(1,limit('soloMinutes'))*60000,routeOverride:route}),
+    collect:workspace=>offThread('collectTaskChanges',{...workspace,strictScope:true}),
+    check:(cwd,commands)=>easyChecks(sid,cwd,commands),review,
+    integrate:changes=>{
+      if(cancelled())throw Error('Cancelled before integration');
+      // Applying a checked patch is synchronous so cancellation cannot interleave
+      // with the final guard and write. No model edits the user's project here.
+      const workspaceTools=require('./requirement-workspaces');
+      const conflicts=workspaceTools.applyTaskChanges(projectPath,changes);
+      verificationBaseline={changes:workspaceTools.projectChanges(projectPath),head:require('child_process').execFileSync('git',['rev-parse','HEAD'],{cwd:projectPath,windowsHide:true,encoding:'utf8'}).trim()};
+      return conflicts;
+    }
+  });
+}
+const easyController=easycode.createController({get:sid=>sessOf(sid)?.easycode,save:saveEasycode,
+  discover:async(sid,prompt)=>{
+    const owner=easyOwner(sid);if(!owner)throw Error('No discovery provider available.');
+    const result=await seatRun(sid,owner,'other',()=>prompt,null,{quiet:true,readonly:true,requirementsOnly:true,safeReview:true,sub:'easy-discovery',timeoutMs:90000,routeOverride:{provider:owner,...settings.routes[owner].other}});
+    return result.text;
+  },
+  execute:(sid,request)=>{
+    const job=easyExecutionTail.catch(()=>{}).then(()=>{if(sessOf(sid)?.easycode?.id!==request.id || sessOf(sid)?.easycode?.state!=='running')throw Error('Request cancelled before execution');return executeEasycode(sid,request);});
+    easyExecutionTail=job;return job;
+    },cancel:sid=>interruptSession(sid),
+  stronger:(sid,request)=>{
+    const a=request.worker;if(!a)return null;
+    const routes=Object.fromEntries(Object.entries(settings.routes || {}).map(([p,phases])=>[p,{...phases,taskMax:settings.taskMaxModel?.[p]}]));
+    return nextWorkerRoute(a,routes,AGENT_NAMES.filter(p=>!isDown(p)),{reason:'review-failed'});
+  }
+});
+async function easyAction(sid,payload) {
+  if(!supercodeOn(sid))throw Error('EasyCode is disabled in this session.');
+  // Cancellation stays available while a provider call is active.
+  if(payload.action!=='cancel' && easyBusy.has(sid))throw Error('Wait for the current EasyCode step.');
+  if(payload.action==='cancel')return easyController.action(sid,payload);
+  easyBusy.add(sid);sendWorking();
+  try {return await easyController.action(sid,payload);}
+  finally {easyBusy.delete(sid);sendWorking();drainUserQueue(sid);}
+}
+ipcMain.handle('easycode:action',(_event,sid,payload)=>easyAction(sid,payload));
+function dispatchEasycode(sid,text,message) {
+  const request=sessOf(sid)?.easycode;
+  if(request?.state==='questioning') {
+    easyAction(sid,{requestId:request.id,revision:request.revision,questionId:request.question.id,action:'answer',answer:text}).catch(e=>post(sid,'system',e.message));return;
+  }
+  if(request?.state==='ready') {post(sid,'system','Review the summary and use Fix it, Edit summary or Cancel.');return;}
+  easyBusy.add(sid);sendWorking();
+  easyController.start(sid,text).catch(e=>post(sid,'system',e.message)).finally(()=>{easyBusy.delete(sid);sendWorking();drainUserQueue(sid);});
+}
 const drainingUserQueue = new Set();
 const queueUpdate = (sid) => send('chat:queue', { sid, items: (userQueues.get(sid) || []) });
-const chatBusy = (sid) => requirementRetries.has(sid) || Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive) || requirementCoordinators.has(sid);
+const chatBusy = (sid) => easyBusy.has(sid) || requirementRetries.has(sid) || Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive) || requirementCoordinators.has(sid);
 function drainUserQueue(sid) {
   if (drainingUserQueue.has(sid)) return;
   const q = userQueues.get(sid);
@@ -1529,34 +1676,13 @@ function dispatchUser(sid, { text, files, reply }) {
     enqueue(sid,AGENT_NAMES.includes(selected) ? selected : 'codex',m,null,true);
     return;
   }
-  if (!files?.length && continueChecklist(sid, m)) return;
-  if (!files?.length && isConversation(text)) {
-    const selected = sess.lead || settings.lead;
-    const who = AGENT_NAMES.includes(selected) ? selected : 'claude';
-    const busy = Object.values(rt.lanes).some(l => l.busy || l.next) || sess.subs?.some(s => ['queued', 'running'].includes(s.status));
-    const quick = conversationReply(text, { busy, awaiting: rt.awaiting, items: reqsOf(sid)?.items, doneAt: sess.doneAt });
-    if (quick !== null) { post(sid, who, quick); return; }
-    m.direct = true;
-    rt.turns = 0; rt.paused = false;
-    enqueue(sid, who, m, null, true); return;
-  }
-  // requests and changes pile up across messages until the user says wrap up; then reviewers judge all of it at once
-  if (WRAP.test(text)) rt.wrapping = true;
-  else {
-    // User tags remain request context; only the agent can write the task checklist.
-    const cnt = REQ_COUNT.exec(text)?.[1], n = cnt && (/^\d+$/.test(cnt) ? Math.max(1, Math.min(limit('maxRequirements'), +cnt)) : 1);
-    setReqs(sid, { items: [], target: n || null, requestAt: m.at });
-    post(sid, 'system', 'Writing requirements…', null, null, { muted: true });
-  }
-  if (!WRAP.test(text)) { rt.requests = [...(rt.requests || []), text]; if (!rt.reviewRequestAt) rt.reviewRequestAt = m.at; }
-  rt.turns = 0; rt.restarts = 0; rt.reviewRequest = (rt.requests || []).join('\n\n') || text; rt.idle = 0; rt.escalations = 0; rt.paused = false; rt.autoN = 0;
-  onUserText(sid, text); // the user approved the plan: from here both agents may work in parallel (and Plan / Manual flip to Accept edits)
-  // Planning: only the lead or explicitly mentioned agents. Building: both at once.
-  const selected = sess.lead || settings.lead;
-  const { first, after, lead } = supercodeOn(sid) ? route(text, selected, rt.building, Math.random, !reqsOf(sid)?.items?.length) : { first:[AGENT_NAMES.includes(selected) ? selected : 'codex'], after:null, lead:null };
-  rt.planningRecipients = first;
-  rt.leadNow = lead || null;
-  for (const who of first) enqueue(sid, who, m, after, who === lead);
+  // EasyCode has one entry point. Legacy checklist routing, voters and handoffs
+  // cannot authorize edits or start a second worker for these requests.
+  const quick=conversationReply(text,{busy:Object.values(rt.lanes || {}).some(l=>l.busy || l.next),awaiting:!!rt.awaiting,items:reqsOf(sid)?.items || [],doneAt:sess.doneAt});
+  if(quick!==null) {post(sid,AGENT_NAMES.includes(sess.lead || settings.lead)?sess.lead || settings.lead:'claude',quick);return;}
+  dispatchEasycode(sid, text, m);
+  return;
+
 }
 ipcMain.handle('chat:queue', (_e, sid) => { drainUserQueue(sid); return userQueues.get(sid); });
 ipcMain.handle('chat:queue-edit', (_e, sid, id, text) => {
@@ -1621,6 +1747,9 @@ ipcMain.handle('chat:mode', (_e, sid, mode) => {
   setMode(sid, mode);
 });
 ipcMain.handle('chat:retry', async (_e, sid, targetProv) => {
+  const request=sessOf(sid)?.easycode;
+  if(supercodeOn(sid) && request)return easyAction(sid,{requestId:request.id,revision:request.revision,action:'retry'});
+  if(supercodeOn(sid))throw Error('Start a new EasyCode request to review the scope.');
   if (chatBusy(sid)) throw new Error('Agents are currently busy.');
   const sess = store.getSession(sid);
   if (!sess) throw new Error('Session not found.');
@@ -1693,7 +1822,7 @@ async function retryRequirement(sid,assignmentId,alternate=false,fixPrompt='') {
     return true;
   } finally {requirementRetries.delete(sid);drainUserQueue(sid);}
 }
-ipcMain.handle('chat:requirement-retry',(_e,...args)=>retryRequirement(...args));
+ipcMain.handle('chat:requirement-retry',(_e,sid,...args)=>{if(supercodeOn(sid))throw Error('Use the EasyCode request controls to review and retry.');return retryRequirement(sid,...args);});
 // You drop a blocked or open task: it stops counting, and once the rest passed they are combined without it
 async function skipRequirement(sid,assignmentId) {
   const session=store.getSession(sid), workflow=requirementCoordinators.get(sid);
@@ -1722,8 +1851,8 @@ async function finishChecklist(sid) {
   await startRequirementWorkflow(sid,assignments.find(a=>a.owner)?.owner || session.lead || 'codex',trigger,RT(sid).epoch,{assignments,workspaces:workspacesFromAssignments(assignments)});
   return true;
 }
-ipcMain.handle('chat:requirement-finish',(_e,sid)=>finishChecklist(sid));
-ipcMain.handle('chat:requirement-skip',(_e,sid,id)=>skipRequirement(sid,id));
+ipcMain.handle('chat:requirement-finish',(_e,sid)=>{if(supercodeOn(sid))throw Error('Use Fix it on the confirmed EasyCode summary.');return finishChecklist(sid);});
+ipcMain.handle('chat:requirement-skip',(_e,sid,id)=>{if(supercodeOn(sid))throw Error('EasyCode cannot skip verification.');return skipRequirement(sid,id);});
 // Debugger: looks at a failing task (files, commands, the running app or staging page) and writes one prompt that fixes it
 async function debugRequirement(sid,assignmentId) {
   const workflow=requirementCoordinators.get(sid), saved=reqsOf(sid)?.assignments || [];
@@ -1752,7 +1881,7 @@ Then reply with ONLY one self-contained prompt for a coding agent that fixes it:
   if (!debugPrompt) throw new Error('The debugger returned nothing. Try again.');
   return debugPrompt;
 }
-ipcMain.handle('chat:requirement-debug',(_e,sid,id)=>debugRequirement(sid,id));
+ipcMain.handle('chat:requirement-debug',(_e,sid,id)=>{if(supercodeOn(sid))throw Error('Use the EasyCode request controls to review and retry.');return debugRequirement(sid,id);});
 ipcMain.handle('chat:bypass', (_e, sid, on) => { on ? bypass.add(sid) : bypass.delete(sid); send('chat:mode', { sid, mode: modeOf(sid), bypass: bypass.has(sid) }); }); // the renderer shows the confirm dialog first
 ipcMain.handle('chat:stop', (_e, sid) => {
   const rt = RT(sid);
@@ -1762,10 +1891,12 @@ ipcMain.handle('chat:stop', (_e, sid) => {
 });
 
 function interruptSession(sid, rt = RT(sid)) {
+  const request=sessOf(sid)?.easycode;
+  if(request && !['cancelled','succeeded'].includes(request.state))saveEasycode(sid,easycode.cancelRequest(request));
   requirementCoordinators.get(sid)?.coordinator.cancel();
   rt.epoch++;
   for (const l of Object.values(rt.lanes)) l.next = null;
-  for (const p of procs.values()) if (p.sid === sid) killProc(p);
+  for (const p of procs.values()) if (p.sid === sid) killProc(p,true);
   stopSubs(sid);
 }
 

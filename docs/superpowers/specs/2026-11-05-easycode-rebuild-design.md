@@ -14,7 +14,7 @@ Replace EasyCode orchestration with one explicit request lifecycle, while retain
 2. Show one short question with two to four distinct buttons, plus an optional custom answer. Ask what area is affected before asking how it should behave. Offer “Help me find it” when the target is unknown. Never invent observed errors or claim to have inspected unavailable evidence.
 3. Generate each next question from the original request, cumulative answers, and inspection results. For example: Fix → Login → Cannot sign in → Returns to login screen. A different answer follows a different branch. Do not use a fixed questionnaire or ask resolved questions again.
 4. Stop asking when target, desired outcome, preservation constraints, and observable acceptance checks are sufficiently clear. A default soft limit of five questions exposes “Show the fix summary” and “Keep narrowing it down”; it must not silently resolve material ambiguity.
-5. Show a concise editable summary of what will change, what must be preserved, and how success will be checked. Buttons: “Make this change”, “Change an answer”, and “Cancel”. Small, already precise requests can reach this summary immediately.
+5. Show a concise editable summary of what will change, what must be preserved, and how success will be checked. Buttons: “Fix it”, “Change an answer”, and “Cancel”. Small, already precise requests can reach this summary immediately.
 6. After confirmation, execute the scoped change, run relevant checks, and report the actual outcome. Show changed files, check results, and any unresolved issue. A completed process is not proof of a successful fix.
 
 Assumption: one final confirmation of the concrete change is useful to prevent accidental edits. Discovery answers themselves never authorize coding. User product preferences always reach the user, including when automatic execution settings are enabled.
@@ -29,7 +29,11 @@ The question engine produces validated structured questions or a ready summary. 
 
 Use one configured inexpensive provider for discovery, one model call per newly generated question, compact accumulated context, and no voting panel or teammate debate. Local state changes, button submission, cancellation, and redisplaying stored questions require no model call. Provider availability comes from existing adapters; no new model names or pricing assumptions are required.
 
-Use one worker for the confirmed change by default. Retain internal splitting only for demonstrably independent, disjoint file scopes where it reduces work. Do not assign a worker to every acceptance criterion. Default automatic budget: one initial implementation attempt, one targeted repair attempt, and at most one stronger-route implementation attempt. No route cycles or unbounded review loops. Show attempt counts and available usage data; do not invent currency totals when adapters lack pricing data. Exhaustion produces a blocked result with explicit retry controls.
+Run exactly one worker at a time for the confirmed change. Preserve the existing worker settings, including configured provider/model routing, effort, and task limits. Do not enable parallel workers or replace user settings with hard-coded cheap routes. Do not assign a worker to every acceptance criterion. Default automatic budget: one initial implementation attempt and one targeted repair attempt. If checks still fail, stop and ask the user through buttons whether to investigate further, retry with a stronger route, or stop. A stronger-route attempt requires that explicit choice; it is never an automatic third attempt. No route cycles or unbounded review loops. Show attempt counts and available usage data; do not invent currency totals when adapters lack pricing data. Exhaustion produces a blocked result with explicit retry controls.
+
+## Confirmed interaction choices
+
+The user selected project inspection before relevant buttons, one question at a time with suggested answers, and a short change summary followed by “Fix it”. The user accepted the remaining recommended defaults: offer “Not sure—investigate for me”, allow optional typed answers, and try one targeted repair after failed checks before asking what to do next. These choices govern the workflow above. The user approved this spec with the constraint that only one worker runs at a time and existing worker settings are retained.
 
 ## Preservation and verification
 
@@ -48,7 +52,7 @@ Trace and replace EasyCode branches in main.js, requirement discovery/dispatch, 
 - A complete request skips unnecessary questions, while unresolved material ambiguity cannot auto-start work.
 - Product choices never trigger AI voters; default discovery uses at most one model call per question, excluding one malformed-output repair.
 - Duplicate and stale clicks, cancellation, restart, and session switching cannot execute a request twice or apply a superseded answer.
-- Confirmation executes the exact summary revision, with one worker by default and finite retries.
+- Confirmation executes the exact summary revision, with one worker at a time, existing worker settings retained, and finite retries.
 - A failing or unavailable check cannot become succeeded after retry exhaustion.
 - Integration conflicts and pre-existing local edits preserve user work and report a blocked outcome.
 - Renderer checks exercise question selection, custom answers, back/edit, confirmation, progress, failure, and retry.

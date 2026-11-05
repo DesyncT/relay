@@ -34,4 +34,4 @@ function nextWorkerRoute(assignment,routes,available,{reason='review-failed'}={}
   const next=candidates[0];
   return next ? {provider:next.provider,model:next.model,effort:next.effort,escalationTier:(assignment.escalationTier || 0)+(reason==='worker-failed' ? 0 : 1)} : null;
 }
-module.exports={initialWorkerRoutes,balanceWorkers,nextWorkerRoute};
+module.exports={initialWorkerRoutes,balanceWorkers,nextWorkerRoute,LADDERS};

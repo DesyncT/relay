@@ -1423,7 +1423,11 @@ function addMsg(m, live, batch = false) {
     waitFor = null; placeholder(); return;
   }
   let row;
-  if (m.from === 'system') {
+  if (m.easycode) {
+    prev=null;
+    const controls=m.askUser ? easyChoiceBar(m,openSid) : null;
+    row=el('div',{className:'msg grp' + (m.askUser?' ask':'')},el('div',{className:'hd'},el('b',{textContent:'EasyCode'})),el('div',{className:'body',innerHTML:md(m.text || '')}),...(controls?[lastOpts=controls]:[]));
+  } else if (m.from === 'system') {
     prev = null;
     if (m.failure || /^(?:subagent\s+.*?\s+failed:|(?:claude|codex|antigravity)\s+failed:)/i.test(m.text || '')) {
       row = renderFailureCard(m);
@@ -1602,6 +1606,52 @@ function renderQueue(items = []) {
 }
 api.on('chat:queue', (d) => { if (d.sid === openSid) renderQueue(d.items || []); });
 let lastOpts = null; // option buttons of the latest unanswered ask
+let easyCurrent=null;
+api.on('easycode:update',({sid,request})=>{
+  if(sid!==openSid)return;
+  easyCurrent=request;
+  for(const bar of document.querySelectorAll('[data-easy-request]')) {
+    const active=bar.dataset.easyRequest===request.id && Number(bar.dataset.easyRevision)===request.revision && bar.dataset.easyState===request.state;
+    for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=!active;
+  }
+});
+function easyChoiceBar(message,sid) {
+  const identity=message.easycode;
+  const bar=el('div',{className:'opts lettered',role:'group',ariaLabel:'EasyCode choices'});
+  bar.dataset.easyRequest=identity.requestId;bar.dataset.easyRevision=identity.revision;bar.dataset.easyState=identity.state;
+  const active=()=>sid===openSid && easyCurrent?.id===identity.requestId && easyCurrent.revision===identity.revision && easyCurrent.state===identity.state;
+  let pending=false;
+  const submit=async(action,extra={})=>{
+    if(!active() || pending)return;
+    pending=true;for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=true;
+    try {await api.call('easycode:action',sid,{...identity,action,...extra});}
+    catch(error) {if(sid===openSid)addMsg({from:'system',text:String(error.message || error),at:Date.now()},1);}
+    finally {pending=false;if(active())for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=false;}
+  };
+  const button=(label,action)=>{const b=el('button',{type:'button',className:'opt',textContent:label,disabled:!active()});b.onclick=action;return b;};
+  for(const label of message.options || []) {
+    bar.append(button(label,()=>{
+      if(label==='Change an answer') {
+        const list=el('div',{className:'opts',role:'group',ariaLabel:'Earlier answers'});
+        for(const [index,item] of (message.easyHistory || []).entries())list.append(button(`${item.question} — ${item.answer}`,()=>submit('edit',{index})));
+        bar.append(list);return;
+      }
+      if(label==='Edit summary') {
+        if(bar.querySelector('textarea'))return;
+        const input=el('textarea',{ariaLabel:'Change the summary',placeholder:'What should change in this summary?',rows:3});
+        bar.append(input,button('Update summary',()=>submit('editSummary',{answer:input.value})));input.focus();return;
+      }
+      const action={'Fix it':'confirm','Cancel':'cancel','Show the fix summary':'summary','Review and retry':'retry','Retry with stronger route':'stronger'}[label] || 'answer';
+      submit(action,action==='answer'?{answer:label}:{});
+    }));
+  }
+  if(identity.state==='questioning') {
+    const input=el('input',{type:'text',ariaLabel:'Your answer',placeholder:'Or write your own answer',disabled:!active()});
+    const answer=()=>submit('answer',{answer:input.value});input.onkeydown=e=>{if(e.key==='Enter')answer();};
+    bar.append(input,button('Send answer',answer));
+  }
+  return bar;
+}
 // Answer buttons, what each one does, and a field for typing your own answer (free-text questions, quizzes, "something else")
 function choiceBar(opts, info, cls = '') {
   const bar = el('div', { className: ('opts ' + cls).trim(), role: 'group', ariaLabel: 'Choices' });
@@ -2174,6 +2224,7 @@ async function openSession(id, show = true) {
   if (tok !== openTok) return; // another session was opened meanwhile
   subs = sl; subsAll = false; subsOpen = sl.length > 0 && !pnOpen(); renderSubs();
   openSid = id || null;
+  easyCurrent=info?.easycode || null;
   renderQueue([]);
   if (id) api.call('chat:queue', id).then((items) => { if (openSid === id) renderQueue(items); });
   act = actBy[openSid] ||= {};
@@ -2187,6 +2238,11 @@ async function openSession(id, show = true) {
   renderChips();
   window.Titlebar?.setTitle(info ? info.title : '');
   msgs.forEach((m) => addMsg(m, false, true));
+  if(easyCurrent && !msgs.some(m=>m.easycode?.requestId===easyCurrent.id && m.easycode.revision===easyCurrent.revision && m.easycode.state===easyCurrent.state)) {
+    const request=easyCurrent, s=request.scope;
+    const options=request.state==='blocked'?['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[]),'Cancel']:request.state==='ready'?['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary','Cancel']:request.state==='questioning'?[...request.question.options,'Not sure — investigate for me','Cancel']:[];
+    addMsg({from:'system',text:request.state==='blocked'?`Stopped: ${request.error}`:request.state==='ready'?`${s.summary}\n\nPreserve: ${s.preserve.join('; ')}\nSuccess: ${s.acceptance.join('; ')}\nFiles: ${s.files.join(', ')}\nChecks: ${s.checks.join('; ')}`:request.question?.text || request.state,askUser:!!options.length,options,easyHistory:request.history.map(q=>({question:q.text,answer:q.answer})),easycode:{requestId:request.id,revision:request.revision,questionId:request.question?.id,state:request.state},at:Date.now()},false,true);
+  }
   if (window._initialLogScrollPending) { scrollLogToBottom(); window._initialLogScrollPending = false; }
   updateScrollButton();
   emptyState(); placeholder(); renderTyping(); renderSpend(); renderReqs(info ? info.reqs || { items: [], idle: true } : null);

@@ -13,6 +13,10 @@ Download the latest `Relay-Setup-x.y.z.exe` from [Releases](../../releases) and 
 
 ## Develop
 
+EasyCode turns a request such as “fix” into one project-grounded question at a time. Pick a button or type an answer, review the proposed change and checks, then press **Fix it**. Auto settings do not answer these product questions or skip confirmation.
+
+One worker runs at a time, using your configured worker model and effort within your task model limit. A failed check gets at most one targeted repair. Failed or missing verification remains blocked; retrying returns to a summary for confirmation. Stronger routes require an explicit choice. EasyCode uses isolated workspaces and checks the project baseline before applying a scoped patch; currently execution requires a Git project root. Interrupted work is retained for review rather than restarted automatically. Code mode keeps its existing CLI workflow.
+
 ```bash
 npm install
 npm start

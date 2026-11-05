@@ -13,8 +13,8 @@ assert.deepEqual(requirementSubagents('chat',null),[]);
 const integration=requirementSubagents('chat',{items:[{t:'Task'}],assignments:[{...reqs.assignments[0],status:'passed',blocker:null,integrationStatus:'open',integrationFindings:'Staging unavailable',integrationRoute:{provider:'claude',model:'claude-sonnet-5-5',effort:'medium'}}]})[0];
 assert.equal(integration.status,'failed');assert.equal(integration.owner,'claude');assert.equal(integration.model,'claude-sonnet-5-5');assert.match(integration.result,/Staging unavailable/);
 console.log('Checklist subagent identity and status checks passed');
-const source=require('node:fs').readFileSync(require.resolve('./main'),'utf8');
-const marker='    reviewTask: ',start=source.indexOf(marker),end=source.indexOf('\n    },\n  });',start);
+const source=require('node:fs').readFileSync(require.resolve('./main'),'utf8').replace(/\r\n/g,'\n');
+const marker='    reviewTask: ',start=source.indexOf(marker),end=source.indexOf('\n    },\n  });\n  const promise',start);
 (async()=>{
   let calls=0,allUnknown=false;
   const review=require('node:vm').runInNewContext('('+source.slice(start+marker.length,end)+'\n})',{

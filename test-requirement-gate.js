@@ -19,12 +19,12 @@ function dispatchTaggedRequest() {
     post: (_, from, text) => { const m = { from, text, at: 2 }; messages.push(m); return m; },
     reqsOf: () => reqs, setReqs: (_, value) => { reqs = value; },
     limit, REQ_COUNT: /\b(\d+)\s+requirements?\b/i, supercodeOn: () => true, isConversation: require('./turn').isConversation,
-    route:()=>({first:['claude']}),
+    route:()=>({first:['claude']}), conversationReply:()=>null, dispatchEasycode:()=>{reqs={items:[],requestAt:2};},
     onUserText: () => {}, AGENT_NAMES: ['claude', 'codex'], enqueue: () => {},
   });
   assert.equal(reqs.items.length, 0, 'User tags must not populate the agent checklist');
   assert.match(messages[0].text, /\[req: User supplied requirement\]/);
-  assert.match(messages[1].text, /Writing requirements/);
+  assert.equal(messages[0].text, '[req: User supplied requirement]', 'The original text reaches scoped discovery without becoming executable requirements');
   return reqs;
 }
 

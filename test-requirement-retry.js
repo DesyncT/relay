@@ -57,7 +57,8 @@ const handlerSource=source.slice(source.indexOf('async function retryRequirement
     startRequirementWorkflow:async(_sid,_owner,_trigger,_epoch,recovery)=>{started=recovery.assignments;},drainUserQueue:()=>{},
   };
   require('node:vm').runInNewContext(handlerSource,context);
-  await handler(null,'session','failed',true);
+  assert.throws(()=>handler(null,'session','failed',true),/EasyCode request controls/);
+  await context.retryRequirement('session','failed',true);
   assert.equal(started[0].status,'passed','Retry preserves completed siblings');
   assert.equal(started[0].patch,'passed patch','Retry preserves completed patches');
   assert.equal(started[1].status,'queued');
@@ -67,12 +68,13 @@ const handlerSource=source.slice(source.indexOf('async function retryRequirement
   session.reqs.assignments=[done,target];
   workflows.set('session',{coordinator:{queueRetry:replacement=>{queued=replacement;return true;},assignments:session.reqs.assignments},workspaces:{}});
   started=null;
-  await handler(null,'session','failed',false);
+  await context.retryRequirement('session','failed',false);
   assert.equal(queued.id,'failed','A busy sibling does not block retry of this worker');
   assert.equal(started,null,'Live retry reuses the existing coordinator');
   workflows.clear();started=null;
   session.reqs={items:[{t:'First'},{t:'Second'}],assignments:[done,{...target,status:'blocked',blocker:'review-failed-exhausted'}]};
-  await skip(null,'session','failed');
+  assert.throws(()=>skip(null,'session','failed'),/cannot skip verification/);
+  await context.skipRequirement('session','failed');
   assert.equal(session.reqs.items[1].skipped,true,'Skip marks the checklist item');
   assert.equal(started[1].status,'skipped');assert.equal(started[1].actionable,false,'A skipped task no longer holds back the combine step');
   console.log('Requirement retry IPC preservation checks passed');
