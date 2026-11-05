@@ -1648,7 +1648,15 @@ async function easyAction(sid,payload) {
   if(payload.action!=='cancel' && easyBusy.has(sid))throw Error('Wait for the current EasyCode step.');
   if(payload.action==='cancel')return easyController.action(sid,payload);
   const request=sessOf(sid)?.easycode;
-  if(payload.action==='answer' && !payload.fromComposer && request?.id===payload.requestId && request.revision===payload.revision && request.state==='questioning' && request.question?.id===payload.questionId && typeof payload.answer==='string' && payload.answer.trim())post(sid,'user',payload.answer);
+  if(!payload.fromComposer && request?.id===payload.requestId && request.revision===payload.revision) {
+    const label=payload.action==='answer' && request.state==='questioning' && request.question?.id===payload.questionId && typeof payload.answer==='string' && payload.answer.trim() ? payload.answer
+      : payload.action==='confirm' && request.state==='ready' ? 'Fix it'
+      : payload.action==='retry' && request.state==='blocked' ? 'Review and retry'
+      : payload.action==='stronger' && request.state==='blocked' ? 'Retry with stronger route'
+      : payload.action==='edit' && ['questioning','ready','blocked'].includes(request.state) && request.history?.[payload.index ?? request.history.length-1] ? 'Change an answer'
+      : payload.action==='summary' && request.state==='questioning' ? 'Show the fix summary' : null;
+    if(label)post(sid,'user',label);
+  }
   easyBusy.add(sid);sendWorking();
   try {return await easyController.action(sid,payload);}
   finally {easyBusy.delete(sid);sendWorking();drainUserQueue(sid);}
@@ -1656,7 +1664,7 @@ async function easyAction(sid,payload) {
 ipcMain.handle('easycode:action',(_event,sid,payload)=>easyAction(sid,payload));
 function dispatchEasycode(sid,text,message) {
   const request=sessOf(sid)?.easycode;
-  const act=payload=>easyAction(sid,{requestId:request.id,revision:request.revision,...payload}).catch(e=>post(sid,'system',e.message));
+  const act=payload=>easyAction(sid,{requestId:request.id,revision:request.revision,fromComposer:true,...payload}).catch(e=>post(sid,'system',e.message));
   if(request && !['cancelled','succeeded'].includes(request.state) && /^(?:cancel|stop|never mind|nevermind)[.!\s]*$/i.test(text.trim())) {act({action:'cancel'});return;}
   if(request?.state==='questioning') {
     easyAction(sid,{requestId:request.id,revision:request.revision,questionId:request.question.id,action:'answer',answer:text,fromComposer:true}).catch(e=>post(sid,'system',e.message));return;

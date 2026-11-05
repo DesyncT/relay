@@ -343,11 +343,16 @@ app.whenReady().then(async () => {
     await new Promise(resolve=>setTimeout(resolve,20));
     const failure={message:document.querySelector('.theme-status').textContent,id:document.documentElement.dataset.relayTheme};
     document.querySelector('[data-theme="graphite"]').click();
-    return {terminal,light,preview,unchanged,generated,failure};
+    const title=document.querySelector('.sb-row .sb-title'), control=document.querySelector('.sb-group-h .sb-more');
+    const sidebar={titleHeight:title.getBoundingClientRect().height,lineHeight:parseFloat(getComputedStyle(title).lineHeight),nowrap:getComputedStyle(title).whiteSpace,ellipsis:getComputedStyle(title).textOverflow,radius:getComputedStyle(control).borderRadius,width:control.getBoundingClientRect().width,height:control.getBoundingClientRect().height};
+    return {terminal,light,preview,unchanged,generated,failure,sidebar};
   })()`);
   assert.match(appearance.terminal.font,/mono|Consolas|Courier/i,'Terminal font must reach conversation text');
   assert.equal(appearance.terminal.radius,'0px');
-  assert.ok(appearance.terminal.rowHeight>=56,'Themes preserve room for two-line session titles');
+  assert.ok(appearance.terminal.rowHeight>=28 && appearance.terminal.rowHeight<=40,'Sidebar stays compact in themes');
+  assert.equal(appearance.sidebar.titleHeight,appearance.sidebar.lineHeight);
+  assert.equal(appearance.sidebar.nowrap,'nowrap');assert.equal(appearance.sidebar.ellipsis,'ellipsis');
+  assert.equal(appearance.sidebar.radius,'0px');assert.equal(appearance.sidebar.width,appearance.sidebar.height);
   assert.equal(appearance.light,'light');
   assert.equal(appearance.preview,true); assert.equal(appearance.unchanged,true,'AI theme preview must not replace the active theme');
   assert.equal(appearance.generated.id,'custom'); assert.match(appearance.generated.font,/Georgia/);

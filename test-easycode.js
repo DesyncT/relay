@@ -4,12 +4,13 @@ const easy = require('./easycode');
 async function test() {
   assert.equal(typeof easy.createRequest, 'function');
   let r = easy.createRequest('fix');
-  const question = {kind:'question', question:'What is broken?', options:['Login','Checkout'], inspection:'Found login and checkout screens.'};
+  const question = {kind:'question', question:'What is broken?',decisionKey:'target',unresolved:'The affected screen is not specified.', options:['Login','Checkout'], inspection:'Found login and checkout screens.'};
   r = easy.applyDiscovery(r, {...question,recommended:'Checkout'}, r.revision);
   assert.equal(r.question.recommended,'Checkout');
   assert.throws(()=>easy.validateDiscovery({...question,recommended:'Missing'}), /recommend/i);
   const payload = {requestId:r.id, questionId:r.question.id, revision:r.revision, answer:'Login'};
   const answered = easy.applyAnswer(r, payload);
+  assert.throws(()=>easy.applyDiscovery(answered,{...question,question:'Which part needs work?',options:['Search','Account']},answered.revision), /answered|repeated/i);
   assert.throws(()=>easy.applyDiscovery(answered,question,answered.revision), /repeated/i);
   assert.throws(()=>easy.applyDiscovery(answered,{...question,question:'Which area should change?',options:['Checkout','Login']},answered.revision), /repeated/i);
   assert.equal(answered.history[0].answer, 'Login');
@@ -94,16 +95,19 @@ async function test() {
   });
   await discoveryController.discover('chat','Inspect');
   assert.equal(discoveryOptions.quiet,false,'EasyCode discovery must publish live model status');
-  const echoes=[];
+  const echoes=[];let buttonRequest={id:'r',revision:1,state:'questioning',question:{id:'q'}};
   const actionSource=mainSource.slice(mainSource.indexOf('async function easyAction('),mainSource.indexOf("ipcMain.handle('easycode:action'"));
   const buttonAction=require('node:vm').runInNewContext(actionSource+';easyAction',{
-    supercodeOn:()=>true,easyBusy:new Set(),sessOf:()=>({easycode:{id:'r',revision:1,state:'questioning',question:{id:'q'}}}),
+    supercodeOn:()=>true,easyBusy:new Set(),sessOf:()=>({easycode:buttonRequest}),
     post:(_sid,from,text)=>echoes.push({from,text}),sendWorking(){},drainUserQueue(){},easyController:{action:async()=>{}},
   });
   const picked={requestId:'r',revision:1,questionId:'q',action:'answer',answer:'Make labels easier to read'};
   await buttonAction('chat',picked);assert.equal(echoes[0].from,'user');assert.equal(echoes[0].text,picked.answer);
   await buttonAction('chat',{...picked,fromComposer:true});assert.equal(echoes.length,1,'Typed answers already appear in chat');
   await buttonAction('chat',{...picked,revision:0});assert.equal(echoes.length,1,'Stale choices cannot add answers to history');
+  buttonRequest={...buttonRequest,state:'ready'};
+  await buttonAction('chat',{...picked,action:'confirm'});assert.equal(echoes.at(-1).text,'Fix it');
+  const echoCount=echoes.length;await buttonAction('chat',{...picked,action:'confirm',fromComposer:true});assert.equal(echoes.length,echoCount);
   console.log('EasyCode lifecycle, adaptive discovery, confirmation and verification checks passed');
 }
 test().catch(error=>{console.error(error);process.exitCode=1;});
