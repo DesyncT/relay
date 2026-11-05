@@ -9,7 +9,8 @@ assert.ok(claudeWorker.includes('--dangerously-skip-permissions'), 'Claude worke
 
 const codexReview = providerArgs(['exec', '--json', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request', '--full-auto'], 'codex', { readonly:true });
 assert.ok(codexReview.includes('--sandbox') && codexReview.includes('read-only'), 'Codex reviewers use its native read-only sandbox');
-assert.ok(codexReview.includes('--ask-for-approval') && codexReview.includes('never'), 'Codex reviewer invocation has an explicit approval mode');
+assert.equal(codexReview.includes('--ask-for-approval'), false, 'codex exec does not accept the interactive approval flag');
+assert.ok(codexReview.includes('-c') && codexReview.includes('approval_policy=never'), 'Codex reviewers disable approval prompts through exec config');
 assert.equal(codexReview.includes('--dangerously-bypass-approvals-and-sandbox'), false, 'Codex reviewers do not inherit full access');
 const codexWorker = providerArgs(['exec', '--json'], 'codex');
 assert.ok(codexWorker.includes('--dangerously-bypass-approvals-and-sandbox'), 'Codex workers retain full access');

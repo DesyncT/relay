@@ -20,7 +20,7 @@ function providerArgs(args, provider, { readonly = false } = {}) {
   // Reuse the sanitizer to discard conflicting sandbox, permission and approval flags,
   // then replace its full-access tail with the provider's native read-only mode.
   const result = fullAccessArgs(args, provider).filter(arg => arg !== '--dangerously-skip-permissions' && arg !== '--dangerously-bypass-approvals-and-sandbox');
-  if (provider === 'codex') result.push('--sandbox', 'read-only', '--ask-for-approval', 'never');
+  if (provider === 'codex') result.push('--sandbox', 'read-only', '-c', 'approval_policy=never');
   else result.push('--permission-mode', 'plan');
   return result;
 }
