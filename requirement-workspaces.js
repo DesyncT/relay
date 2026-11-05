@@ -1,6 +1,8 @@
 'use strict';
 
-const fs = require('node:fs');
+// User projects contain real files, including .asar archives. Electron's virtual
+// archive filesystem must not expand them while copying or cleaning workspaces.
+const fs = process.versions.electron ? require('original-fs') : require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
