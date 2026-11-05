@@ -360,10 +360,13 @@ app.whenReady().then(async () => {
   }
   await win.webContents.executeJavaScript(`document.querySelector('[data-theme="graphite"]').click();localStorage.removeItem('relay.theme.v1')`);
   const easy=await win.webContents.executeJavaScript(`(async()=>{
-    showTab('chat');openSid='easy-ui';document.querySelector('#log').replaceChildren();
+    showTab('chat');openSid='easy-ui';act=actBy[openSid] ||= {};document.querySelector('#log').replaceChildren();
     const request={id:'request-1',revision:1,state:'questioning',question:{id:'q-1',recommended:'Login'}};
+    await api.call('test:emit','agent:status',{sid:openSid,who:'codex',status:'thinking',model:'gpt-6.1-sol',effort:'low',since:Date.now()});
+    const liveStatus=/codex.*Sol.*low.*thinking/.test(document.querySelector('#busy').textContent) && !!document.querySelector('#busy .av');
+    await api.call('test:emit','agent:status',{sid:openSid,who:'codex',status:null});
     await api.call('test:emit','easycode:update',{sid:openSid,request});
-    addMsg({from:'system',text:'What is broken?',askUser:true,options:['Login','Checkout','Not sure — investigate for me','Cancel'],easycode:{requestId:request.id,revision:1,questionId:'q-1',state:'questioning'},at:Date.now()});
+    addMsg({from:'codex',route:{model:'gpt-6.1-sol',effort:'low'},text:'What is broken?',askUser:true,options:['Login','Checkout','Not sure — investigate for me','Cancel'],easycode:{requestId:request.id,revision:1,questionId:'q-1',state:'questioning'},at:Date.now()});
     document.querySelector('[data-easy-request] button').click();
     await new Promise(resolve=>setTimeout(resolve,0));
     const choice=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action').at(-1);
@@ -371,7 +374,7 @@ app.whenReady().then(async () => {
     const noCancel=![...document.querySelectorAll('[data-easy-request] button')].some(b=>b.textContent==='Cancel');
     const recommendedButton=document.querySelector('[data-easy-request] .recommended');
     const recommended=!!recommendedButton && getComputedStyle(recommendedButton).borderTopColor===getComputedStyle(recommendedButton.querySelector('.recommend-label')).color;
-    const agent=!!document.querySelector('#log .av') && document.querySelector('#log .nm').textContent==='claude';
+    const agent=!!document.querySelector('#log .av') && document.querySelector('#log .nm').textContent==='Codex' && /Sol.*low/.test(document.querySelector('#log .hd').textContent);
     const input=document.querySelector('#input');input.value='Cannot sign in';await sendChat();
     await new Promise(resolve=>setTimeout(resolve,0));
     const custom=(await api.call('test:calls')).filter(c=>c[0]==='chat:send').at(-1);
@@ -400,11 +403,11 @@ app.whenReady().then(async () => {
     document.querySelector('[data-easy-state="blocked"] button').click();
     await new Promise(resolve=>setTimeout(resolve,0));
     const retry=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action').at(-1);
-    return {choice,custom,count,staleDisabled,back,editable,confirmations,runningDisabled,retry,noInlineAnswer,noCancel,recommended,agent};
+    return {choice,custom,count,staleDisabled,back,editable,confirmations,runningDisabled,retry,noInlineAnswer,noCancel,recommended,agent,liveStatus};
   })()`);
   assert.equal(easy.choice[1],'easy-ui');assert.equal(easy.choice[2].answer,'Login');
   assert.equal(easy.custom[2],'Cannot sign in');assert.equal(easy.count,1,'Controls cannot submit to another session');
-  for(const key of ['noInlineAnswer','noCancel','recommended','agent'])assert.equal(easy[key],true,key);
+  for(const key of ['noInlineAnswer','noCancel','recommended','agent','liveStatus'])assert.equal(easy[key],true,key);
   assert.equal(easy.staleDisabled,true);assert.equal(easy.back[2].action,'edit');assert.equal(easy.back[2].index,0);
   assert.equal(easy.editable,true);assert.equal(easy.confirmations,1);assert.equal(easy.runningDisabled,true);assert.equal(easy.retry[2].action,'retry');
   await win.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);

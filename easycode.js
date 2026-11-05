@@ -21,7 +21,11 @@ function validateDiscovery(value) {
 }
 function applyDiscovery(request,value,revision) {
   if (request.revision !== revision || request.state !== 'inspecting') throw Error('Stale discovery response');
-  const result=validateDiscovery(value), r=copy(request);r.revision++;
+  const result=validateDiscovery(value), r=copy(request);
+  const normalize=value=>value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const choices=options=>options.map(normalize).sort().join('|');
+  if(result.kind==='question' && request.history.some(previous=>normalize(previous.text)===normalize(result.question) || choices(previous.options)===choices(result.options)))throw Error('Repeated question or answer list. Ask about a different unresolved decision, or return the ready summary.');
+  r.revision++;
   r.inspection=result.inspection || r.inspection;
   if(result.kind==='question') {r.state='questioning';r.question={id:randomUUID(),text:result.question,options:result.options,recommended:result.recommended};r.scope=null;}
   else {r.state='ready';r.scope=result;r.question=null;}
@@ -54,19 +58,21 @@ function finishRequest(request,result={}) {
   r.state=passed?'succeeded':'blocked';r.error=passed?null:result.error || 'Verification failed or is unavailable. Saved work remains available.';return r;
 }
 function discoveryPrompt(r) {
-  return `Inspect the project read-only. Never edit, delegate, vote or implement. Return ONLY JSON, no tags or fences. Use short, everyday words for someone with no technical background. Give at most two brief sentences of useful context, then ask ONE clear question using 2-4 distinct choices. Each choice must describe a concrete outcome, not technical jargon such as hierarchy or information architecture. Explain unavoidable technical terms. Be respectful and informative without baby talk. Select the most useful choice for this request as recommended and briefly explain why in the question context. Do not include Cancel or a custom-answer option; the user types in the normal message box. Base choices on the project and all earlier answers. Do not repeat answered questions or invent observations. When target, desired outcome, preservation and observable checks are clear, return a ready summary. Never resolve material ambiguity yourself. After five answers, allow the user to request a summary, but ask if material ambiguity remains. A ready summary needs exact repository-relative file scope and runnable, noninteractive local verification commands. Do not use deployment, network writes or destructive commands. Preserve all earlier answers. Schemas:\n{"kind":"question","question":"...","options":["...","..."],"recommended":"exact label of your recommended option","inspection":"Observed evidence"}\n{"kind":"ready","summary":"I will change ...","preserve":["..."],"acceptance":["observable behavior"],"files":["src/file.js"],"checks":["npm test"],"inspection":"Observed evidence"}\nRequest context:\n${JSON.stringify({originalRequest:r.originalRequest,answers:r.history.map(q=>({question:q.text,answer:q.answer})),inspection:r.inspection,summaryRequested:!!r.summaryRequested})}`;
+  return `Inspect the project read-only. Never edit, delegate, vote or implement. Before tool calls, share brief plain-language progress updates about what you are checking and what you found. Your final response must be ONLY JSON, no tags or fences. Use short, everyday words for someone with no technical background. Give at most two brief sentences of useful context, then ask ONE clear question using 2-4 distinct choices. Each choice must describe a concrete outcome, not technical jargon such as hierarchy or information architecture. Explain unavoidable technical terms. Be respectful and informative without baby talk. Select the most useful choice for this request as recommended and briefly explain why in the question context. Do not include Cancel or a custom-answer option; the user types in the normal message box. Generate fresh, question-specific answer choices from the actual decision being asked. Do not reuse the same answer list, repeat an answered decision, or ask for the same outcome in different words. Treat the selected answer as settled and move to the next missing detail; return the ready summary when nothing important is missing. Do not append generic fallback choices. Base choices on the project and all earlier answers. Do not repeat answered questions or invent observations. When target, desired outcome, preservation and observable checks are clear, return a ready summary. Never resolve material ambiguity yourself. After five answers, allow the user to request a summary, but ask if material ambiguity remains. A ready summary needs exact repository-relative file scope and runnable, noninteractive local verification commands. Do not use deployment, network writes or destructive commands. Preserve all earlier answers. Schemas:\n{"kind":"question","question":"...","options":["...","..."],"recommended":"exact label of your recommended option","inspection":"Observed evidence"}\n{"kind":"ready","summary":"I will change ...","preserve":["..."],"acceptance":["observable behavior"],"files":["src/file.js"],"checks":["npm test"],"inspection":"Observed evidence"}\nRequest context:\n${JSON.stringify({originalRequest:r.originalRequest,answers:r.history.map(q=>({question:q.text,answer:q.answer})),inspection:r.inspection,summaryRequested:!!r.summaryRequested})}`;
 }
 function createController({get,save,discover,execute,cancel=()=>{},stronger=()=>null}) {
   const same=(sid,id,revision,state)=>{const r=get(sid);return r?.id===id && r.revision===revision && r.state===state;};
   async function inspect(sid,r) {
     const {id,revision}=r;
+    let repairReason='';
     for(let attempt=0;attempt<2;attempt++) {
       try {
-        const value=await discover(sid,discoveryPrompt(r)+(attempt?'\nYour previous output was invalid. Repair it using exactly one of the JSON schemas.':''));
+        const value=await discover(sid,discoveryPrompt(r)+(attempt?'\nYour previous output was invalid: '+repairReason+' Repair it using exactly one of the JSON schemas.':''));
         if(!same(sid,id,revision,'inspecting'))return;
         const parsed=typeof value==='string'?JSON.parse(value.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'')):value;
         save(sid,applyDiscovery(r,parsed,revision));return;
       } catch(error) {
+        repairReason=String(error.message || error);
         if(!same(sid,id,revision,'inspecting'))return;
         if(attempt===1)save(sid,{...get(sid),state:'blocked',error:String(error.message || error)});
       }

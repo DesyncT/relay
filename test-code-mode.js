@@ -93,3 +93,17 @@ async function checkProgress(provider) {
   assert.deepEqual(updates,['I found the cause.'],'Final answer is posted separately, once');
 }
 (async()=>{await checkProgress('codex');await checkProgress('claude');console.log('Live Code progress checks passed');})().catch(error=>{console.error(error);process.exitCode=1;});
+
+// Persisted progress uses the real task/model, and stopped work stays quiet.
+{
+  let epoch=1, active=true;
+  const messages=[];
+  const helper=source.slice(source.indexOf('function chatProgress('),source.indexOf('const ref ='));
+  const makeProgress=vm.runInNewContext(helper+';chatProgress',{RT:()=>({epoch}),post:(...args)=>messages.push(args)});
+  const report=makeProgress('session','codex','Review task 2',{model:'gpt-6-luna',effort:'low'},()=>active);
+  report('I found a missing error state.');
+  assert.equal(messages[0][1],'codex');assert.equal(messages[0][5].sub,'Review task 2');assert.equal(messages[0][5].route.model,'gpt-6-luna');
+  active=false;report('stopped');assert.equal(messages.length,1);
+  active=true;epoch++;report('stale');assert.equal(messages.length,1);
+  console.log('Labeled subagent progress and cancellation checks passed');
+}

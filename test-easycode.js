@@ -10,6 +10,8 @@ async function test() {
   assert.throws(()=>easy.validateDiscovery({...question,recommended:'Missing'}), /recommend/i);
   const payload = {requestId:r.id, questionId:r.question.id, revision:r.revision, answer:'Login'};
   const answered = easy.applyAnswer(r, payload);
+  assert.throws(()=>easy.applyDiscovery(answered,question,answered.revision), /repeated/i);
+  assert.throws(()=>easy.applyDiscovery(answered,{...question,question:'Which area should change?',options:['Checkout','Login']},answered.revision), /repeated/i);
   assert.equal(answered.history[0].answer, 'Login');
   assert.throws(() => easy.applyAnswer(answered, payload), /stale/i);
   assert.throws(() => easy.confirmRequest(answered, answered.revision), /ready/i);
@@ -83,6 +85,25 @@ async function test() {
   dispatch('chat','Keep the composerRequest colors',{});assert.equal(actions.at(-1).action,'editSummary');
   dispatch('chat','fix it',{});assert.equal(actions.at(-1).action,'confirm');
   for(const state of ['questioning','ready','running','blocked']) {composerRequest={...composerRequest,state};dispatch('chat','cancel',{});assert.equal(actions.at(-1).action,'cancel');}
+  let discoveryOptions;
+  const controllerSource=mainSource.slice(mainSource.indexOf('const easyController='),mainSource.indexOf('async function easyAction('));
+  const discoveryController=require('node:vm').runInNewContext(controllerSource+';easyController',{
+    easycode:{createController:config=>config},saveEasycode(){},easyOwner:()=> 'codex',chatProgress:()=>()=>{},
+    settings:{routes:{codex:{other:{model:'gpt-6.1-sol',effort:'low'}}}},
+    seatRun:async(_sid,_owner,_phase,_prompt,_trigger,options)=>{discoveryOptions=options;return {text:'{}'};},
+  });
+  await discoveryController.discover('chat','Inspect');
+  assert.equal(discoveryOptions.quiet,false,'EasyCode discovery must publish live model status');
+  const echoes=[];
+  const actionSource=mainSource.slice(mainSource.indexOf('async function easyAction('),mainSource.indexOf("ipcMain.handle('easycode:action'"));
+  const buttonAction=require('node:vm').runInNewContext(actionSource+';easyAction',{
+    supercodeOn:()=>true,easyBusy:new Set(),sessOf:()=>({easycode:{id:'r',revision:1,state:'questioning',question:{id:'q'}}}),
+    post:(_sid,from,text)=>echoes.push({from,text}),sendWorking(){},drainUserQueue(){},easyController:{action:async()=>{}},
+  });
+  const picked={requestId:'r',revision:1,questionId:'q',action:'answer',answer:'Make labels easier to read'};
+  await buttonAction('chat',picked);assert.equal(echoes[0].from,'user');assert.equal(echoes[0].text,picked.answer);
+  await buttonAction('chat',{...picked,fromComposer:true});assert.equal(echoes.length,1,'Typed answers already appear in chat');
+  await buttonAction('chat',{...picked,revision:0});assert.equal(echoes.length,1,'Stale choices cannot add answers to history');
   console.log('EasyCode lifecycle, adaptive discovery, confirmation and verification checks passed');
 }
 test().catch(error=>{console.error(error);process.exitCode=1;});

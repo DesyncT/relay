@@ -612,7 +612,7 @@
       <h2 id="chName">global</h2>
       <div class="skchips" id="skChips" aria-label="Skills in use"></div>
       <div id="quota" aria-label="Provider usage"></div>
-      <button class="b ghost" id="quickBtn" type="button" title="Command palette (Ctrl+Shift+P)" aria-haspopup="dialog">Actions<kbd>Ctrl ⇧ P</kbd></button>
+      <button class="b ghost" id="quickBtn" type="button" title="Command palette (Ctrl+Shift+P)" aria-haspopup="dialog" aria-keyshortcuts="Control+Shift+P"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 9 3 3-3 3m6 0h3"/></svg><span>Actions</span><kbd>Ctrl ⇧ P</kbd></button>
       <button class="b ghost" id="subsBtn" type="button" hidden title="Show subagents"><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span id="subsBtnN"></span></button>
       <button class="b ghost danger" id="stop" hidden>Stop</button>
     </div>
@@ -1429,7 +1429,7 @@ function addMsg(m, live, batch = false) {
     prev=null;
     const controls=m.askUser ? easyChoiceBar(m,openSid) : null;
     const speaker=m.from==='system' ? (m.easyAgent || cfg.lead || 'codex') : m.from;
-    row=el('div',{className:'msg grp' + (m.askUser?' ask':'')},avatar(speaker),el('div',{className:'hd'},el('b',{className:'nm',textContent:disp(speaker),style:`color:${nameColor(speaker)}`}),el('span',{className:'lt',textContent:'EasyCode'})),el('div',{className:'body',innerHTML:md(m.text || '')}),...(controls?[lastOpts=controls]:[]));
+    row=el('div',{className:'msg grp' + (m.askUser?' ask':'')},avatar(speaker),el('div',{className:'hd'},el('b',{className:'nm',textContent:disp(speaker),style:`color:${nameColor(speaker)}`}),RoutingUI.badge(m.route?.model || m.usage?.model || cfg.routes?.[speaker]?.other?.model,m.route?.effort || cfg.routes?.[speaker]?.other?.effort),el('span',{className:'t',textContent:stamp(m.at)})),el('div',{className:'body',innerHTML:md(m.text || '')}),...(controls?[lastOpts=controls]:[]));
     if(m.askUser) {waitFor=disp(speaker);placeholder();}
   } else if (m.from === 'system') {
     prev = null;
@@ -1439,7 +1439,7 @@ function addMsg(m, live, batch = false) {
       row = el('div', { className: 'msg sys' + (m.muted ? ' muted' : '') }, el('span', { innerHTML: svgI('<path d="M5 12h14M13 6l6 6-6 6"/>') }), el('span', { textContent: m.text }));
     }
   } else {
-    const cont = !m.sub && prev && prev.from === m.from && prev.via === m.via && messageProvider(prev) === messageProvider(m) && m.at - prev.at < 3e5 && !m.replyTo;
+    const cont = prev && prev.sub === m.sub && prev.from === m.from && prev.via === m.via && messageProvider(prev) === messageProvider(m) && m.at - prev.at < 3e5 && !m.replyTo;
     prev = m;
     const t = el('span', { className: 't', textContent: cont ? hm(m.at) : stamp(m.at), title: new Date(m.at).toLocaleString() });
     const body = [el('div', { className: 'body', innerHTML: md(m.text || '') }), ...(m.activity?.length ? [actList(m.activity), ...actThumbs(m.activity)] : []), ...(m.attachments?.length ? [el('div', { className: 'atts' }, ...m.attachments.map(attNode))] : []), ...fileCards(m), ...(m.askUser ? [lastOpts = choiceBar(m.options?.length ? m.options : ['Approve', 'Reject'], m.optionInfo, m.options?.length ? 'lettered' : '')] : []), ...(m.askUser ? [el('div', { className: 'wait', textContent: 'Choose an option or write your own answer' })] : [])], r = m.replyTo;
@@ -2240,7 +2240,7 @@ async function openSession(id, show = true) {
   msgs.forEach((m) => addMsg(m, false, true));
   if(easyCurrent && !msgs.some(m=>m.easycode?.requestId===easyCurrent.id && m.easycode.revision===easyCurrent.revision && m.easycode.state===easyCurrent.state)) {
     const request=easyCurrent, s=request.scope;
-    const options=request.state==='blocked'?['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])]:request.state==='ready'?['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary']:request.state==='questioning'?[...request.question.options,'Not sure — investigate for me']:[];
+    const options=request.state==='blocked'?['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])]:request.state==='ready'?['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary']:request.state==='questioning'?[...request.question.options]:[];
     addMsg({from:'system',text:request.state==='blocked'?`Stopped: ${request.error}`:request.state==='ready'?`${s.summary}\n\nPreserve: ${s.preserve.join('; ')}\nSuccess: ${s.acceptance.join('; ')}\nFiles: ${s.files.join(', ')}\nChecks: ${s.checks.join('; ')}`:request.question?.text || request.state,askUser:!!options.length,options,easyAgent:info?.lead,easyRecommended:request.question?.recommended,easyHistory:request.history.map(q=>({question:q.text,answer:q.answer})),easycode:{requestId:request.id,revision:request.revision,questionId:request.question?.id,state:request.state},at:Date.now()},false,true);
   }
   if (window._initialLogScrollPending) { scrollLogToBottom(); window._initialLogScrollPending = false; }

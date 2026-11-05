@@ -200,7 +200,7 @@ function claudeRun(label, who, prompt, c = {}) {
   const progress = createProgressStream(c.onProgress);
   const said = []; // every text block: [req:] lines often sit before the tool calls, not in the final result
   const act = [];
-  const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, w, st, c.route?.meta); // quiet: subagent runs have their own panel
+  const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, c.seat || w, st, c.route?.meta); // quiet: subagent runs have their own panel
   setStatus(who, 'thinking');
   const isAntigravity = (c.cmd || settings.claudeCmd).includes('antigravity') || String(who).startsWith('antigravity');
   const bare = (!c.conn && (isAntigravity || (!c.nativeCode && process.env.ANTHROPIC_API_KEY) || c.bare)) ? ['--bare'] : [];
@@ -538,7 +538,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
       if (!workerPath || ws.blocked || (process.platform === 'win32' ? workerPath.toLowerCase() === projectPath.toLowerCase() : workerPath === projectPath)) throw Object.assign(new Error('Task cannot run without an isolated workspace'),{nonRetryable:true});
       if (isDown(a.provider)) throw new Error(`${a.provider} is unavailable; replacing this worker`);
       const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. LOCAL ONLY: change files in this workspace and nothing else. Never upload, deploy, FTP/SFTP, git push, publish, or change a remote site, server, database or admin panel; the lead does all of that once every task is combined. Run the relevant checks and report exactly what changed and what checks ran.${lastFail(a)}`;
-      const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
+      const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, onProgress:chatProgress(sid,a.provider,`Task ${a.requirementIndex+1}`,{model:a.model,effort:a.effort},()=>epoch===rt.epoch && a.blocker!=='cancelled'), sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
       if (epoch !== rt.epoch || a.blocker==='cancelled') throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
       a.usage=addUsage(a.usage,result.usage);
       let changes = { paths:[], patch:Buffer.alloc(0) };
@@ -568,10 +568,11 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
         // the row shows who is reviewing, not the worker's model
         a.reviewRoute = { provider, model, effort };
         setReqs(sid, { ...reqsOf(sid), assignments:coordinator.assignments.map(x => ({ ...x, workspace:x.workspace && { ...x.workspace } })) });
-        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. There is no UNKNOWN: every point is PASS or FAIL. Do not edit files or trust the worker report. First list the concrete check points this requirement implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.${strictness(a)} Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
+        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. There is no UNKNOWN: every point is PASS or FAIL. Do not edit files or trust the worker report. Share brief progress updates before tools, describing checks and concrete findings. In the final answer, first list the concrete check points this requirement implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.${strictness(a)} Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
         try {
-          const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
+          const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, onProgress:chatProgress(sid,provider,`Review task ${a.requirementIndex+1}`,route.meta,()=>epoch===rt.epoch && a.blocker!=='cancelled'), readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
           const verdict = readVerdict(result.text);
+          chatProgress(sid,provider,`Review task ${a.requirementIndex+1}`,route.meta,()=>epoch===rt.epoch && a.blocker!=='cancelled')(result.text);
           outcomes.push({ verdict, evidence:result.text.slice(0,1800), provider, model, effort });
         } catch (error) { if(error.cancelled || epoch!==rt.epoch) throw Object.assign(error,{cancelled:true}); if (isLimitError(error.message)) markDown(provider,error.message); failures.push(`${provider}: ${error.message}`); }
       }
@@ -715,8 +716,9 @@ async function reviewIntegratedResult(sid, integrator, changes, epoch) {
     const route = { extra:argsFor(provider, 'other', { [provider]:{ other:{ model, effort } } }, ''), meta:{ phase:'review', model, effort } };
     const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. Each task already passed its own review: judge the combined result. FAIL only if the changes conflict with each other, break something that worked, or clearly miss a requirement; small gaps and points you cannot verify are PASS with a note. Uploading and deploying are not part of this check (the lead does that next). First list the concrete check points the requirements imply, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.`;
     try {
-      const result = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:`req-final-review-${index}`, route });
+      const result = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, onProgress:chatProgress(sid,provider,'Final review',route.meta,()=>epoch===rt.epoch), readonly:true, safeReview:true, sub:`req-final-review-${index}`, route });
       const verdict = readVerdict(result.text);
+      chatProgress(sid,provider,'Final review',route.meta,()=>epoch===rt.epoch)(result.text);
       return { verdict, evidence:result.text.slice(0,1800), provider, model, effort };
     } catch (error) { return { verdict:'UNKNOWN', evidence:String(error.message || error), provider, model, effort }; }
   }));
@@ -840,6 +842,14 @@ function post(sid, from, text, replyTo, attachments, extra) {
   try { store.appendMessage(sid, m); } catch { return m; } // session deleted mid-run
   send('chat:msg', { ...m, sessionId: sid }); // the renderer shows it only if that session is open
   return m;
+}
+
+// Progress is ordinary persisted chat, labeled with the real task and model.
+function chatProgress(sid, who, sub, route, valid = () => true) {
+  const epoch=RT(sid).epoch;
+  return text => {
+    if(epoch===RT(sid).epoch && valid())post(sid,who,text,null,null,{progress:true,...(sub?{sub}:{}),route});
+  };
 }
 
 const ref = (m) => ({ from: m.from, at: m.at, ...(m.via && { via: m.via }), route: m.route, usage: m.usage, providers: m.providers, text: (m.text || m.attachments?.[0]?.name || '').slice(0, 120) });
@@ -1083,11 +1093,11 @@ Review ONLY the active request below. Do not judge older tasks. Inspect the CURR
 User requests:\n${request}
 Worker report:\n${String(result.text).slice(-5000)}
 Changed paths to inspect now:\n${JSON.stringify(evidence)}
-First list the concrete check points the active request implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL, and EVIDENCE: a short explanation with paths and specific defects. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.  No more than 180 words.`;
+Share brief progress updates before tools describing checks and concrete findings. In your final answer, first list the concrete check points the active request implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL, and EVIDENCE: a short explanation with paths and specific defects. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.  No more than 180 words.`;
       const timer = setTimeout(() => { for (const proc of procs.values()) if (proc.sub === tag) killProc(proc, true); }, 90000);
       setStatusFor(sid, provider + ':' + roles[index][0].toLowerCase().replace(/\s+/g, '-'), 'reviewing', route.meta);
       try {
-        const r = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:tag, route });
+        const r = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, onProgress:chatProgress(sid,provider,roles[index][0]+' review',route.meta,()=>rt.epoch===epoch), readonly:true, safeReview:true, sub:tag, route });
         if (rt.epoch !== epoch) return { verdict:'UNKNOWN', reason:'Cancelled' };
         const verdict = readVerdict(r.text);
         const reason = r.text.replace(/^VERDICT:[^\n]*\n?/i,'').slice(0,1800);
@@ -1319,9 +1329,9 @@ async function runSub(r) {
   const rt = RT(r.sid), ep = rt.epoch;
   let rd = routeFor(provOf(r.owner) || r.owner, 'other'), prov = r.owner;
   r.status = 'running'; r.started = Date.now(); r.model = rd.meta.model || ''; r.effort = rd.meta.effort || ''; subPush(r);
-  const mk = (s) => `${forcedLine()}You are a subagent of @${r.owner}, working in the same project folder as a part of a bigger build. Your task: ${r.title}\n\n${r.task}\n\nDo only this task. ${editsOn(r.sid) ? '' : 'You cannot edit files; report what you found. '}Reply in under 5 lines with a summary of the diff (files and what changed). No tags, no questions.${s ? '\n\n' + standIn(r.owner).trim() : ''}`;
+  const mk = (s) => `${forcedLine()}You are a subagent of @${r.owner}, working in the same project folder as a part of a bigger build. Your task: ${r.title}\n\n${r.task}\n\nDo only this task. ${editsOn(r.sid) ? '' : 'You cannot edit files; report what you found. '}Share short, plain-language progress updates as you work: what you are checking, useful findings and changes. Keep your final reply under 5 lines with a summary of the diff (files and what changed). No tags, no questions.${s ? '\n\n' + standIn(r.owner).trim() : ''}`;
   let res, err = '';
-  try { res = await seatRun(r.sid, r.owner, 'other', mk, null, { quiet: true, sub: r.id }); rd = res.rd; prov = res.prov; r.model = rd.meta.model || r.model; r.effort = rd.meta.effort || r.effort; }
+  try { res = await seatRun(r.sid, r.owner, 'other', mk, null, { quiet: true, onProgress:chatProgress(r.sid,r.owner,r.title,rd.meta,()=>r.status==='running'), sub: r.id }); rd = res.rd; prov = res.prov; r.model = rd.meta.model || r.model; r.effort = rd.meta.effort || r.effort; }
   catch (e) {
     const activeDowns = [down.claude, down.codex, down.antigravity].filter(t => t > Date.now());
     const until = activeDowns.length ? Math.min(...activeDowns) : Math.min(down.claude || Infinity, down.codex || Infinity);
@@ -1528,7 +1538,7 @@ function saveEasycode(sid, request) {
   let text='',options=[];
   if(request.state==='questioning') {
     text=request.question.text;
-    options=[...request.question.options,'Not sure — investigate for me',...(request.history.length>=5?['Show the fix summary','Keep narrowing it down']:[]),...(request.history.length?['Change an answer']:[])];
+    options=[...request.question.options,...(request.history.length?['Change an answer']:[])];
   } else if(request.state==='ready') {
     const s=request.scope;
     text=[s.summary,`Preserve: ${s.preserve.join('; ') || 'Existing behavior outside this change.'}`,`Files: ${s.files.join(', ')}`,`Success: ${s.acceptance.join('; ')}`,`Checks: ${s.checks.join('; ')}`].join('\n\n');
@@ -1541,14 +1551,20 @@ function saveEasycode(sid, request) {
   else if(request.state==='verifying')text='Checking the change in your project.';
   else if(request.state==='succeeded')text=`Verified the change.\nFiles: ${request.changedPaths.join(', ') || 'No file changes needed.'}\n${request.evidence.map(c=>`${c.command}: exit ${c.exitCode}`).join('\n')}`;
   else if(request.state==='cancelled')text='Cancelled. Any saved work is retained.';
-  if(text)post(sid,easyOwner(sid) || 'codex',text,null,null,{easycode:controls,easyRecommended:request.state==='questioning'?request.question.recommended:request.state==='ready'?'Fix it':request.state==='blocked'?'Review and retry':null,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
+  const activeWorker=['running','verifying','succeeded','blocked'].includes(request.state) && request.worker;
+  const agent=activeWorker?.provider || easyOwner(sid) || 'codex';
+  const route=activeWorker ? {model:activeWorker.model,effort:activeWorker.effort} : settings.routes?.[agent]?.other;
+  if(text)post(sid,agent,text,null,null,{route,easycode:controls,easyRecommended:request.state==='questioning'?request.question.recommended:request.state==='ready'?'Fix it':request.state==='blocked'?'Review and retry':null,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
 }
 async function easyChecks(sid,cwd,commands) {
   const results=[];
   for(const command of commands) {
     if(sessOf(sid)?.easycode?.state==='cancelled')throw Error('Request cancelled');
+    const worker=sessOf(sid)?.easycode?.worker, agent=worker?.provider || easyOwner(sid) || 'codex';
+    setStatusFor(sid,agent,'checking ' + command,{model:worker?.model,effort:worker?.effort});
     try {results.push(await run('EasyCode verification',command,[],'',null,{cwd,sid,sub:'easy-check',timeoutMs:Math.max(1,limit('soloMinutes'))*60000,commandEvidence:command}));}
     catch(error) {results.push({command,exitCode:null,output:String(error.message || error)});}
+    finally {setStatusFor(sid,agent,null);}
   }
   return results;
 }
@@ -1565,7 +1581,8 @@ async function executeEasycode(sid,request) {
   const review=async(a,cwd,scope,work)=>{
     const reviewer=easyOwner(sid);if(!reviewer)return {verdict:'UNKNOWN',evidence:'No reviewer available'};
     const modelRoute=settings.routes?.[reviewer]?.other;
-    const result=await seatRun(sid,reviewer,'other',()=>`Read-only scoped diff review. Do not edit, delegate, vote or broaden scope. Verify the confirmed change, preservation constraints and ALL acceptance checks from evidence. Missing or failing evidence must not pass. End with VERDICT: PASS or VERDICT: FAIL.\nScope: ${JSON.stringify(scope)}\nChanged files: ${JSON.stringify(work.paths)}\nActual command results: ${JSON.stringify(work.checks)}\nWorkspace baseline: ${a.workspace?.baselineCommit || ''}`,null,{quiet:true,readonly:true,requirementsOnly:true,safeReview:true,cwd,sub:'easy-review',timeoutMs:90000,routeOverride:{provider:reviewer,...modelRoute}});
+    const result=await seatRun(sid,reviewer,'other',()=>`Read-only scoped diff review. Do not edit, delegate, vote or broaden scope. Verify the confirmed change, preservation constraints and ALL acceptance checks from evidence. Missing or failing evidence must not pass. Post brief progress updates before tools explaining what you are checking and any concrete findings. End with VERDICT: PASS or VERDICT: FAIL.\nScope: ${JSON.stringify(scope)}\nChanged files: ${JSON.stringify(work.paths)}\nActual command results: ${JSON.stringify(work.checks)}\nWorkspace baseline: ${a.workspace?.baselineCommit || ''}`,null,{quiet:false,onProgress:chatProgress(sid,reviewer,'Review',modelRoute,()=>!cancelled()),readonly:true,requirementsOnly:true,safeReview:true,cwd,sub:'easy-review',timeoutMs:90000,routeOverride:{provider:reviewer,...modelRoute}});
+    chatProgress(sid,reviewer,'Review',modelRoute,()=>!cancelled())(result.text);
     return {verdict:readVerdict(result.text),evidence:result.text.slice(-5000)};
   };
   let verificationBaseline;
@@ -1591,7 +1608,11 @@ async function executeEasycode(sid,request) {
       if(a.integrationStatus==='verifying' && current.state==='running')saveEasycode(sid,{...sessOf(sid).easycode,state:'verifying'});
       else send('easycode:update',{sid,request:sessOf(sid).easycode});
     },
-    work:(a,prompt)=>seatRun(sid,owner,'coding',()=>prompt,null,{quiet:true,cwd:a.workspace.path,sub:a.id,timeoutMs:Math.max(1,limit('soloMinutes'))*60000,routeOverride:route}),
+    work:async(a,prompt)=>{
+      const progress=chatProgress(sid,route.provider,'Implementation',route,()=>!cancelled());
+      const result=await seatRun(sid,owner,'coding',()=>prompt,null,{quiet:false,onProgress:progress,cwd:a.workspace.path,sub:a.id,timeoutMs:Math.max(1,limit('soloMinutes'))*60000,routeOverride:route});
+      progress(result.text);return result;
+    },
     collect:workspace=>offThread('collectTaskChanges',{...workspace,strictScope:true}),
     check:(cwd,commands)=>easyChecks(sid,cwd,commands),review,
     integrate:changes=>{
@@ -1608,7 +1629,7 @@ async function executeEasycode(sid,request) {
 const easyController=easycode.createController({get:sid=>sessOf(sid)?.easycode,save:saveEasycode,
   discover:async(sid,prompt)=>{
     const owner=easyOwner(sid);if(!owner)throw Error('No discovery provider available.');
-    const result=await seatRun(sid,owner,'other',()=>prompt,null,{quiet:true,readonly:true,requirementsOnly:true,safeReview:true,sub:'easy-discovery',timeoutMs:90000,routeOverride:{provider:owner,...settings.routes[owner].other}});
+    const result=await seatRun(sid,owner,'other',()=>prompt,null,{quiet:false,onProgress:chatProgress(sid,owner,'Discovery',settings.routes[owner].other),readonly:true,requirementsOnly:true,safeReview:true,sub:'easy-discovery',timeoutMs:90000,routeOverride:{provider:owner,...settings.routes[owner].other}});
     return result.text;
   },
   execute:(sid,request)=>{
@@ -1626,6 +1647,8 @@ async function easyAction(sid,payload) {
   // Cancellation stays available while a provider call is active.
   if(payload.action!=='cancel' && easyBusy.has(sid))throw Error('Wait for the current EasyCode step.');
   if(payload.action==='cancel')return easyController.action(sid,payload);
+  const request=sessOf(sid)?.easycode;
+  if(payload.action==='answer' && !payload.fromComposer && request?.id===payload.requestId && request.revision===payload.revision && request.state==='questioning' && request.question?.id===payload.questionId && typeof payload.answer==='string' && payload.answer.trim())post(sid,'user',payload.answer);
   easyBusy.add(sid);sendWorking();
   try {return await easyController.action(sid,payload);}
   finally {easyBusy.delete(sid);sendWorking();drainUserQueue(sid);}
@@ -1636,7 +1659,7 @@ function dispatchEasycode(sid,text,message) {
   const act=payload=>easyAction(sid,{requestId:request.id,revision:request.revision,...payload}).catch(e=>post(sid,'system',e.message));
   if(request && !['cancelled','succeeded'].includes(request.state) && /^(?:cancel|stop|never mind|nevermind)[.!\s]*$/i.test(text.trim())) {act({action:'cancel'});return;}
   if(request?.state==='questioning') {
-    easyAction(sid,{requestId:request.id,revision:request.revision,questionId:request.question.id,action:'answer',answer:text}).catch(e=>post(sid,'system',e.message));return;
+    easyAction(sid,{requestId:request.id,revision:request.revision,questionId:request.question.id,action:'answer',answer:text,fromComposer:true}).catch(e=>post(sid,'system',e.message));return;
   }
   if(request?.state==='ready') {act(/^(?:fix it|go ahead|approve|yes|do it)[.!\s]*$/i.test(text.trim())?{action:'confirm'}:{action:'editSummary',answer:text});return;}
   if(request?.state==='blocked' && /^(?:retry|review and retry|try again|continue)[.!\s]*$/i.test(text.trim())) {act({action:'retry'});return;}
