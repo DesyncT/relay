@@ -20,12 +20,10 @@ contextBridge.exposeInMainWorld('api', {
     if (channel === 'sessions:tree') return Promise.resolve(appearanceTree || {projects:[],sessions:[...savedSessions].map(([id,info])=>({id,title:info.title}))});
     if (channel === 'sessions:setActive') return Promise.resolve();
     if (channel === 'chat:export') return Promise.resolve({canceled:true});
-    if (channel === 'chat:requirement-retry') return Promise.resolve(true);
     if (channel === 'test:save-session') { savedSessions.set(args[0], args[1]); return Promise.resolve(); }
     if (channel === 'chat:info') return Promise.resolve(savedSessions.get(args[0]) || null);
     if (channel === 'chat:history' || channel === 'subagents:list' || channel === 'chat:queue') return Promise.resolve([]);
     if (channel === 'chat:send') return Promise.resolve({});
-    if (channel === 'easycode:action') return Promise.resolve({});
     return new Promise(() => {}); // Hold unrelated startup work outside this fixture.
   },
 });

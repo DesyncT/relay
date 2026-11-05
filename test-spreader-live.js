@@ -1,0 +1,41 @@
+// Opt-in live smoke test: runs real installed CLIs in an isolated temporary project.
+const {app,BrowserWindow} = require('electron');
+const fs=require('fs'),os=require('os'),path=require('path'),assert=require('node:assert/strict');
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'relay-spreader-live-'));
+app.setPath('appData',root);
+const project=path.join(root,'project');fs.mkdirSync(project);
+fs.writeFileSync(path.join(project,'README.md'),'# Sample project\nAn empty project for a task tracker. Product scope is undecided.\n');
+require('./main');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+app.whenReady().then(async()=>{
+  while(!BrowserWindow.getAllWindows()[0]) await delay(100);
+  const win=BrowserWindow.getAllWindows()[0];
+  if(win.webContents.isLoading()) await new Promise(r=>win.webContents.once('did-finish-load',r));
+  await delay(2000);
+  const run=code=>win.webContents.executeJavaScript(code);
+  await run(`api.call('settings:save',{disabledProviders:['antigravity']})`);
+  const sid=await run(`(async()=>{const p=await api.call('projects:add',${JSON.stringify(project)},'Live smoke');const s=await api.call('sessions:create',p.id,'Spreader live check');await api.call('sessions:update',s.id,{lead:'spreader'});await openSession(s.id);return s.id;})()`);
+  const call=(ch,...args)=>run(`api.call(${JSON.stringify(ch)},...${JSON.stringify(args)})`);
+  async function send(text){await call('chat:send',sid,text);for(let n=0;n<240;n++){await delay(1000);const h=await call('chat:history',sid);const user=h.findLastIndex(m=>m.from==='user');const response=h.slice(user+1).findLast(m=>!m.progress && (m.failure || ['claude','codex','antigravity'].includes(m.from)));if(response){console.log(JSON.stringify({from:response.from,askUser:!!response.askUser,options:response.options,text:response.text?.slice(0,700)}));assert.ok(!response.failure,response.text);return response;}}throw Error('Live task timed out');}
+  const q=await send('Build a task tracker for me. The audience and where it will run are undecided. Ask me about the main product choice before writing files.');
+  assert.equal(q.askUser,true);assert.ok(q.options.length>=2);
+  const buttons=await run(`document.querySelectorAll('#log .opts button').length`);assert.ok(buttons>=2);
+  const answer=await send(q.options[0]+' For this smoke test, do not implement yet; reply with one short sentence acknowledging this choice, without another question.');assert.equal(answer.from,q.from);
+  const clear=await send('Create only hello.txt containing Hello Spreader. Use your todo list to track creating and verifying the file. Do not ask any questions.');
+  assert.equal(!!clear.askUser,false);assert.equal(fs.readFileSync(path.join(project,'hello.txt'),'utf8').trim(),'Hello Spreader');
+  const info=await call('chat:info',sid);assert.ok(info.reqs?.items?.length,'Live todos drive Progress');
+  await call('chat:workflow',sid,false);
+  const code=await call('chat:info',sid);assert.equal(code.easyMode,false);assert.notEqual(code.lead,'spreader');
+  await run(`openSession(${JSON.stringify(sid)})`);
+  assert.equal(await run(`document.querySelector('#tbNormal').getAttribute('aria-checked')`),'true');
+  await send('Reply with exactly CODE_OK. Do not inspect files or use tools.');
+  const first=await call('chat:info',sid);
+  await send('Reply with exactly CODE_AGAIN. Do not inspect files or use tools.');
+  await call('chat:workflow',sid,true);await call('sessions:update',sid,{lead:'spreader'});
+  const alternate=q.from==='codex'?'claude':'codex';
+  require('./quota').readQuota=async()=>({[alternate]:{windows:[{remaining:95}]},[q.from]:{windows:[{remaining:5}]}});
+  const switched=await send('Reply with exactly PROVIDER_SWITCH_OK. No tools or questions.');
+  if(switched.from!==alternate){const limits=await call('limits:get');assert.ok(limits.down[alternate]>Date.now(),'A switch falls back only when the selected provider is unavailable');assert.equal(switched.from,q.from);console.log('LIVE LIMIT FALLBACK PASS '+alternate+' -> '+switched.from);}else console.log('LIVE QUOTA SWITCH PASS '+q.from+' -> '+alternate);
+  console.log('LIVE SPREADER PASS '+JSON.stringify({root,provider:q.from,nextProvider:clear.from,progress:info.reqs.items}));
+  app.exit(0);
+}).catch(e=>{console.error(e);console.error('Live artifacts: '+root);app.exit(1);});

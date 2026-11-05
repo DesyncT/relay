@@ -409,3 +409,12 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 #reqbar .rq-plan .rq-ic { position:relative; display:grid; place-items:center; width:16px; height:16px; }
 #reqbar .rq-plan .rq-ic::after { content:''; position:absolute; inset:-1.5px; border:1.5px solid var(--line-strong); border-top-color:var(--claude); border-radius:50%; animation:rqSpin .8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { #reqbar .rq-plan .rq-ic::after { animation:none; } }
+
+#tb .workflow-toggle { display:flex; align-items:center; padding:2px; gap:2px; margin-right:8px; border:1px solid var(--line-strong); border-radius:8px; background:var(--deep); -webkit-app-region:no-drag; }
+#tb .tb-actions .workflow-toggle button { width:auto; height:28px; padding:0 10px; margin:0; gap:6px; display:flex; border:1px solid transparent; border-radius:5px; font-size:12px; color:var(--muted); background:transparent; }
+#tb .tb-actions .workflow-toggle button[aria-checked=true] { color:var(--text); background:var(--raised); border-color:var(--line-strong); }
+#tb .workflow-toggle button svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.5; }
+#tb .workflow-toggle button:focus-visible { outline:none;  }
+#tb .workflow-toggle { height:28px; box-sizing:border-box; padding:2px; margin:0 12px 0 8px; border-radius:7px; }
+#tb .tb-actions .workflow-toggle #tbSupercode,#tb .tb-actions .workflow-toggle #tbNormal { height:22px; padding:0 8px; font-size:11px; border-radius:4px; }
+#tb .workflow-toggle button svg { width:12px; height:12px; }

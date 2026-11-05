@@ -12,7 +12,7 @@ app.whenReady().then(async () => {
   fs.mkdirSync(output, { recursive: true });
   const win = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { preload: path.join(__dirname, 'test-renderer-preload.js'), contextIsolation: true, backgroundThrottling:false } });
   const errors = [];
-  win.webContents.on('console-message', (_event, level, message) => { if (level === 3 && !message.includes('Electron Security Warning')) errors.push(message); });
+  win.webContents.on('console-message', (_event, level, message) => { if (level === 3 && !message.includes('Electron Security Warning')) { errors.push(message); console.error('Renderer:',message); } });
   await win.loadFile(path.join(process.env.RELAY_TEST_APP || __dirname, 'index.html'));
   win.webContents.debugger.attach('1.3');
   await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
@@ -64,78 +64,6 @@ app.whenReady().then(async () => {
     return {hidden, visible:!box.hidden, expanded:box.open};
   })()`);
   assert.deepEqual(checklist, {hidden:true, visible:true, expanded:true});
-  const assignments = await win.webContents.executeJavaScript(`(() => {
-    const names = ['Queued task','Running task','Reviewing task','Passed task','Escalated task','Blocked task'];
-    const states = ['queued','running','reviewing','passed','escalated','blocked'];
-    const items = names.map(t => ({t, done:false}));
-    const assignments = states.map((status, requirementIndex) => ({id:'a'+requirementIndex, requirementIndex, status,
-      provider:'codex', model:'gpt-6.1-terra-with-a-very-long-model-name', effort:'high', progress:status==='passed'?100:37,
-      reviewAttempts:status==='reviewing'?2:0, reviewEvidence:status==='reviewing'?[{evidence:'Independent check in progress'}]:[], blocker:status==='blocked'?'review-unknown':null}));
-    renderReqs({items, assignments});
-    const rows = [...document.querySelectorAll('#reqbar li')];
-    const text = rows.map(row => row.textContent);
-    const compact = rows.map(row => row.getBoundingClientRect().width);
-    const recovered = ['running','reviewing'].map(status => {
-      const assignment = {id:status, requirementIndex:0, status, provider:'claude', model:'claude-sonnet', effort:'medium'};
-      renderReqs({items:[{t:'Recovered '+status, done:false}], assignments:[assignment]});
-      return document.querySelector('#reqbar li').textContent;
-    });
-    renderReqs({items, assignments});
-    const finalRows = [...document.querySelectorAll('#reqbar li')];
-    return {text, compact, recovered, overflow:finalRows.some(row=>row.scrollWidth>row.clientWidth), details:finalRows.map(row=>row.querySelector('.rq-assignment')?.getBoundingClientRect().right <= row.getBoundingClientRect().right+1)};
-  })()`);
-  assert.equal(assignments.text.length, 6);
-  for (const label of ['queued','running','reviewing','passed','escalated','blocked','codex · gpt-6.1-terra-with-a-very-long-model-name high','37%','review 2','needs verification']) {
-    assert.ok(assignments.text.join(' ').toLowerCase().includes(label.toLowerCase()), `Assignment UI should show ${label}`);
-  }
-  assert.equal(assignments.overflow, false, 'Long assignment metadata must fit compact rows');
-  assert.ok(assignments.details.every(Boolean), 'Assignment details must remain inside compact row bounds');
-  assert.ok(assignments.recovered.every(text => !/passed/i.test(text)), 'Interrupted running/reviewing assignments must not recover as passed');
-  const retryButtons=await win.webContents.executeJavaScript(`(async()=>{
-    const buttons=[...document.querySelectorAll('#reqbar .rq-retry')];
-    const same=buttons.find(button=>button.textContent==='Retry');
-    const alternate=buttons.find(button=>button.textContent==='Try another model');
-    await same.onclick();await alternate.onclick();
-    const calls=(await api.call('test:calls')).filter(call=>call[0]==='chat:requirement-retry');
-    return {count:buttons.length,same:calls.some(call=>call[3]===false),alternate:calls.some(call=>call[3]===true)};
-  })()`);
-  assert.ok(retryButtons.count>=2,'Failed checklist rows expose retry controls');
-  assert.equal(retryButtons.same,true);assert.equal(retryButtons.alternate,true);
-  const subagent=await win.webContents.executeJavaScript(`(async()=>{
-    await api.call('test:emit','subagent:update',{id:'req:ui:a',sid:openSid,assignmentId:'a',requirementIndex:0,kind:'requirement',owner:'codex',title:'Fix header',task:'Fix the header',model:'gpt-6-luna',status:'failed',stateLabel:'Needs verification',result:'Could not reach staging'});
-    subsExp.add('req:ui:a');openSubs();renderSubs();
-    const row=document.querySelector('.sr[data-id="req:ui:a"]');
-    const buttons=[...row.querySelectorAll('.sr-a')];
-    const retry=buttons.find(button=>button.textContent==='Try another model');await retry.onclick({currentTarget:retry});
-    const calls=await api.call('test:calls');
-    const result={text:row.textContent,alternate:calls.some(call=>call[0]==='subagents:retry' && call[1]==='req:ui:a' && call[2]===true)};
-    await api.call('test:emit','subagent:removed',{sid:openSid,id:'req:ui:a'});result.removed=!document.querySelector('.sr[data-id="req:ui:a"]');return result;
-  })()`);
-  assert.match(subagent.text,/Needs verification/);assert.equal(subagent.alternate,true);assert.equal(subagent.removed,true);
-  const persistedRecovery = await win.webContents.executeJavaScript(`(async () => {
-    const sid = 'persisted-assignment-recovery';
-    await api.call('test:save-session', sid, {title:'Persisted recovery', reqs:{items:[{t:'Saved running',done:false},{t:'Saved reviewing',done:false}], assignments:[
-      {id:'saved-running',requirementIndex:0,status:'running',provider:'codex',model:'gpt-6.1-sol',effort:'medium',progress:45},
-      {id:'saved-reviewing',requirementIndex:1,status:'reviewing',provider:'claude',model:'claude-sonnet',effort:'high',progress:90,reviewAttempts:2,reviewEvidence:[null]}
-    ]}});
-    await openSession(sid, false);
-    const firstOpen = [...document.querySelectorAll('#reqbar li')].map(row=>row.textContent);
-    await openSession(null, false);
-    await openSession(sid, false);
-    return {firstOpen, reopened:[...document.querySelectorAll('#reqbar li')].map(row=>row.textContent)};
-  })()`);
-  for (const rows of [persistedRecovery.firstOpen, persistedRecovery.reopened]) {
-    assert.equal(rows.length, 2, 'Opening a saved session must restore its assigned requirement rows');
-    assert.match(rows[0], /Running/);
-    assert.match(rows[1], /Reviewing/);
-    assert.match(rows[1], /Review 2/);
-    assert.ok(rows.every(text => !/Passed/.test(text)), 'Persisted interrupted assignments must remain non-passed after reopening');
-  }
-  await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
-  fs.writeFileSync(path.join(output, 'assignments-compact.png'), (await win.webContents.capturePage()).toPNG());
-  win.setSize(1280, 900);
-  await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
-  fs.writeFileSync(path.join(output, 'assignments-desktop.png'), (await win.webContents.capturePage()).toPNG());
   const workflow = await win.webContents.executeJavaScript(`(async () => {
     const key = (key, extra = {}) => document.dispatchEvent(new KeyboardEvent('keydown', {key, ctrlKey:true, bubbles:true, ...extra}));
     key('p', {shiftKey:true});
@@ -170,6 +98,7 @@ app.whenReady().then(async () => {
   assert.equal(workflow.highlighted, true, 'Search selection jumps to a highlighted message');
   assert.equal(workflow.focused, 'input', 'Focus shortcut targets the composer');
   assert.equal(workflow.exported, true, 'Export uses the active session');
+  await win.webContents.executeJavaScript(`api.call('test:save-session','persisted-assignment-recovery',{title:'Persisted recovery'})`);
   const switching = await win.webContents.executeJavaScript(`(async () => {
     await QuickActions.open('sessions');
     const dialog = document.querySelector('#quickActions'), input = dialog.querySelector('input');
@@ -364,59 +293,20 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(output,label+'.png'),(await win.webContents.capturePage()).toPNG());
   }
   await win.webContents.executeJavaScript(`document.querySelector('[data-theme="graphite"]').click();localStorage.removeItem('relay.theme.v1')`);
-  const easy=await win.webContents.executeJavaScript(`(async()=>{
-    showTab('chat');openSid='easy-ui';act=actBy[openSid] ||= {};document.querySelector('#log').replaceChildren();
-    const request={id:'request-1',revision:1,state:'questioning',question:{id:'q-1',recommended:'Login'}};
-    await api.call('test:emit','agent:status',{sid:openSid,who:'codex',status:'thinking',model:'gpt-6.1-sol',effort:'low',since:Date.now()});
-    const liveStatus=/codex.*Sol.*low.*thinking/.test(document.querySelector('#busy').textContent) && !!document.querySelector('#busy .av');
-    await api.call('test:emit','agent:status',{sid:openSid,who:'codex',status:null});
-    await api.call('test:emit','easycode:update',{sid:openSid,request});
-    addMsg({from:'codex',route:{model:'gpt-6.1-sol',effort:'low'},text:'What is broken?',askUser:true,options:['Login','Checkout','Not sure — investigate for me','Cancel'],easycode:{requestId:request.id,revision:1,questionId:'q-1',state:'questioning'},at:Date.now()});
-    document.querySelector('[data-easy-request] button').click();
-    await new Promise(resolve=>setTimeout(resolve,0));
-    const choice=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action').at(-1);
-    const noInlineAnswer=!document.querySelector('[data-easy-request] input');
-    const noCancel=![...document.querySelectorAll('[data-easy-request] button')].some(b=>b.textContent==='Cancel');
-    const recommendedButton=document.querySelector('[data-easy-request] .recommended');
-    const recommended=!!recommendedButton && getComputedStyle(recommendedButton).borderTopColor===getComputedStyle(recommendedButton.querySelector('.recommend-label')).color;
-    const agent=!!document.querySelector('#log .av') && document.querySelector('#log .nm').textContent==='Codex' && /Sol.*low/.test(document.querySelector('#log .hd').textContent);
-    const input=document.querySelector('#input');input.value='Cannot sign in';await sendChat();
-    await new Promise(resolve=>setTimeout(resolve,0));
-    const custom=(await api.call('test:calls')).filter(c=>c[0]==='chat:send').at(-1);
-    openSid='other-session';document.querySelector('[data-easy-request] button').click();
-    await new Promise(resolve=>setTimeout(resolve,0));
-    const count=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action').length;
-    openSid='easy-ui';
-    await api.call('test:emit','easycode:update',{sid:openSid,request:{...request,revision:2,state:'ready'}});
-    const staleDisabled=[...document.querySelectorAll('[data-easy-request] button')].every(b=>b.disabled);
-    addMsg({from:'system',text:'Fix the login redirect',askUser:true,options:['Do it','Change an answer','Edit summary','Cancel'],easyHistory:[{question:'What is broken?',answer:'Login'}],easycode:{requestId:request.id,revision:2,state:'ready'},at:Date.now()});
-    const bar=document.querySelector('[data-easy-revision="2"]');
-    [...bar.querySelectorAll('button')].find(b=>b.textContent==='Change an answer').click();
-    [...bar.querySelectorAll('button')].find(b=>b.textContent.includes('What is broken?')).click();
-    await new Promise(resolve=>setTimeout(resolve,0));
-    const back=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action').at(-1);
-    [...bar.querySelectorAll('button')].find(b=>b.textContent==='Edit summary').click();
-    const editable=document.activeElement===document.querySelector('#input') && !bar.querySelector('textarea');
-    [...bar.querySelectorAll('button')].find(b=>b.textContent.startsWith('Do it')).click();
-    [...bar.querySelectorAll('button')].find(b=>b.textContent.startsWith('Do it')).click();
-    await new Promise(resolve=>setTimeout(resolve,0));
-    const confirmations=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action' && c[2].action==='confirm').length;
-    await api.call('test:emit','easycode:update',{sid:openSid,request:{...request,revision:2,state:'running'}});
-    const runningDisabled=[...bar.querySelectorAll('button')].every(b=>b.disabled);
-    await api.call('test:emit','easycode:update',{sid:openSid,request:{...request,revision:2,state:'blocked'}});
-    addMsg({from:'system',text:'Stopped: npm test failed',askUser:true,options:['Review and retry','Cancel'],easycode:{requestId:request.id,revision:2,state:'blocked'},at:Date.now()});
-    document.querySelector('[data-easy-state="blocked"] button').click();
-    await new Promise(resolve=>setTimeout(resolve,0));
-    const retry=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action').at(-1);
-    return {choice,custom,count,staleDisabled,back,editable,confirmations,runningDisabled,retry,noInlineAnswer,noCancel,recommended,agent,liveStatus};
+  const modes=await win.webContents.executeJavaScript(`(async()=>{
+    showTab('chat');openSid='mode-ui';window.ActiveChat={sid:openSid,easyMode:true,supercode:false};
+    renderLead('spreader');window.dispatchEvent(new Event('active-chat'));
+    const easy={selected:document.querySelector('#tbSupercode').getAttribute('aria-checked'),spreader:document.querySelector('#leadMenu').textContent.includes('Spreader'),modelHidden:document.querySelector('#normalModel').hidden};
+    await api.call('test:emit','workflow:changed',{sid:openSid,easyMode:false,lead:'codex'});
+    const code={selected:document.querySelector('#tbNormal').getAttribute('aria-checked'),spreader:document.querySelector('#leadMenu').textContent.includes('Spreader'),modelHidden:document.querySelector('#normalModel').hidden};
+    renderReqs({items:[{t:'Create file',done:true},{t:'Verify file',done:false,by:'codex',pct:50}]});
+    return {easy,code,progress:document.querySelector('#reqbar').textContent,legacyButtons:document.querySelectorAll('#reqbar .rq-retry').length};
   })()`);
-  assert.equal(easy.choice[1],'easy-ui');assert.equal(easy.choice[2].answer,'Login');
-  assert.equal(easy.custom[2],'Cannot sign in');assert.equal(easy.count,1,'Controls cannot submit to another session');
-  for(const key of ['noInlineAnswer','noCancel','recommended','agent','liveStatus'])assert.equal(easy[key],true,key);
-  assert.equal(easy.staleDisabled,true);assert.equal(easy.back[2].action,'edit');assert.equal(easy.back[2].index,0);
-  assert.equal(easy.editable,true);assert.equal(easy.confirmations,1);assert.equal(easy.runningDisabled,true);assert.equal(easy.retry[2].action,'repair');
-  await win.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
-  fs.writeFileSync(path.join(output,'easycode-blocked.png'),(await win.webContents.capturePage()).toPNG());
-  console.log('Renderer layout, adaptive EasyCode controls, session identity, confirmation, retry and custom-answer checks passed. Screenshots: ' + output);
+  assert.equal(modes.easy.selected,'true');assert.equal(modes.easy.spreader,true);assert.equal(modes.easy.modelHidden,true);
+  assert.equal(modes.code.selected,'true');assert.equal(modes.code.spreader,false);assert.equal(modes.code.modelHidden,false);
+  assert.match(modes.progress,/75%/);assert.equal(modes.legacyButtons,0);
+  await win.webContents.executeJavaScript(`document.querySelector('[data-theme=graphite]').click();document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('on',s.id==='chat'));`);
+  fs.writeFileSync(path.join(output,'code-easycode-modes.png'),(await win.webContents.capturePage()).toPNG());
+  console.log('Renderer layout, progress, question controls and theme checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();
 }).catch(error => { console.error(error); app.exit(1); });

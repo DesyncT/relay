@@ -8,14 +8,6 @@ const DEFAULT_ROUTES = { claude: one('claude-sonnet-5-5'), codex: one('gpt-6.1-s
 // Fill gaps in saved routes with defaults; drop junk. Always returns a fresh, complete object.
 function mergeRoutes(saved) {
   const out = {};
-  const cx = saved && saved.codex; // earlier defaults had sol/astra swapped; fix saves still on that pair
-  if (cx && cx.coding && cx.other && cx.coding.model === 'gpt-6.1-sol' && cx.other.model === 'gpt-6-astra') {
-    saved = { ...saved, codex: { ...cx, coding: { ...cx.coding, model: 'gpt-6-astra' }, other: { ...cx.other, model: 'gpt-6.1-sol' } } };
-  }
-  // Migrate the old conversational default without replacing custom routes.
-  if (saved?.codex?.other?.model === 'gpt-6.1-sol') {
-    saved = { ...saved, codex: { ...saved.codex, other: { model: 'gpt-6-luna', effort: 'low' } } };
-  }
   // Migrate old Antigravity model names to valid proxy models.
   if (saved?.antigravity) {
     const ag = saved.antigravity;
@@ -28,7 +20,7 @@ function mergeRoutes(saved) {
   for (const a of Object.keys(DEFAULT_ROUTES)) {
     out[a] = {};
     for (const p of PHASES) {
-      const d = DEFAULT_ROUTES[a][p], s = (saved && saved[a] && saved[a][p]) || {};
+      const d = DEFAULT_ROUTES[a][p], s = (saved && saved[a] && saved[a].coding) || {};
       out[a][p] = {
         model: typeof s.model === 'string' && s.model.trim() ? s.model.trim() : d.model,
         effort: EFFORTS.includes(s.effort) ? s.effort : d.effort,

@@ -13,7 +13,7 @@ const dispatch = source.slice(source.indexOf('const WRAP ='),source.indexOf("ipc
 for (const text of ['Fix this bug','What is React?','wrap up','[req: literal text]']) {
   const queued = [], posted = [], state = {};
   vm.runInNewContext(`${dispatch}; dispatchUser('test',{text:input});`, {
-    input:text, store:{getSession:()=>({lead:'codex'})}, sessOf:()=>({lead:'codex'}), reqsOf:()=>null, RT:()=>state, supercodeOn:()=>false,
+    input:text, store:{getSession:()=>({lead:'codex'})}, sessOf:()=>({lead:'codex'}), reqsOf:()=>null, RT:()=>state, supercodeOn:()=>false, easyModeOn:()=>false,
     post:(_sid,from,text)=>{const message={from,text};posted.push(message);return message;},
     AGENT_NAMES:['claude','codex'], settings:{lead:'claude'}, enqueue:(...args)=>queued.push(args),
     setReqs:()=>assert.fail('Code mode must not create a requirements workflow'),
@@ -28,7 +28,7 @@ const seatSource=source.slice(source.indexOf('async function seatRun('),source.i
   let current={messages:[{from:'user',text:'Fix it'}],cli:{codex:'old-requirements-session'}};
   const calls=[];
   const context={
-    supercodeOn:()=>false,settings:{codexArgs:''},routeFor:()=>({extra:[],meta:{}}),
+    supercodeOn:()=>false, easyModeOn:()=>false,settings:{codexArgs:''},routeFor:()=>({extra:[],meta:{}}),
     argsFor:()=>[],resolved:()=>({}),models:{resolve:()=>null},sessOf:()=>current,
     store:{updateSession:(_sid,patch)=>{current={...current,...patch};}},ctxFor:()=>({}),
     PROV:{codex:async(prompt,_trigger,options)=>{calls.push({prompt,...options});options.onSession('native-session');return {text:'Done'};}},
@@ -107,3 +107,5 @@ async function checkProgress(provider) {
   active=true;epoch++;report('stale');assert.equal(messages.length,1);
   console.log('Labeled subagent progress and cancellation checks passed');
 }
+
+assert.match(normalPrompt(session,'codex',false), /Never paste raw command output/);

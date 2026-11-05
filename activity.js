@@ -48,10 +48,12 @@ const clean = (acc) => acc.map(({ _id, ...r }) => r);
 function todos(e) {
   if (e.type === 'assistant') {
     const b = (e.message?.content || []).findLast((x) => x.type === 'tool_use' && x.name === 'TodoWrite');
-    return b ? (b.input?.todos || []).map((x) => ({ t: String(x.content || ''), done: x.status === 'completed', now: x.status === 'in_progress' })) : null;
+    if (b) return (b.input?.todos || []).map((x) => ({ t: String(x.content || ''), done: x.status === 'completed', now: x.status === 'in_progress' }));
   }
   if (e.item?.type === 'todo_list') return (e.item.items || []).map((x) => ({ t: String(x.text || ''), done: !!x.completed, now: false }));
-  return null;
+  const text = e.item?.type === 'agent_message' && e.type === 'item.completed' ? e.item.text : e.type === 'assistant' ? (e.message?.content || []).filter(b=>b.type==='text').map(b=>b.text || '').join('\n') : '';
+  const items = [...String(text || '').replace(/```[^]*?```/g, '').matchAll(/^\s*[-*] \[([ xX])\] (.+)$/gm)].map(m=>({t:m[2].trim(),done:m[1].toLowerCase()==='x',now:false}));
+  return items.length ? items : null;
 }
 
 module.exports = { claude, codex, clean, todos };

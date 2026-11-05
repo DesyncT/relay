@@ -1425,13 +1425,7 @@ function addMsg(m, live, batch = false) {
     waitFor = null; placeholder(); return;
   }
   let row;
-  if (m.easycode) {
-    prev=null;
-    const controls=m.askUser ? easyChoiceBar(m,openSid) : null;
-    const speaker=m.from==='system' ? (m.easyAgent || cfg.lead || 'codex') : m.from;
-    row=el('div',{className:'msg grp' + (m.askUser?' ask':'')},avatar(speaker),el('div',{className:'hd'},el('b',{className:'nm',textContent:disp(speaker),style:`color:${nameColor(speaker)}`}),RoutingUI.badge(m.route?.model || m.usage?.model || cfg.routes?.[speaker]?.other?.model,m.route?.effort || cfg.routes?.[speaker]?.other?.effort),el('span',{className:'t',textContent:stamp(m.at)})),el('div',{className:'body',innerHTML:md(m.text || '')}),...(controls?[lastOpts=controls]:[]));
-    if(m.askUser) {waitFor=disp(speaker);placeholder();}
-  } else if (m.from === 'system') {
+  if (m.from === 'system') {
     prev = null;
     if (m.failure || /^(?:subagent\s+.*?\s+failed:|(?:claude|codex|antigravity)\s+failed:)/i.test(m.text || '')) {
       row = renderFailureCard(m);
@@ -1610,49 +1604,6 @@ function renderQueue(items = []) {
 }
 api.on('chat:queue', (d) => { if (d.sid === openSid) renderQueue(d.items || []); });
 let lastOpts = null; // option buttons of the latest unanswered ask
-let easyCurrent=null;
-api.on('easycode:update',({sid,request})=>{
-  if(sid!==openSid)return;
-  easyCurrent=request;
-  for(const bar of document.querySelectorAll('[data-easy-request]')) {
-    const active=bar.dataset.easyRequest===request.id && Number(bar.dataset.easyRevision)===request.revision && bar.dataset.easyState===request.state;
-    for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=!active;
-  }
-});
-function easyChoiceBar(message,sid) {
-  const identity=message.easycode;
-  const bar=el('div',{className:'opts lettered',role:'group',ariaLabel:'EasyCode choices'});
-  bar.dataset.easyRequest=identity.requestId;bar.dataset.easyRevision=identity.revision;bar.dataset.easyState=identity.state;
-  const active=()=>sid===openSid && easyCurrent?.id===identity.requestId && easyCurrent.revision===identity.revision && easyCurrent.state===identity.state;
-  let pending=false;
-  const submit=async(action,extra={})=>{
-    if(!active() || pending)return;
-    pending=true;for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=true;
-    try {await api.call('easycode:action',sid,{...identity,action,...extra});}
-    catch(error) {if(sid===openSid)addMsg({from:'system',text:String(error.message || error),at:Date.now()},1);}
-    finally {pending=false;if(active())for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=false;}
-  };
-  const button=(label,action)=>{const b=el('button',{type:'button',className:'opt',textContent:label,disabled:!active()});b.onclick=action;return b;};
-  const recommended=identity.state==='blocked' ? 'Fix setup and retry' : (identity.state==='ready' && message.easyRecommended==='Fix it' ? 'Do it' : message.easyRecommended) || (identity.state==='questioning'?easyCurrent?.question?.recommended:identity.state==='ready'?'Do it':identity.state==='blocked'?'Fix setup and retry':null);
-  const options=identity.state==='blocked' && !(message.options || []).includes('Fix setup and retry') ? ['Fix setup and retry',...(message.options || [])] : message.options || [];
-  for(const label of options.filter(label=>label!=='Cancel').map(label=>identity.state==='ready' && label==='Fix it'?'Do it':label)) {
-    const choice=button(label,()=>{
-      if(label==='Change an answer') {
-        const list=el('div',{className:'opts',role:'group',ariaLabel:'Earlier answers'});
-        for(const [index,item] of (message.easyHistory || []).entries())list.append(button(`${item.question} — ${item.answer}`,()=>submit('edit',{index})));
-        bar.append(list);return;
-      }
-      if(label==='Edit summary') {
-        $('#input').placeholder='Tell me what to change in the summary';$('#input').focus();return;
-      }
-      const action={'Do it':'confirm','Fix setup and retry':'repair','Cancel':'cancel','Show the fix summary':'summary','Review and retry':'retry','Retry with stronger route':'stronger'}[label] || 'answer';
-      submit(action,action==='answer'?{answer:label}:{});
-    });
-    if(label===recommended) {choice.classList.add('recommended');choice.append(el('span',{className:'recommend-label',textContent:'Recommended'}));}
-    bar.append(choice);
-  }
-  return bar;
-}
 // Answer buttons, what each one does, and a field for typing your own answer (free-text questions, quizzes, "something else")
 function choiceBar(opts, info, cls = '') {
   const bar = el('div', { className: ('opts ' + cls).trim(), role: 'group', ariaLabel: 'Choices' });
@@ -1756,12 +1707,7 @@ let act = {}; const actBy = {}; // agent activity of the open session; actBy kee
 const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's'; };
 let reqsNow = null; // the open chat's checklist: the typing line also shows the checklist's own agents (splitting, combining)
 // checklist steps that run an agent outside the chat, shown on the typing line like any other agent
-const reqJobs = (r) => {
-  const planner = r?.planning && !(r.assignments || []).length ? { who:r.planning, text:' is splitting into parallel tasks' } : null;
-  const ia = (r?.assignments || []).find((a) => ['integrating', 'retrying'].includes(a.integrationStatus)), route = ia && (ia.integrationRoute || ia);
-  const integrator = ia ? { who:route.provider, model:route.model, effort:route.effort, since:ia.integrationStarted, text:` is ${r.integration?.step || (ia.integrationStatus === 'retrying' ? 'fixing the combined result' : 'combining the tasks')}` } : null;
-  return [planner, integrator].filter(Boolean);
-};
+const reqJobs = () => [];
 function renderTyping() {
   const jobs = reqJobs(reqsNow), sep = () => el('span', { textContent: '·' });
   const rows = [...Object.keys(act).filter((w) => !jobs.some((j) => j.who === w && !j.model)).map((w) => ({ who:w, ...act[w], text:` is ${act[w].status}` })), ...jobs.map((j) => ({ ...j, job:true }))];
@@ -1773,130 +1719,31 @@ function renderTyping() {
   $('#busy').replaceChildren(dots, ...rows.flatMap((x, i) => [...(i ? [sep()] : []), avatar(x.who, 1, null, modelProvider(x.model)), nm(x.who), ...(x.model ? [RoutingUI.badge(x.model, x.effort)] : []),
     x.job ? el('span', { className: 'rq-think', textContent: x.text }) : x.text, ...(x.since ? [el('span', { className: 'mono', textContent: dur(Date.now() - x.since) })] : [])]));
 }
-// same rule as requirement-workflow pathsOverlap: a file is covered by itself or a folder above it
-const pathsOverlapUi = (a, b) => { const k = (p) => String(p).toLowerCase().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''); const x = k(a), y = k(b); return !!x && !!y && (x === y || x.startsWith(y + '/') || y.startsWith(x + '/')); };
-// Requirements checklist progress (main.js reqs): bar + count, click to see the list
-const reqsLead = (r) => (r?.assignments || []).find((a) => a.owner)?.owner || '';
-const assignmentByIndexOf = (r, n) => (r?.assignments || []).find((a) => Number(a.requirementIndex) === n);
-const assignmentStatus = (r, n) => (r?.assignments || []).find((a) => Number(a.requirementIndex) === n)?.status;
+// Progress follows the agent's own todo list.
 function renderReqs(r) {
   const box = $('#reqbar'), items = r?.items || [];
-  box.hidden = !items.length; box.classList.toggle('has', items.length > 0);
-  // Keep the expanded state so a temporarily empty checklist reappears as before.
+  reqsNow = r;
+  box.hidden = !items.length; box.classList.toggle('has', !!items.length);
   if (!items.length) return box.replaceChildren();
-  // the bar counts partial progress of requirements an agent is on ([req-now: 3 60%]), the label counts finished ones
-  // a task that passed its own review (its row shows the tick) or that you skipped counts as done
-  const passedIdx = new Set((r.assignments || []).filter((a) => a.status === 'passed' || a.status === 'skipped').map((a) => Number(a.requirementIndex)));
-  // an item with no task of its own (a "keep as is" constraint) counts once every task is passed or skipped
-  const tasks = r.assignments || [], assigned = new Set(tasks.map((a) => Number(a.requirementIndex)));
-  const allTasksDone = tasks.length > 0 && tasks.every((a) => passedIdx.has(Number(a.requirementIndex)) || a.actionable === false);
-  const ok = (i, n) => i.done || passedIdx.has(n) || (allTasksDone && !assigned.has(n));
-  const done = items.filter(ok).length, part = (i, n) => ok(i, n) ? 100 : i.by ? i.pct || 0 : 0;
-  const pct = items.length ? Math.round(items.reduce((s, i, n) => s + part(i, n), 0) / items.length) : 0;
-  const label = items.length ? `Progress ${done}/${items.length} · ${pct}%` : r.idle ? 'Progress' : 'Clarifying your request';
-  const who = (i) => el('span', { className: 'rq-who' }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), el('span', { className: 'rq-mini' }, el('i', { style: `width:${i.pct || 0}%` })), el('span', { className: 'mono', textContent: `${i.pct || 0}%` }));
-  const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
-  // finished = every item ticked (skipped ones too); combining = every task passed or skipped, the final check still running
-  const skippedN = items.filter((i, n) => i.skipped || (assignmentStatus(r, n) === 'skipped' && !assignmentByIndexOf(r, n)?.leadTodo)).length;
-  // after combining, the lead uploads and does the final review; All done once its wrap-up summary is in
-  const uploading = items.every((i) => i.done) && !!r.handedBack && !r.wrappedUp;
-  const finished = items.every((i) => i.done) && !uploading, combining = !items.every((i) => i.done) && done === items.length;
-  const moving = (r.assignments || []).some((a) => ['queued', 'running', 'reviewing'].includes(a.status) || ['integrating', 'retrying'].includes(a.integrationStatus));
-  // one line: Requirements · 93% (accent) · bar · 1 of 3 done · @claude #1 — full texts live in the dropdown and tooltips
-  const head = items.length
-    ? [uploading ? el('span', { className: 'rq-lbl' }, el('span', { className: 'rq-think', textContent: `${r.handedBack && reqsLead(r) ? '@' + reqsLead(r) + ' is uploading and doing the final review' : 'Uploading and final review'}` }))
-       : finished ? el('span', { className: 'rq-lbl rq-finished', innerHTML: svgI('<path d="M20 6 9 17l-5-5"/>') + '<span>All done</span>' })
-         : el('span', { className: 'rq-lbl', textContent: combining ? (moving ? 'Combining and checking' : 'Ready to finish') : 'Progress' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
-       el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` })),
-       el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done${skippedN ? ` · ${skippedN} skipped` : ''}` }),
-       ...now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`))]
-    : [el('span', { textContent: label }), el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` }))];
-  const sum = el('summary', { title: items.length ? 'Show all requirements' : '' }, ...(items.length ? [el('span', { className: 'rq-car', innerHTML: CARET })] : []), ...head);
-  sum.setAttribute('aria-label', label);
-  // icon per row: check = done, spinner = an agent is on it, grey circle = not started. "next" = first open one, spun while agents work and none is flagged
-  const next = items.findIndex((i) => !i.done), assignmentByIndex = new Map((r.assignments || []).map((a) => [Number(a.requirementIndex), a]));
-  const assignmentDetails = (a) => {
-    const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', skipped:'Skipped', blocked:'Blocked', open:'Open', escalated:'Escalated' };
-    const state = a.leadTodo ? `@${reqsLead(r) || 'lead'} finishes this` : status==='passed' && a.passedWithNotes ? 'Passed with notes' : a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
-    const displayedRoute=status==='reviewing' && a.reviewRoute ? a.reviewRoute : a.integrationRoute || a;
-    const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
-    const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
-    const progress = ['passed','skipped'].includes(status) ? 100 : Math.max(0, Math.min(100, Number(a.progress) || 0));
-    const retryable=['blocked','open'].includes(status) || a.integrationStatus==='open';
-    const retryControls=el('span',{className:'rq-retry-controls'});
-    if(retryable) {
-      const sid=openSid, message=el('span',{className:'rq-retry-error',role:'status'});
-      for(const [label,alternate] of [['Retry',false],['Try another model',true]]) {
-        const button=el('button',{type:'button',className:'rq-retry',textContent:label});
-        button.onclick=async()=>{
-          retryControls.querySelectorAll('button').forEach(control=>control.disabled=true); message.textContent=''; button.textContent='Retrying…';
-          try {await api.call('chat:requirement-retry',sid,a.id,alternate);}
-          catch(error) {message.textContent=error.message;}
-          finally {retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);button.textContent=label;}
-        };retryControls.append(button);
-      }
-      // debugger: an agent looks at the failure (files, commands, the running page) and writes a prompt that fixes it
-      if(['blocked','open'].includes(status)) retryControls.append(el('button',{type:'button',className:'rq-retry',textContent:a.debugPrompt ? 'Debug again' : 'Debug',title:'An agent finds the cause and writes a prompt that fixes it',onclick:async(event)=>{
-        const button=event.currentTarget, label=button.textContent;
-        retryControls.querySelectorAll('button').forEach(control=>control.disabled=true); message.textContent=''; button.textContent='Debugging…';
-        try {await api.call('chat:requirement-debug',sid,a.id);}
-        catch(error) {message.textContent=error.message;}
-        finally {retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);button.textContent=label;}
-      }}));
-      // too much work for what it is: drop it, the rest are combined without it
-      if(['blocked','open'].includes(status)) retryControls.append(el('button',{type:'button',className:'rq-retry',textContent:'Skip',title:'Leave this one out; the passed tasks are combined without it',onclick:async(event)=>{
-        retryControls.querySelectorAll('button').forEach(control=>control.disabled=true); message.textContent='';
-        try {await api.call('chat:requirement-skip',sid,a.id);}
-        catch(error) {message.textContent=error.message;retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);}
-      }}));
-      retryControls.append(message);
-    }
-    return [el('span', { className:`rq-assignment-state ${status}`, textContent:state }),
-      el('span', { className:'rq-assignment-route', title:[displayedRoute.provider, displayedRoute.model, displayedRoute.effort].filter(Boolean).join(' · '), textContent:[displayedRoute.provider, [displayedRoute.model, displayedRoute.effort].filter(Boolean).join(' ')].filter(Boolean).join(' · ') }),
-      el('span', { className:'rq-assignment-progress', title:`Progress ${progress}%` }, el('span', { className:'rq-assignment-track' }, el('i', { style:`width:${progress}%` })), el('span', { textContent:`${progress}%` })),
-      ...(review ? [el('span', { className:'rq-assignment-review', title:evidence.map(x => x.evidence || x.verdict || '').filter(Boolean).join('\n'), textContent:review })] : []),
-      ...(a.workerFailures?.length ? [el('span',{className:'rq-assignment-review',textContent:`${a.workerFailures.length} failed attempt${a.workerFailures.length===1 ? '' : 's'}`,title:a.workerFailures.map(failure=>`${failure.provider} · ${failure.model}: ${failure.error}`).join('\n')})] : []),
-      ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || evidence.map(review=>review.evidence).filter(Boolean).join('\n') || a.blocker, textContent:a.blocker==='review-unknown' ? 'Review could not verify the result' : `Blocked · ${a.blocker}` })] : []),
-      ...(retryable ? [retryControls] : []),
-      ...(retryable && a.debugPrompt ? [el('details',{className:'rq-debug'},el('summary',{textContent:'Debugger’s fix prompt'}),el('pre',{textContent:a.debugPrompt}),
-        el('span',{className:'rq-retry-controls'},
-          el('button',{type:'button',className:'rq-retry',textContent:'Fix with this prompt',onclick:async(event)=>{const b=event.currentTarget;b.disabled=true;b.textContent='Queuing…';try{await api.call('chat:requirement-retry',openSid,a.id,false,a.debugPrompt);}catch(error){b.disabled=false;b.textContent='Fix with this prompt';alert(error.message);}}}),
-          el('button',{type:'button',className:'rq-retry',textContent:'Copy',onclick:(event)=>{const b=event.currentTarget;navigator.clipboard?.writeText(a.debugPrompt).then(()=>{b.textContent='Copied';setTimeout(()=>{b.textContent='Copy';},1200);});}})))] : [])];
-  };
-  const list = el('ol', {}, ...items.map((i, n) => {
-    const a = assignmentByIndex.get(n);
-    // quoted text ("DE MORTELEN · KEUZEHULP") is the exact thing to match, so it reads as code
-    const title = el('span', { className:'rq-title' }, ...String(i.t).split(/("[^"\n]{1,120}")/).map((p, k) => k % 2 ? el('code', { textContent:p.slice(1, -1) }) : p));
-    const live = !i.done && (i.by || a?.status === 'running' || a?.status === 'reviewing'), worker = a?.provider || i.by;
-    // the spinner carries the logo of the model working on it
-    // passed its own review: ticked (outlined) now, filled once every task is combined and the final check passes
-    const passed = !i.done && (a?.status === 'passed' || a?.status === 'skipped');
-    const ic = i.done || passed ? svgI('<path d="M20 6 9 17l-5-5"/>') : live && worker ? logo(worker === 'claude' ? 'claude' : worker === 'antigravity' ? 'antigravity' : 'openai', 10, worker === 'claude' ? '#D97757' : worker === 'antigravity' ? '#4E88F5' : '#fff') : '';
-    // a queued task waits because it edits the same files as a running one; say which
-    const blocker = a?.status === 'queued' && (r.assignments || []).find((b) => b !== a && (b.status === 'running' || b.status === 'reviewing') && (b.files || []).some((f) => (a.files || []).some((g) => pathsOverlapUi(f, g))));
-    return el('li', { className: i.done ? 'done' : passed ? 'passed' : live ? 'now' : n === next && !r.planning ? 'next' : '' },
-      el('span', { className:'rq-n', textContent:String(n + 1).padStart(2, '0') }),
-      el('span', { className:'rq-ic', innerHTML:ic, title: passed ? 'Passed review. Fully checked once every task is combined and the final check passes' : live && worker ? `${worker} is working on this` : '' }),
-      el('span', { className:'rq-content' }, title, ...(!i.done && i.by && !a ? [who(i)] : []),
-        ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a), ...(blocker ? [el('span', { className:'rq-wait', textContent:`Waits for #${Number(blocker.requirementIndex) + 1}, same files` })] : []))] : []),
-        // no task of its own: the planner folded it into the others as a rule they keep, so it is not skipped
-        ...(!a && tasks.length && !i.skipped ? [el('span', { className:'rq-assignment' }, el('span', { className:'rq-assignment-state', textContent:'Kept by the other tasks', title:'A rule the other tasks follow, checked when they are combined' }))] : [])));
+  const done = items.filter(i => i.done).length;
+  const pct = Math.round(items.reduce((n,i) => n + (i.done ? 100 : i.by ? i.pct || 0 : 0),0) / items.length);
+  const sum = el('summary', {title:'Show progress', ariaLabel:`Progress ${done}/${items.length} · ${pct}%`},
+    el('span',{className:'rq-car',innerHTML:CARET}),
+    el('span',{className:'rq-lbl',textContent:done === items.length ? 'All done' : 'Progress'}),
+    el('span',{className:'rq-pct',textContent:pct+'%'}),
+    el('span',{className:'rq-track'},el('span',{className:'rq-fill',style:`width:${pct}%`})),
+    el('span',{className:'rq-cnt',textContent:`${done} of ${items.length} done`}));
+  const list = el('ol',{},...items.map((i,n) => {
+    const live = !i.done && i.by;
+    const icon = i.done ? svgI('<path d="M20 6 9 17l-5-5"/>') : live ? logo(i.by === 'codex' ? 'openai' : i.by,10,nameColor(i.by)) : '';
+    return el('li',{className:i.done ? 'done' : live ? 'now' : n === items.findIndex(x=>!x.done) ? 'next' : ''},
+      el('span',{className:'rq-n',textContent:String(n+1).padStart(2,'0')}),
+      el('span',{className:'rq-ic',innerHTML:icon}),
+      el('span',{className:'rq-content'},el('span',{className:'rq-title',textContent:i.t})));
   }));
-  // Finish: every task passed or skipped but nothing is moving: combine them and hand back to the lead
-  if (combining && !moving) {
-    const fin = el('button', { type: 'button', className: 'rq-end rq-fin', textContent: 'Finish', title: 'Combine the finished tasks, then the lead wraps up with a summary' });
-    fin.onclick = async (e) => { e.preventDefault(); e.stopPropagation(); fin.disabled = true; fin.textContent = 'Finishing…'; try { await api.call('chat:requirement-finish', openSid); } catch (error) { fin.disabled = false; fin.textContent = 'Finish'; fin.title = error.message; alert(error.message); } };
-    sum.append(fin);
-  }
-  // End task: two clicks (the first one asks), never toggles the dropdown
-  if (!r.idle) {
-    const end = el('button', { type: 'button', className: 'rq-end', textContent: 'End task', title: 'Stop, drop these requirements and start fresh. What the agents learned is kept' });
-    end.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (end.dataset.sure) return api.call('chat:endTask', openSid); end.dataset.sure = 1; end.textContent = 'End this task?'; setTimeout(() => { delete end.dataset.sure; end.textContent = 'End task'; }, 3000); };
-    sum.append(end);
-  }
-  box.replaceChildren(sum, list);
-  const jobsKey = (x) => JSON.stringify(reqJobs(x).map((j) => j.who + j.text));
-  if (jobsKey(reqsNow) !== jobsKey(r)) { reqsNow = r; renderTyping(); } else reqsNow = r;
+  const end = el('button',{type:'button',className:'rq-end',textContent:'End task'});
+  end.onclick = e => { e.preventDefault(); e.stopPropagation(); if (end.dataset.sure) return api.call('chat:endTask',openSid); end.dataset.sure=1; end.textContent='End this task?'; setTimeout(()=>{delete end.dataset.sure;end.textContent='End task';},3000); };
+  sum.append(end); box.replaceChildren(sum,list);
 }
 api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(d.reqs || null); });
 api.on('spend:update', (d) => { if (d.sid !== openSid) return; spendLedger = true; spendTotals = JSON.parse(JSON.stringify(d.spend || {})); renderSpend(true); });
@@ -2053,8 +1900,10 @@ const CHEV = '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
 function setLead(k) { renderLead(k); cfg.lead = k; api.call('settings:save', { lead: k }); if (openSid) api.call('sessions:update', openSid, { lead: k }); } // remembered for new sessions too
 function renderLead(cur) {
   const disabled = cfg.disabledProviders || [];
-  const availableLeads = LEADS.filter(l => !disabled.includes(l[0]));
+  const availableLeads = LEADS.filter(l => !disabled.includes(l[0]) && (l[0] !== 'spreader' || window.ActiveChat?.easyMode));
   leadCur = cur || (availableLeads[0]?.[0] || 'claude');
+  if (leadCur === 'random') leadCur = 'spreader';
+  if (!availableLeads.some(l=>l[0]===leadCur)) leadCur = 'codex';
   if (disabled.includes(leadCur)) leadCur = availableLeads[0]?.[0] || 'claude';
   if (leadCur === 'random') leadCur = 'spreader';
   const [, name, icon] = LEADS.find((l) => l[0] === leadCur) || availableLeads[0] || LEADS[0];
@@ -2181,9 +2030,9 @@ $('#normalModel').onclick = () => toggleNormalModelMenu();
 $('#normalEffort').onclick = () => toggleNormalEffortMenu();
 api.on('workflow:changed',d => {
   if (window.ActiveChat?.sid !== d.sid) return;
-  window.ActiveChat.supercode = d.supercode;
+  window.ActiveChat.easyMode = d.easyMode;
   api.call('chat:info', d.sid).then((i) => { if (openSid === d.sid) renderReqs(i?.reqs || { items: [], idle: true }); });
-  renderLead(leadCur); renderChips(); window.dispatchEvent(new Event('active-chat'));
+  renderLead(d.lead || leadCur); renderChips(); window.dispatchEvent(new Event('active-chat'));
 });
 function toggleLeadMenu(open = $('#leadMenu').hidden, kb) { $('#leadMenu').hidden = !open; $('#leadPick').setAttribute('aria-expanded', open); if (open && kb) $('#leadMenu .mi')?.focus(); }
 $('#leadPick').onclick = (e) => toggleLeadMenu(undefined, e.detail === 0);
@@ -2226,7 +2075,6 @@ async function openSession(id, show = true) {
   if (tok !== openTok) return; // another session was opened meanwhile
   subs = sl; subsAll = false; subsOpen = sl.length > 0 && !pnOpen(); renderSubs();
   openSid = id || null;
-  easyCurrent=info?.easycode || null;
   renderQueue([]);
   if (id) api.call('chat:queue', id).then((items) => { if (openSid === id) renderQueue(items); });
   act = actBy[openSid] ||= {};
@@ -2240,15 +2088,10 @@ async function openSession(id, show = true) {
   renderChips();
   window.Titlebar?.setTitle(info ? info.title : '');
   msgs.forEach((m) => addMsg(m, false, true));
-  if(easyCurrent && !msgs.some(m=>m.easycode?.requestId===easyCurrent.id && m.easycode.revision===easyCurrent.revision && m.easycode.state===easyCurrent.state)) {
-    const request=easyCurrent, s=request.scope;
-    const options=request.state==='blocked'?['Fix setup and retry','Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])]:request.state==='ready'?['Do it',...(request.history.length?['Change an answer']:[]),'Edit summary']:request.state==='questioning'?[...request.question.options]:[];
-    addMsg({from:'system',text:request.state==='blocked'?`Stopped: ${request.error}`:request.state==='ready'?`${s.summary}\n\nPreserve: ${s.preserve.join('; ')}\nSuccess: ${s.acceptance.join('; ')}\nFiles: ${s.files.join(', ')}\nChecks: ${s.checks.join('; ')}`:request.question?.text || request.state,askUser:!!options.length,options,easyAgent:info?.lead,easyRecommended:request.question?.recommended,easyHistory:request.history.map(q=>({question:q.text,answer:q.answer})),easycode:{requestId:request.id,revision:request.revision,questionId:request.question?.id,state:request.state},at:Date.now()},false,true);
-  }
   if (window._initialLogScrollPending) { scrollLogToBottom(); window._initialLogScrollPending = false; }
   updateScrollButton();
   emptyState(); placeholder(); renderTyping(); renderSpend(); renderReqs(info ? info.reqs || { items: [], idle: true } : null);
-  window.ActiveChat = {sid:openSid,supercode:!!info?.supercode,chatModels:info?.chatModels || {},chatEffort:info?.chatEffort || 'low'};
+  window.ActiveChat = {sid:openSid,supercode:false,easyMode:!!info?.easyMode,chatModels:info?.chatModels || {},chatEffort:info?.chatEffort || 'low'};
   window.dispatchEvent(new Event('active-chat'));
   renderLead(info?.lead || cfg.lead || 'claude'); renderMode(info?.mode || 'manual', !!info?.bypass); toggleModeMenu(false);
   if (show) showTab('chat');

@@ -30,7 +30,9 @@ lane.busy = false;
 context.drainUserQueue('session');
 assert.deepEqual(events, ['resume persisted implementation', 'queued user request']);
 assert.equal(queued.length, 0, 'queue drains after resumed work settles');
-queued.push({text:'wait for retry preparation'}); requirementRetries.add('session');
-context.drainUserQueue('session'); assert.equal(queued.length,1,'Queue waits while a retry repairs its file scope');
-requirementRetries.delete('session'); context.drainUserQueue('session'); assert.equal(queued.length,0);
 console.log('resume queue ordering tests passed');
+
+lane.busy=false;queued.push({text:'second prompt waits during provider selection'});
+context.enqueue('session','claude',{text:'first selected prompt'},null,true,{user:true});
+assert.equal(events.at(-1),'first selected prompt','A pending user dispatch cannot be dropped by a later queued prompt');
+assert.equal(queued.length,1);lane.busy=false;context.drainUserQueue('session');assert.equal(queued.length,0);

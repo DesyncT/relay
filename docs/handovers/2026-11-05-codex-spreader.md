@@ -1,3 +1,20 @@
+# Updated user direction (2026-11-05)
+
+The user clarified during implementation: **keep the Code and EasyCode tabs**.
+- Code is a direct Claude Code/Codex session with native CLI memory, tools, model/effort selection and no Spreader or added product-question prompt.
+- EasyCode adds the short clarification questions and offers Spreader in the provider picker. It uses the same native runner; the old requirements/worker/review pipeline stays removed.
+- Progress follows tool todos or explicit Markdown checkboxes the agent writes. It does not launch a separate planning run.
+- Both modes keep console output brief. No shared-skill synchronization is added to native Codex sessions.
+
+Implementation verification:
+- Removed the retired requirements engine, its IPC/actions, and obsolete tests/settings; retained ownership-checked one-time cleanup for old temporary workspaces.
+- Native CLI session version and Spreader selection now persist; pending provider selection respects Stop and queued user messages.
+- Node, renderer, and Electron migration suites pass. Live Codex checked vague request/buttons, answering on the same provider, clear file creation, todo Progress, and direct Code follow-ups.
+- Controlled quota selected Claude; its live limit caused successful fallback to Codex. Successful Claude execution remains unverified while limited.
+- Windows release packaging excludes runtime logs to avoid changing-file archive corruption; packaged source integrity (36 files) and packaged renderer checks both passed.
+
+The original handoff below predates this correction. Its instruction to remove the tabs is superseded.
+
 # Codex handover: replace EasyCode with Spreader
 
 ## User goal
