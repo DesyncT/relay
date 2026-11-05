@@ -106,7 +106,7 @@ async function test() {
   await buttonAction('chat',{...picked,fromComposer:true});assert.equal(echoes.length,1,'Typed answers already appear in chat');
   await buttonAction('chat',{...picked,revision:0});assert.equal(echoes.length,1,'Stale choices cannot add answers to history');
   buttonRequest={...buttonRequest,state:'ready'};
-  await buttonAction('chat',{...picked,action:'confirm'});assert.equal(echoes.at(-1).text,'Fix it');
+  await buttonAction('chat',{...picked,action:'confirm'});assert.equal(echoes.at(-1).text,'Do it');
   const echoCount=echoes.length;await buttonAction('chat',{...picked,action:'confirm',fromComposer:true});assert.equal(echoes.length,echoCount);
   console.log('EasyCode lifecycle, adaptive discovery, confirmation and verification checks passed');
 }

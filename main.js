@@ -1542,7 +1542,7 @@ function saveEasycode(sid, request) {
   } else if(request.state==='ready') {
     const s=request.scope;
     text=[s.summary,`Preserve: ${s.preserve.join('; ') || 'Existing behavior outside this change.'}`,`Files: ${s.files.join(', ')}`,`Success: ${s.acceptance.join('; ')}`,`Checks: ${s.checks.join('; ')}`].join('\n\n');
-    options=['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary'];
+    options=['Do it',...(request.history.length?['Change an answer']:[]),'Edit summary'];
   } else if(request.state==='blocked') {
     text=[`Stopped: ${request.error || 'Verification needs review.'}`,...(request.evidence || []).map(c=>`${c.command}: ${c.exitCode===0?'passed':`exit ${c.exitCode ?? 'unavailable'}`}\n${c.exitCode===0?'':String(c.output || '').slice(-1200)}`),...(request.worker?.workspace?.path?[`Saved work: ${request.worker.workspace.path}`]:[])].join('\n\n');
     options=['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])];
@@ -1554,7 +1554,7 @@ function saveEasycode(sid, request) {
   const activeWorker=['running','verifying','succeeded','blocked'].includes(request.state) && request.worker;
   const agent=activeWorker?.provider || easyOwner(sid) || 'codex';
   const route=activeWorker ? {model:activeWorker.model,effort:activeWorker.effort} : settings.routes?.[agent]?.other;
-  if(text)post(sid,agent,text,null,null,{route,easycode:controls,easyRecommended:request.state==='questioning'?request.question.recommended:request.state==='ready'?'Fix it':request.state==='blocked'?'Review and retry':null,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
+  if(text)post(sid,agent,text,null,null,{route,easycode:controls,easyRecommended:request.state==='questioning'?request.question.recommended:request.state==='ready'?'Do it':request.state==='blocked'?'Review and retry':null,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
 }
 async function easyChecks(sid,cwd,commands) {
   const results=[];
@@ -1650,7 +1650,7 @@ async function easyAction(sid,payload) {
   const request=sessOf(sid)?.easycode;
   if(!payload.fromComposer && request?.id===payload.requestId && request.revision===payload.revision) {
     const label=payload.action==='answer' && request.state==='questioning' && request.question?.id===payload.questionId && typeof payload.answer==='string' && payload.answer.trim() ? payload.answer
-      : payload.action==='confirm' && request.state==='ready' ? 'Fix it'
+      : payload.action==='confirm' && request.state==='ready' ? 'Do it'
       : payload.action==='retry' && request.state==='blocked' ? 'Review and retry'
       : payload.action==='stronger' && request.state==='blocked' ? 'Retry with stronger route'
       : payload.action==='edit' && ['questioning','ready','blocked'].includes(request.state) && request.history?.[payload.index ?? request.history.length-1] ? 'Change an answer'
@@ -1886,7 +1886,7 @@ async function finishChecklist(sid) {
   await startRequirementWorkflow(sid,assignments.find(a=>a.owner)?.owner || session.lead || 'codex',trigger,RT(sid).epoch,{assignments,workspaces:workspacesFromAssignments(assignments)});
   return true;
 }
-ipcMain.handle('chat:requirement-finish',(_e,sid)=>{if(supercodeOn(sid))throw Error('Use Fix it on the confirmed EasyCode summary.');return finishChecklist(sid);});
+ipcMain.handle('chat:requirement-finish',(_e,sid)=>{if(supercodeOn(sid))throw Error('Use Do it on the confirmed EasyCode summary.');return finishChecklist(sid);});
 ipcMain.handle('chat:requirement-skip',(_e,sid,id)=>{if(supercodeOn(sid))throw Error('EasyCode cannot skip verification.');return skipRequirement(sid,id);});
 // Debugger: looks at a failing task (files, commands, the running app or staging page) and writes one prompt that fixes it
 async function debugRequirement(sid,assignmentId) {

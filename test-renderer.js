@@ -389,7 +389,7 @@ app.whenReady().then(async () => {
     openSid='easy-ui';
     await api.call('test:emit','easycode:update',{sid:openSid,request:{...request,revision:2,state:'ready'}});
     const staleDisabled=[...document.querySelectorAll('[data-easy-request] button')].every(b=>b.disabled);
-    addMsg({from:'system',text:'Fix the login redirect',askUser:true,options:['Fix it','Change an answer','Edit summary','Cancel'],easyHistory:[{question:'What is broken?',answer:'Login'}],easycode:{requestId:request.id,revision:2,state:'ready'},at:Date.now()});
+    addMsg({from:'system',text:'Fix the login redirect',askUser:true,options:['Do it','Change an answer','Edit summary','Cancel'],easyHistory:[{question:'What is broken?',answer:'Login'}],easycode:{requestId:request.id,revision:2,state:'ready'},at:Date.now()});
     const bar=document.querySelector('[data-easy-revision="2"]');
     [...bar.querySelectorAll('button')].find(b=>b.textContent==='Change an answer').click();
     [...bar.querySelectorAll('button')].find(b=>b.textContent.includes('What is broken?')).click();
@@ -397,8 +397,8 @@ app.whenReady().then(async () => {
     const back=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action').at(-1);
     [...bar.querySelectorAll('button')].find(b=>b.textContent==='Edit summary').click();
     const editable=document.activeElement===document.querySelector('#input') && !bar.querySelector('textarea');
-    [...bar.querySelectorAll('button')].find(b=>b.textContent.startsWith('Fix it')).click();
-    [...bar.querySelectorAll('button')].find(b=>b.textContent.startsWith('Fix it')).click();
+    [...bar.querySelectorAll('button')].find(b=>b.textContent.startsWith('Do it')).click();
+    [...bar.querySelectorAll('button')].find(b=>b.textContent.startsWith('Do it')).click();
     await new Promise(resolve=>setTimeout(resolve,0));
     const confirmations=(await api.call('test:calls')).filter(c=>c[0]==='easycode:action' && c[2].action==='confirm').length;
     await api.call('test:emit','easycode:update',{sid:openSid,request:{...request,revision:2,state:'running'}});
