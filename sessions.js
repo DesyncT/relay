@@ -59,6 +59,7 @@ function createSessions({ dataDir, send = () => {} }) {
   const persist = (s) => {
     const m = meta(s.id);
     m.title = s.title; m.updated = s.updated; m.unread = !!s.unread; m.auto = !!s.auto; m.supercode = !!s.supercode;
+    m.waitingQuestion = !!s.waitingQuestion;
     write(sfile(s.id), s); saveIndex();
   };
 
@@ -127,11 +128,13 @@ function createSessions({ dataDir, send = () => {} }) {
     return active;
   }
   const getSession = (id) => full(id);
-  function clearSession(id) { const s = full(id); s.messages = []; s.queuedMessages = []; s.cli = {}; s.doneAt = null; s.tasks = []; s.reqs = null; s.easycode = null; s.easycodeArchive = []; s.spend = null; s.unread = false; persist(s); emit('sessions', id); }
+  function clearSession(id) { const s = full(id); s.messages = []; s.queuedMessages = []; s.cli = {}; s.doneAt = null; s.tasks = []; s.reqs = null; s.easycode = null; s.easycodeArchive = []; s.spend = null; s.unread = false; s.waitingQuestion = false; persist(s); emit('sessions', id); }
 
   function appendMessage(id, msg) {
     const s = full(id);
     s.messages.push(msg);
+    if (msg.askUser) s.waitingQuestion = true;
+    else if (msg.from === 'user') s.waitingQuestion = false;
     if (s.auto && msg.from === 'user') {
       const t = String(msg.text || '').replace(/@(?:claude|codex)\b/gi, '').replace(/^(?:hey|hi|hello|please|can (?:you|u)|could (?:you|u)|i want (?:you )?to)\b[ ,:!]*/i, '').replace(/\s+/g, ' ').trim();
       const original = String(msg.text || '').replace(/\s+/g, ' ').trim();

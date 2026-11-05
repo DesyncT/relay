@@ -122,7 +122,7 @@ function run(label, cmd, args, prompt, onLine, o = {}) {
     let out = '', err = '', buf = '';
     const lines = (flush) => { const ls = buf.split('\n'); buf = flush ? '' : ls.pop(); ls.forEach((l) => l.trim() && onLine(l)); };
     child.stdout.on('data', (d) => { out += d; if (onLine) { buf += d; lines(); } });
-    child.stderr.on('data', (d) => (err += d));
+    child.stderr.on('data', (d) => { err += d; if (o.onStderr) o.onStderr(d); });
     child.on('error', error=>{clearTimeout(timeout);procs.delete(id);reject(error);});
     child.on('close', (code) => {
       clearTimeout(timeout);
@@ -179,7 +179,7 @@ const splitArgs = (s) => (s || '').split(/\s+/).filter(Boolean);
 
 // Claude Code: stream-json. The final text is the result event.
 function claudeRun(label, who, prompt, c = {}) {
-  let result = '', failed = false, model = '', usage = null;
+  let result = '', failed = false, model = '', usage = null, errText = '', stderrText = '';
   const progress = createProgressStream(c.onProgress);
   const said = []; // every text block: [req:] lines often sit before the tool calls, not in the final result
   const act = [];
@@ -193,6 +193,7 @@ function claudeRun(label, who, prompt, c = {}) {
   return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
+    if (e.type === 'error' && (e.message || e.error?.message)) errText = String(e.message || e.error?.message);
     if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) { said.push(b.text); progress.push(b.text); } if (b.type === 'tool_use') progress.flush(); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
     else if (e.type === 'system' && e.subtype === 'init') { model = e.model || ''; if (e.session_id) c.onSession?.(e.session_id); }
     else if (e.type === 'result') {
@@ -200,15 +201,18 @@ function claudeRun(label, who, prompt, c = {}) {
       const u = e.usage || {};
       usage = mkUsage(model || Object.keys(e.modelUsage || {})[0] || 'claude', (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), u.cache_read_input_tokens || 0, u.output_tokens || 0, e.total_cost_usd);
     }
-  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env,timeoutMs:c.timeoutMs }).then(() => { if (failed || !result.trim()) throw new Error(cleanErrorMessage(result.trim() || 'claude returned no result', who)); progress.finish(result); return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] }; })
-    .finally(() => setStatus(who, null));
+  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env, timeoutMs: c.timeoutMs, onStderr: (d) => { stderrText += d; } }).then(() => {
+    if (failed || !result.trim()) throw new Error(cleanErrorMessage(errText || result.trim() || stderrText.trim() || 'No result returned from claude', who));
+    progress.finish(result);
+    return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] };
+  }).finally(() => setStatus(who, null));
 }
 
 // Codex: exec --json. The final text is the last agent_message.
 const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
 function codexRun(prompt, images, c = {}) {
   if (!c.nativeCode) try { require('./shareskills').sync(DATA); } catch {} // Direct CLI sessions keep the user's own environment.
-  let text = '', inp = 0, cac = 0, out = 0, errText = '';
+  let text = '', inp = 0, cac = 0, out = 0, errText = '', stderrText = '';
   const progress = createProgressStream(c.onProgress);
   const said = []; // every agent message, not just the last
   const act = [], seat = c.seat || 'codex';
@@ -221,7 +225,9 @@ function codexRun(prompt, images, c = {}) {
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
     const e = json(l), it = e.item || {};
     try { activity.codex(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
-    if (e.type === 'error' && e.message) errText = String(e.message); else if (e.type === 'turn.failed' && e.error?.message) errText = String(e.error.message); // surfaced so limit detection can see them
+    if (e.type === 'error' && (e.message || e.error?.message)) errText = String(e.message || e.error.message);
+    else if (e.type === 'turn.failed' && (e.error?.message || e.message)) errText = String(e.error?.message || e.message);
+    else if (it.error?.message) errText = String(it.error.message);
     if (e.type === 'thread.started' && e.thread_id) c.onSession?.(e.thread_id);
     if (e.type === 'turn.started') setStatus('codex', 'thinking');
     if (e.type === 'turn.completed' && e.usage) { inp += (e.usage.input_tokens || 0) - (e.usage.cached_input_tokens || 0); cac += e.usage.cached_input_tokens || 0; out += e.usage.output_tokens || 0; }
@@ -233,8 +239,11 @@ function codexRun(prompt, images, c = {}) {
     else if (/file_change|patch/.test(it.type)) setStatus('codex', 'coding ' + base(it.changes?.[0]?.path));
     else if (it.type === 'web_search') setStatus('codex', 'searching');
     else if (it.type === 'mcp_tool_call') setStatus('codex', 'using ' + (it.tool || 'tool'));
-  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env,timeoutMs:c.timeoutMs }).then(() => { if (!text.trim()) throw new Error(cleanErrorMessage(errText || 'codex returned no message', 'codex')); progress.finish(text); return { text: text.trim(), said, usage: mkUsage(runModel, inp, cac, out), activity: act }; })
-    .finally(() => setStatus('codex', null));
+  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env, timeoutMs: c.timeoutMs, onStderr: (d) => { stderrText += d; } }).then(() => {
+    if (!text.trim()) throw new Error(cleanErrorMessage(errText || stderrText.trim() || 'No message returned from codex', 'codex'));
+    progress.finish(text);
+    return { text: text.trim(), said, usage: mkUsage(runModel, inp, cac, out), activity: act };
+  }).finally(() => setStatus('codex', null));
 }
 
 let proxyProcess = null;
@@ -412,11 +421,59 @@ function closeTask(sid, request, recap = '') {
   try { store.updateSession(sid, { doneAt: Date.now(), memory, tasks }); } catch {}
   setReqs(sid, null);
 }
+
+let questionBadge = null;
+try {
+  const p = path.join(__dirname, 'assets', 'question-badge.png');
+  if (fs.existsSync(p)) questionBadge = nativeImage.createFromPath(p);
+} catch {}
+
+function notifyQuestion({ from, text, sid }) {
+  try {
+    if (Notification && Notification.isSupported()) {
+      const who = from ? (from.charAt(0).toUpperCase() + from.slice(1)) : 'Agent';
+      const clean = String(text || 'Needs your input to continue').replace(/\[ask-user[!:\s\S]*?\]/gi, '').trim().slice(0, 160);
+      const n = new Notification({
+        title: `${who} has a question`,
+        body: clean || 'Needs your input to continue',
+        icon: path.join(__dirname, 'assets', 'relay.ico'),
+      });
+      n.on('click', () => {
+        showApp();
+        clearQuestionAlert();
+      });
+      n.show();
+    }
+  } catch {}
+  for (const w of BrowserWindow.getAllWindows()) {
+    try {
+      w.flashFrame(true);
+      if (process.platform === 'win32' && questionBadge && !questionBadge.isEmpty()) {
+        w.setOverlayIcon(questionBadge, 'Question pending');
+      }
+    } catch {}
+  }
+}
+
+function clearQuestionAlert() {
+  for (const w of BrowserWindow.getAllWindows()) {
+    try {
+      w.flashFrame(false);
+      if (process.platform === 'win32') {
+        w.setOverlayIcon(null, '');
+      }
+    } catch {}
+  }
+}
+
 function post(sid, from, text, replyTo, attachments, extra) {
   text = fixMojibake(text);
   const m = { from, text, at: Date.now(), ...(replyTo && { replyTo }), ...(attachments?.length && { attachments }), ...extra };
   try { store.appendMessage(sid, m); } catch { return m; } // session deleted mid-run
   send('chat:msg', { ...m, sessionId: sid }); // the renderer shows it only if that session is open
+  if (extra?.askUser) {
+    notifyQuestion({ from, text, sid });
+  }
   return m;
 }
 
@@ -822,7 +879,12 @@ ipcMain.handle('chat:queue-interrupt-send', (_e, sid, id) => {
   drainUserQueue(sid); // waits until active lane promises unwind
   return true;
 });
+ipcMain.handle('notify:clearQuestion', () => {
+  clearQuestionAlert();
+  return true;
+});
 ipcMain.handle('chat:send', (_e, sid, text, attachments = [], options = {}) => {
+  clearQuestionAlert();
   const sess = store.getSession(sid);
   const files = (Array.isArray(attachments) ? attachments : []).filter((a) => a && inUploads(a.path)).map(({ name, path: p, size, type, previewUrl }) => ({ name, path: p, size, type, previewUrl }));
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
@@ -836,6 +898,7 @@ ipcMain.handle('chat:send', (_e, sid, text, attachments = [], options = {}) => {
   dispatchUser(sid, item);
 });
 ipcMain.handle('chat:interrupt-send', (_e, sid, text, attachments = [], options = {}) => {
+  clearQuestionAlert();
   const sess = store.getSession(sid);
   const files = (Array.isArray(attachments) ? attachments : []).filter((a) => a && inUploads(a.path)).map(({ name, path: p, size, type, previewUrl }) => ({ name, path: p, size, type, previewUrl }));
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
@@ -986,6 +1049,7 @@ function createWindow() {
     if (k === 'n') { e.preventDefault(); createWindow(); }
   });
   w.on('closed', () => { if (w === win) win = BrowserWindow.getAllWindows()[0] || null; });
+  w.on('focus', () => clearQuestionAlert());
   w.loadFile(path.join(__dirname, 'index.html'));
   if (!win) win = w;
   return w;

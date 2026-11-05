@@ -118,6 +118,7 @@
     r.setAttribute('aria-pressed', String(s.id === tree.active));
     r.append(title);
     if (working.has(s.id)) r.append(el('span', { className: 'sb-spin', title: 'Working' }));
+    else if (s.waitingQuestion) r.append(el('span', { className: 'sb-qdot', title: 'Waiting for your answer' }));
     else if (s.unread) r.append(el('span', { className: 'sb-dot', title: 'Done, not read yet' }));
     const items = [['Rename', () => inlineRename(title, s.title, (v) => api.call('sessions:rename', s.id, v))], ['Delete', () => delSession(s), true]];
     r.append(btn('sb-more', 'Session actions', 'more', (e) => { e.stopPropagation(); showMenu(e.currentTarget, items); }));

@@ -162,15 +162,31 @@ function cleanErrorMessage(errText, provider = 'agent') {
   }
 
   // 5. Rate / usage limits check
-  const isRateLimit = /api_error_status":\s*429|usage_limit_reached|hit your (?:session )?limit|rate[_ ]?limit|exceeded your current quota|too many requests|\b429\b/i.test(text) ||
-                      /api_error_status":\s*429|usage_limit_reached|hit your (?:session )?limit/i.test(String(errText));
+  const isRateLimit = /api_error_status":\s*429|usage_limit_reached|usage[_ ]?limit|hit your .{0,30}limit|rate[_ ]?limit|exceeded your current quota|too many requests|credit balance|insufficient[_ ]credits?|out of credits|no credits|credits? exhausted|\b429\b|\b529\b|overloaded|resource[_ ]exhausted/i.test(text) ||
+                      /api_error_status":\s*429|usage_limit_reached|usage[_ ]?limit|hit your .{0,30}limit|rate[_ ]?limit|exceeded your current quota|too many requests|credit balance|insufficient[_ ]credits?|out of credits/i.test(String(errText));
   if (isRateLimit) {
-    const limitSentenceMatch = /(?:You've hit your (?:session )?limit[^\n\r"]*|resets? (?:at )?\d+[^\n\r"]*|Rate limit reached[^\n\r"]*|Exceeded your current quota[^\n\r"]*)/i.exec(text);
+    const limitSentenceMatch = /(?:You['’]ve hit your (?:usage |session )?limit[^\n\r"]*|resets? (?:at )?\d+[^\n\r"]*|try again at[^\n\r"]*|Rate limit reached[^\n\r"]*|Exceeded your current quota[^\n\r"]*|credit balance is too low[^\n\r"]*)/i.exec(text);
     if (limitSentenceMatch) return limitSentenceMatch[0].trim();
+    if (text.length <= 250 && /limit|quota|credit|429/i.test(text)) return text.trim();
     return `Rate limit reached for ${provider}.`;
   }
 
-  // 6. Strip connector warnings, hook logs, telemetry, and CLI prefixes
+  // 6. Context length limit check
+  if (/context length|maximum context length|prompt is too long|request is too large|exceeds? context limit/i.test(text)) {
+    return `Prompt exceeds context length limit for ${provider}.`;
+  }
+
+  // 7. Empty message returned
+  if (/returned no (?:message|result)|no message returned|no result returned/i.test(text)) {
+    return `No response received from ${provider}.`;
+  }
+
+  // 8. Authentication / login check
+  if (/(?:unauthorized|not logged in|authentication error|invalid api key|token.*(?:expired|invalid)|run codex login|run \/login)/i.test(text)) {
+    return `Authentication required for ${provider}. Check sign-in status in Settings.`;
+  }
+
+  // 9. Strip connector warnings, hook logs, telemetry, and CLI prefixes
   text = text
     .replace(/^.*?exited\s+\d+:\s*/i, '')
     .replace(/\[Session[A-Za-z0-9_-]+:[^\]]*\]/gi, '')
@@ -206,12 +222,12 @@ function formatFailureInfo(errText, provider = 'claude') {
 
   const lower = cleanMsg.toLowerCase() + ' ' + String(errText).toLowerCase();
 
-  if (/CLI is not installed or could not be started/i.test(cleanMsg)) {
+  if (/CLI is not installed|could not be started|spawn .* not found|command not found|is not recognized as an internal/i.test(lower)) {
     title = 'Install the CLI';
     badge = 'amber';
     action = 'install';
-  } else if (/session limit|rate limit|quota|429/i.test(lower)) {
-    title = 'Session limit reached';
+  } else if (/session limit|rate limit|usage[_ ]?limit|hit your .{0,30}limit|quota|429|too many requests|credit balance|insufficient[_ ]credits?|out of credits|no credits|credits? exhausted|overloaded|529|resource[_ ]exhausted/i.test(lower)) {
+    title = /usage|credit|quota/i.test(lower) ? 'Usage limit reached' : 'Session limit reached';
     badge = 'amber';
     action = 'switch';
   } else if (/proxy|port 8080|econnrefused/i.test(lower)) {
@@ -222,9 +238,17 @@ function formatFailureInfo(errText, provider = 'claude') {
     title = 'Invalid model';
     badge = 'amber';
     action = 'switch';
-  } else if (/unauthorized|not logged in|authentication/i.test(lower)) {
+  } else if (/unauthorized|not logged in|authentication|invalid api key|token.*(?:expired|invalid)|run codex login|run \/login/i.test(lower)) {
     title = 'Authentication error';
-    badge = 'red';
+    badge = 'amber';
+    action = 'retry';
+  } else if (/context length|maximum context length|prompt is too long|request is too large|context limit/i.test(lower)) {
+    title = 'Context limit reached';
+    badge = 'amber';
+    action = 'retry';
+  } else if (/no response received|returned no (?:message|result)|no message returned/i.test(lower)) {
+    title = 'No response';
+    badge = 'amber';
     action = 'retry';
   }
 

@@ -1611,7 +1611,7 @@ function choiceBar(opts, info, cls = '') {
   const done = () => { for (const x of bar.querySelectorAll('button, input')) x.disabled = true; };
   for (const [i, o] of opts.entries()) {
     const b = el('button', { type: 'button', className: 'opt' + (i ? '' : ' pri'), title: info?.[i] || '' }, el('span', { className: 'opt-copy' }, el('span', { textContent: o }), ...(info?.[i] ? [el('small', { textContent: info[i] })] : [])));
-    b.onclick = (e) => { e.stopPropagation(); done(); sendChat(o); };
+    b.onclick = (e) => { e.stopPropagation(); done(); api.call('notify:clearQuestion').catch(() => {}); sendChat(o); };
     bar.append(b);
   }
   return bar;
