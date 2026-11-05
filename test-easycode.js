@@ -5,7 +5,9 @@ async function test() {
   assert.equal(typeof easy.createRequest, 'function');
   let r = easy.createRequest('fix');
   const question = {kind:'question', question:'What is broken?', options:['Login','Checkout'], inspection:'Found login and checkout screens.'};
-  r = easy.applyDiscovery(r, question, r.revision);
+  r = easy.applyDiscovery(r, {...question,recommended:'Checkout'}, r.revision);
+  assert.equal(r.question.recommended,'Checkout');
+  assert.throws(()=>easy.validateDiscovery({...question,recommended:'Missing'}), /recommend/i);
   const payload = {requestId:r.id, questionId:r.question.id, revision:r.revision, answer:'Login'};
   const answered = easy.applyAnswer(r, payload);
   assert.equal(answered.history[0].answer, 'Login');
@@ -69,6 +71,18 @@ async function test() {
     sessions.updateSession(session.id,{easycode:r});
     sessions=require('./sessions').createSessions({dataDir});assert.equal(sessions.getSession(session.id).easycode.state,'ready');
   } finally {fs.rmSync(dataDir,{recursive:true,force:true});}
+  const mainSource=fs.readFileSync(require.resolve('./main'),'utf8');
+  const dispatchSource=mainSource.slice(mainSource.indexOf('function dispatchEasycode('),mainSource.indexOf('const drainingUserQueue ='));
+  const actions=[];
+  let composerRequest={id:'composer-request',revision:3,state:'questioning',question:{id:'q3'}};
+  const dispatch=require('node:vm').runInNewContext(dispatchSource+';dispatchEasycode',{
+    sessOf:()=>({easycode:composerRequest}),easyAction:(_sid,payload)=>{actions.push(payload);return Promise.resolve();},post:()=>{},
+  });
+  dispatch('chat','yes',{});assert.equal(actions.at(-1).action,'answer');assert.equal(actions.at(-1).answer,'yes');
+  composerRequest={...composerRequest,state:'ready'};
+  dispatch('chat','Keep the composerRequest colors',{});assert.equal(actions.at(-1).action,'editSummary');
+  dispatch('chat','fix it',{});assert.equal(actions.at(-1).action,'confirm');
+  for(const state of ['questioning','ready','running','blocked']) {composerRequest={...composerRequest,state};dispatch('chat','cancel',{});assert.equal(actions.at(-1).action,'cancel');}
   console.log('EasyCode lifecycle, adaptive discovery, confirmation and verification checks passed');
 }
 test().catch(error=>{console.error(error);process.exitCode=1;});

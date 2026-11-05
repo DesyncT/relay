@@ -11,7 +11,8 @@ function validateDiscovery(value) {
   if (!value || typeof value !== 'object') throw Error('Invalid discovery response');
   if (value.kind === 'question') {
     if (!text(value.question) || !strings(value.options) || value.options.length < 2 || value.options.length > 4 || new Set(value.options).size !== value.options.length) throw Error('Invalid question or options');
-    return {kind:'question',question:value.question,options:value.options,inspection:typeof value.inspection === 'string' ? value.inspection.slice(0,12000) : ''};
+    if(value.recommended != null && !value.options.includes(value.recommended))throw Error('Invalid recommended option');
+    return {kind:'question',question:value.question,options:value.options,recommended:value.recommended || null,inspection:typeof value.inspection === 'string' ? value.inspection.slice(0,12000) : ''};
   }
   if (value.kind !== 'ready' || !text(value.summary) || !strings(value.preserve) || !strings(value.acceptance) || !value.acceptance.length) throw Error('Invalid change summary');
   if (!strings(value.files) || !value.files.length || value.files.some(file=>!file.trim() || file === '.' || /^(?:[a-z]:|[/\\])|[\r\n\0]/i.test(file) || file.replace(/\\/g,'/').split('/').some(part=>part==='..' || part==='.git' || !part))) throw Error('Invalid file scope');
@@ -22,7 +23,7 @@ function applyDiscovery(request,value,revision) {
   if (request.revision !== revision || request.state !== 'inspecting') throw Error('Stale discovery response');
   const result=validateDiscovery(value), r=copy(request);r.revision++;
   r.inspection=result.inspection || r.inspection;
-  if(result.kind==='question') {r.state='questioning';r.question={id:randomUUID(),text:result.question,options:result.options};r.scope=null;}
+  if(result.kind==='question') {r.state='questioning';r.question={id:randomUUID(),text:result.question,options:result.options,recommended:result.recommended};r.scope=null;}
   else {r.state='ready';r.scope=result;r.question=null;}
   return r;
 }
@@ -40,7 +41,7 @@ function confirmRequest(request,revision) {
 function cancelRequest(request) {const r=copy(request);r.state='cancelled';r.revision++;return r;}
 function editRequest(request,index) {
   if(!['ready','questioning','blocked'].includes(request.state) || !Number.isInteger(index) || !request.history[index]) throw Error('Choose an earlier answer to change.');
-  const r=copy(request), previous=r.history[index];r.history=r.history.slice(0,index);r.question={id:randomUUID(),text:previous.text,options:previous.options};r.scope=null;r.confirmedRevision=null;r.state='questioning';r.revision++;return r;
+  const r=copy(request), previous=r.history[index];r.history=r.history.slice(0,index);r.question={id:randomUUID(),text:previous.text,options:previous.options,recommended:previous.recommended};r.scope=null;r.confirmedRevision=null;r.state='questioning';r.revision++;return r;
 }
 function recoverRequest(request) {
   const r=copy(request);
@@ -53,7 +54,7 @@ function finishRequest(request,result={}) {
   r.state=passed?'succeeded':'blocked';r.error=passed?null:result.error || 'Verification failed or is unavailable. Saved work remains available.';return r;
 }
 function discoveryPrompt(r) {
-  return `Inspect the project read-only. Never edit, delegate, vote or implement. Return ONLY JSON, no tags or fences. Ask ONE material question using 2-4 distinct plain-language choices, based on the project and all earlier answers. Do not repeat answered questions or invent observations. When target, desired outcome, preservation and observable checks are clear, return a ready summary. Never resolve material ambiguity yourself. After five answers, allow the user to request a summary, but ask if material ambiguity remains. A ready summary needs exact repository-relative file scope and runnable, noninteractive local verification commands. Do not use deployment, network writes or destructive commands. Preserve all earlier answers. Schemas:\n{"kind":"question","question":"...","options":["...","..."],"inspection":"Observed evidence"}\n{"kind":"ready","summary":"I will change ...","preserve":["..."],"acceptance":["observable behavior"],"files":["src/file.js"],"checks":["npm test"],"inspection":"Observed evidence"}\nRequest context:\n${JSON.stringify({originalRequest:r.originalRequest,answers:r.history.map(q=>({question:q.text,answer:q.answer})),inspection:r.inspection,summaryRequested:!!r.summaryRequested})}`;
+  return `Inspect the project read-only. Never edit, delegate, vote or implement. Return ONLY JSON, no tags or fences. Use short, everyday words for someone with no technical background. Give at most two brief sentences of useful context, then ask ONE clear question using 2-4 distinct choices. Each choice must describe a concrete outcome, not technical jargon such as hierarchy or information architecture. Explain unavoidable technical terms. Be respectful and informative without baby talk. Select the most useful choice for this request as recommended and briefly explain why in the question context. Do not include Cancel or a custom-answer option; the user types in the normal message box. Base choices on the project and all earlier answers. Do not repeat answered questions or invent observations. When target, desired outcome, preservation and observable checks are clear, return a ready summary. Never resolve material ambiguity yourself. After five answers, allow the user to request a summary, but ask if material ambiguity remains. A ready summary needs exact repository-relative file scope and runnable, noninteractive local verification commands. Do not use deployment, network writes or destructive commands. Preserve all earlier answers. Schemas:\n{"kind":"question","question":"...","options":["...","..."],"recommended":"exact label of your recommended option","inspection":"Observed evidence"}\n{"kind":"ready","summary":"I will change ...","preserve":["..."],"acceptance":["observable behavior"],"files":["src/file.js"],"checks":["npm test"],"inspection":"Observed evidence"}\nRequest context:\n${JSON.stringify({originalRequest:r.originalRequest,answers:r.history.map(q=>({question:q.text,answer:q.answer})),inspection:r.inspection,summaryRequested:!!r.summaryRequested})}`;
 }
 function createController({get,save,discover,execute,cancel=()=>{},stronger=()=>null}) {
   const same=(sid,id,revision,state)=>{const r=get(sid);return r?.id===id && r.revision===revision && r.state===state;};

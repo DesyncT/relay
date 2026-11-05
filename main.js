@@ -1528,20 +1528,20 @@ function saveEasycode(sid, request) {
   let text='',options=[];
   if(request.state==='questioning') {
     text=request.question.text;
-    options=[...request.question.options,'Not sure — investigate for me',...(request.history.length>=5?['Show the fix summary','Keep narrowing it down']:[]),...(request.history.length?['Change an answer']:[]),'Cancel'];
+    options=[...request.question.options,'Not sure — investigate for me',...(request.history.length>=5?['Show the fix summary','Keep narrowing it down']:[]),...(request.history.length?['Change an answer']:[])];
   } else if(request.state==='ready') {
     const s=request.scope;
     text=[s.summary,`Preserve: ${s.preserve.join('; ') || 'Existing behavior outside this change.'}`,`Files: ${s.files.join(', ')}`,`Success: ${s.acceptance.join('; ')}`,`Checks: ${s.checks.join('; ')}`].join('\n\n');
-    options=['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary','Cancel'];
+    options=['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary'];
   } else if(request.state==='blocked') {
     text=[`Stopped: ${request.error || 'Verification needs review.'}`,...(request.evidence || []).map(c=>`${c.command}: ${c.exitCode===0?'passed':`exit ${c.exitCode ?? 'unavailable'}`}\n${c.exitCode===0?'':String(c.output || '').slice(-1200)}`),...(request.worker?.workspace?.path?[`Saved work: ${request.worker.workspace.path}`]:[])].join('\n\n');
-    options=['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[]),'Cancel'];
+    options=['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])];
   }
   else if(request.state==='running') text='Working on your confirmed change. One worker, with at most one targeted repair.';
   else if(request.state==='verifying')text='Checking the change in your project.';
   else if(request.state==='succeeded')text=`Verified the change.\nFiles: ${request.changedPaths.join(', ') || 'No file changes needed.'}\n${request.evidence.map(c=>`${c.command}: exit ${c.exitCode}`).join('\n')}`;
   else if(request.state==='cancelled')text='Cancelled. Any saved work is retained.';
-  if(text)post(sid,'system',text,null,null,{easycode:controls,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
+  if(text)post(sid,easyOwner(sid) || 'codex',text,null,null,{easycode:controls,easyRecommended:request.state==='questioning'?request.question.recommended:request.state==='ready'?'Fix it':request.state==='blocked'?'Review and retry':null,...(options.length?{askUser:true,options}:{}),...(request.state==='ready'?{easyScope:request.scope}:{}),...(request.history.length?{easyHistory:request.history.map(q=>({question:q.text,answer:q.answer}))}:{})});
 }
 async function easyChecks(sid,cwd,commands) {
   const results=[];
@@ -1633,10 +1633,13 @@ async function easyAction(sid,payload) {
 ipcMain.handle('easycode:action',(_event,sid,payload)=>easyAction(sid,payload));
 function dispatchEasycode(sid,text,message) {
   const request=sessOf(sid)?.easycode;
+  const act=payload=>easyAction(sid,{requestId:request.id,revision:request.revision,...payload}).catch(e=>post(sid,'system',e.message));
+  if(request && !['cancelled','succeeded'].includes(request.state) && /^(?:cancel|stop|never mind|nevermind)[.!\s]*$/i.test(text.trim())) {act({action:'cancel'});return;}
   if(request?.state==='questioning') {
     easyAction(sid,{requestId:request.id,revision:request.revision,questionId:request.question.id,action:'answer',answer:text}).catch(e=>post(sid,'system',e.message));return;
   }
-  if(request?.state==='ready') {post(sid,'system','Review the summary and use Fix it, Edit summary or Cancel.');return;}
+  if(request?.state==='ready') {act(/^(?:fix it|go ahead|approve|yes|do it)[.!\s]*$/i.test(text.trim())?{action:'confirm'}:{action:'editSummary',answer:text});return;}
+  if(request?.state==='blocked' && /^(?:retry|review and retry|try again|continue)[.!\s]*$/i.test(text.trim())) {act({action:'retry'});return;}
   easyBusy.add(sid);sendWorking();
   easyController.start(sid,text).catch(e=>post(sid,'system',e.message)).finally(()=>{easyBusy.delete(sid);sendWorking();drainUserQueue(sid);});
 }
@@ -1678,6 +1681,7 @@ function dispatchUser(sid, { text, files, reply }) {
   }
   // EasyCode has one entry point. Legacy checklist routing, voters and handoffs
   // cannot authorize edits or start a second worker for these requests.
+  if(sess.easycode && !['cancelled','succeeded'].includes(sess.easycode.state)) {dispatchEasycode(sid,text,m);return;}
   const quick=conversationReply(text,{busy:Object.values(rt.lanes || {}).some(l=>l.busy || l.next),awaiting:!!rt.awaiting,items:reqsOf(sid)?.items || [],doneAt:sess.doneAt});
   if(quick!==null) {post(sid,AGENT_NAMES.includes(sess.lead || settings.lead)?sess.lead || settings.lead:'claude',quick);return;}
   dispatchEasycode(sid, text, m);
@@ -1721,7 +1725,7 @@ ipcMain.handle('chat:send', (_e, sid, text, attachments = [], options = {}) => {
   const files = (Array.isArray(attachments) ? attachments : []).filter((a) => a && inUploads(a.path)).map(({ name, path: p, size, type, previewUrl }) => ({ name, path: p, size, type, previewUrl }));
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
   const item = { text, files, reply: target ? ref(target) : null };
-  const instant = !files.length && conversationReply(text) !== null;
+  const instant = !files.length && (conversationReply(text) !== null || (supercodeOn(sid) && sess.easycode && /^(?:cancel|stop|never mind|nevermind)[.!\s]*$/i.test(text.trim())));
   if (!instant && options.queue !== false && (chatBusy(sid) || userQueues.get(sid).length)) {
     const q = userQueues.get(sid) || []; q.push({ ...item, id: 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), queuedAt: Date.now() }); userQueues.set(sid, q); queueUpdate(sid);
     drainUserQueue(sid);

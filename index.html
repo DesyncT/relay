@@ -243,6 +243,9 @@
   .opt:hover { background:color-mix(in srgb, var(--raised) 85%, #fff); } .opt:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
   .opt.pri { background:#ededed; color:#141415; border-color:transparent; } .opt.pri:hover { background:#fff; }
   .opt:disabled { opacity:.5; cursor:default; pointer-events:none; }
+  #chat .msg.ask .opts .opt.recommended:not(:disabled) { border-color:var(--claude); background:color-mix(in srgb, var(--claude) 14%, var(--raised)); color:var(--text); }
+  #chat .msg.ask .opts .opt.recommended:not(:disabled):hover { background:color-mix(in srgb, var(--claude) 22%, var(--raised)); }
+  .recommend-label { margin-left:auto; padding-left:12px; color:var(--claude); font-size:12px; }
   /* Question choices show their labels without letter badges. */
   .opts.lettered { gap:8px; } .opts.lettered .opt { height:36px; padding:0 14px; }
   .opts.lettered .opt-own { height:36px; min-height:36px; flex-basis:100%; }
@@ -1425,7 +1428,9 @@ function addMsg(m, live, batch = false) {
   if (m.easycode) {
     prev=null;
     const controls=m.askUser ? easyChoiceBar(m,openSid) : null;
-    row=el('div',{className:'msg grp' + (m.askUser?' ask':'')},el('div',{className:'hd'},el('b',{textContent:'EasyCode'})),el('div',{className:'body',innerHTML:md(m.text || '')}),...(controls?[lastOpts=controls]:[]));
+    const speaker=m.from==='system' ? (m.easyAgent || cfg.lead || 'codex') : m.from;
+    row=el('div',{className:'msg grp' + (m.askUser?' ask':'')},avatar(speaker),el('div',{className:'hd'},el('b',{className:'nm',textContent:disp(speaker),style:`color:${nameColor(speaker)}`}),el('span',{className:'lt',textContent:'EasyCode'})),el('div',{className:'body',innerHTML:md(m.text || '')}),...(controls?[lastOpts=controls]:[]));
+    if(m.askUser) {waitFor=disp(speaker);placeholder();}
   } else if (m.from === 'system') {
     prev = null;
     if (m.failure || /^(?:subagent\s+.*?\s+failed:|(?:claude|codex|antigravity)\s+failed:)/i.test(m.text || '')) {
@@ -1628,26 +1633,22 @@ function easyChoiceBar(message,sid) {
     finally {pending=false;if(active())for(const control of bar.querySelectorAll('button,input,textarea'))control.disabled=false;}
   };
   const button=(label,action)=>{const b=el('button',{type:'button',className:'opt',textContent:label,disabled:!active()});b.onclick=action;return b;};
-  for(const label of message.options || []) {
-    bar.append(button(label,()=>{
+  const recommended=message.easyRecommended || (identity.state==='questioning'?easyCurrent?.question?.recommended:identity.state==='ready'?'Fix it':identity.state==='blocked'?'Review and retry':null);
+  for(const label of (message.options || []).filter(label=>label!=='Cancel')) {
+    const choice=button(label,()=>{
       if(label==='Change an answer') {
         const list=el('div',{className:'opts',role:'group',ariaLabel:'Earlier answers'});
         for(const [index,item] of (message.easyHistory || []).entries())list.append(button(`${item.question} — ${item.answer}`,()=>submit('edit',{index})));
         bar.append(list);return;
       }
       if(label==='Edit summary') {
-        if(bar.querySelector('textarea'))return;
-        const input=el('textarea',{ariaLabel:'Change the summary',placeholder:'What should change in this summary?',rows:3});
-        bar.append(input,button('Update summary',()=>submit('editSummary',{answer:input.value})));input.focus();return;
+        $('#input').placeholder='Tell me what to change in the summary';$('#input').focus();return;
       }
       const action={'Fix it':'confirm','Cancel':'cancel','Show the fix summary':'summary','Review and retry':'retry','Retry with stronger route':'stronger'}[label] || 'answer';
       submit(action,action==='answer'?{answer:label}:{});
-    }));
-  }
-  if(identity.state==='questioning') {
-    const input=el('input',{type:'text',ariaLabel:'Your answer',placeholder:'Or write your own answer',disabled:!active()});
-    const answer=()=>submit('answer',{answer:input.value});input.onkeydown=e=>{if(e.key==='Enter')answer();};
-    bar.append(input,button('Send answer',answer));
+    });
+    if(label===recommended) {choice.classList.add('recommended');choice.append(el('span',{className:'recommend-label',textContent:'Recommended'}));}
+    bar.append(choice);
   }
   return bar;
 }
@@ -2239,8 +2240,8 @@ async function openSession(id, show = true) {
   msgs.forEach((m) => addMsg(m, false, true));
   if(easyCurrent && !msgs.some(m=>m.easycode?.requestId===easyCurrent.id && m.easycode.revision===easyCurrent.revision && m.easycode.state===easyCurrent.state)) {
     const request=easyCurrent, s=request.scope;
-    const options=request.state==='blocked'?['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[]),'Cancel']:request.state==='ready'?['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary','Cancel']:request.state==='questioning'?[...request.question.options,'Not sure — investigate for me','Cancel']:[];
-    addMsg({from:'system',text:request.state==='blocked'?`Stopped: ${request.error}`:request.state==='ready'?`${s.summary}\n\nPreserve: ${s.preserve.join('; ')}\nSuccess: ${s.acceptance.join('; ')}\nFiles: ${s.files.join(', ')}\nChecks: ${s.checks.join('; ')}`:request.question?.text || request.state,askUser:!!options.length,options,easyHistory:request.history.map(q=>({question:q.text,answer:q.answer})),easycode:{requestId:request.id,revision:request.revision,questionId:request.question?.id,state:request.state},at:Date.now()},false,true);
+    const options=request.state==='blocked'?['Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])]:request.state==='ready'?['Fix it',...(request.history.length?['Change an answer']:[]),'Edit summary']:request.state==='questioning'?[...request.question.options,'Not sure — investigate for me']:[];
+    addMsg({from:'system',text:request.state==='blocked'?`Stopped: ${request.error}`:request.state==='ready'?`${s.summary}\n\nPreserve: ${s.preserve.join('; ')}\nSuccess: ${s.acceptance.join('; ')}\nFiles: ${s.files.join(', ')}\nChecks: ${s.checks.join('; ')}`:request.question?.text || request.state,askUser:!!options.length,options,easyAgent:info?.lead,easyRecommended:request.question?.recommended,easyHistory:request.history.map(q=>({question:q.text,answer:q.answer})),easycode:{requestId:request.id,revision:request.revision,questionId:request.question?.id,state:request.state},at:Date.now()},false,true);
   }
   if (window._initialLogScrollPending) { scrollLogToBottom(); window._initialLogScrollPending = false; }
   updateScrollButton();
