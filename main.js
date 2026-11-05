@@ -16,7 +16,7 @@ const { createAssignments, scopeCovers } = require('./requirement-workflow');
 const { initialWorkerRoutes, balanceWorkers, nextWorkerRoute } = require('./worker-routing');
 const { normalPrompt } = require('./normal-code');
 const { requirementSubagents } = require('./requirement-subagents');
-const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
+const { validTaskWorkspace } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
 const { recoverRequirementAssignments, canCleanupRequirementWorkspaces } = require('./requirement-recovery');
 const { fixMojibake } = require('./mojibake');
@@ -397,11 +397,24 @@ const requirementRetries = new Set();
 // Open/blocked task workspaces stay for inspection while their assignments are saved; once nothing saved points at one
 // (a new request, cleared requirements or chat) it is unreachable, so it is deleted. Cleanup itself verifies the ownership marker.
 const savedWorkspaceRoots = (sid) => workspacesFromAssignments(reqsOf(sid)?.assignments || []).cleanup;
+// Copying the project per task, git and hashing every file run in a worker thread: on a big site they froze the window ("not responding")
+function offThread(name, ...args) {
+  const { Worker } = require('worker_threads');
+  return new Promise((resolve, reject) => {
+    // plain() drops functions (createTaskWorkspaces returns a cleanupTasks helper Relay never calls): they cannot cross threads
+    const w = new Worker(`const { parentPort, workerData:[f, a] } = require('worker_threads');
+      const plain = (v) => Array.isArray(v) ? v.map(plain) : v && v.constructor === Object ? Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x !== 'function').map(([k, x]) => [k, plain(x)])) : v;
+      try { parentPort.postMessage({ r:plain(require(${JSON.stringify(path.join(__dirname, 'requirement-workspaces.js'))})[f](...a)) }); }
+      catch (e) { parentPort.postMessage({ e:String(e && e.message || e) }); }`, { eval:true, workerData:[name, args] });
+    w.once('message', (m) => { w.terminate(); m.e ? reject(new Error(m.e)) : resolve(m.r); });
+    w.once('error', reject);
+  });
+}
 function reclaimWorkspaces(sid, entries) {
   if (!entries?.length || requirementCoordinators.has(sid)) return; // still in use: the workflow's finally retries
   const kept = new Set(savedWorkspaceRoots(sid).map(e => e.root));
   const orphans = entries.filter(e => !kept.has(e.root));
-  if (orphans.length) cleanupTaskWorkspaces({ cleanup: orphans });
+  if (orphans.length) offThread('cleanupTaskWorkspaces', { cleanup: orphans }).catch(() => {});
 }
 // Deleting a session, or a project with its sessions, drops their saved assignments too.
 for (const [name, sessionIds] of [['deleteSession', (id) => [id]], ['removeProject', (id) => store.listSessions(id).map((s) => s.id)]]) {
@@ -414,6 +427,10 @@ for (const [name, sessionIds] of [['deleteSession', (id) => [id]], ['removeProje
   };
 }
 // what the last reviewer failed, for the worker's next attempt (the files still hold its previous work)
+// each re-review is less strict, so reworked work does not bounce forever on small or unverifiable points
+const strictness = (a) => { const n = a.reviewAttempts || 0;
+  return n >= 3 || a.autoDebugged ? ' FINAL REVIEW ROUND (this overrides the rules above): the task has been reworked several times. PASS unless the work clearly fails the main thing the requirement asks for or breaks something that worked. Unverifiable points, polish, wording and small deviations are PASS: list them as notes, not FAILs.'
+    : n >= 1 ? ' RE-REVIEW AFTER A FIX (this overrides the rules above): judge the main goal of the requirement. FAIL only for a real defect the user would notice; minor gaps and points you cannot verify are PASS with a note.' : ''; };
 const lastFail = (a) => { const r = (a.reviewEvidence || []).at(-1); return r?.verdict === 'FAIL' ? `
 Your previous attempt is already in these files and FAILED review. Fix exactly the failed checks below, keep what passed, and do not start over:
 ${String(r.evidence || '').slice(-3000)}` : ''; };
@@ -472,7 +489,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     }
     for (const a of assignments) { a.owner = owner; a.progress = 0; a.reviewAttempts = 0; a.reviewEvidence = []; }
     const runnableAssignments = assignments.filter(a => a.status === 'queued');
-    try { workspaces = runnableAssignments.length ? createTaskWorkspaces(cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
+    try { workspaces = runnableAssignments.length ? await offThread('createTaskWorkspaces', cwdFor(sid), sid, runnableAssignments) : { mode:'shared', tasks:[] }; }
     catch (error) { workspaces = { mode:'shared', blocked:true, tasks: runnableAssignments.map(a => ({ id:a.id, assignmentId:a.id, path:null, taskPath:null, files:a.files, mode:'shared', blocked:true })), reason:error.message }; }
     const cleanup = workspaces.cleanup?.[0] || null;
     const byId = new Map(workspaces.tasks.map(w => [w.assignmentId || w.id, w]));
@@ -496,14 +513,15 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
       const workerPath = ws.path && path.resolve(ws.path), projectPath = path.resolve(cwdFor(sid));
       if (!workerPath || ws.blocked || (process.platform === 'win32' ? workerPath.toLowerCase() === projectPath.toLowerCase() : workerPath === projectPath)) throw Object.assign(new Error('Task cannot run without an isolated workspace'),{nonRetryable:true});
       if (isDown(a.provider)) throw new Error(`${a.provider} is unavailable; replacing this worker`);
-      const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.${lastFail(a)}`;
+      const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. LOCAL ONLY: change files in this workspace and nothing else. Never upload, deploy, FTP/SFTP, git push, publish, or change a remote site, server, database or admin panel; the lead does all of that once every task is combined. Run the relevant checks and report exactly what changed and what checks ran.${lastFail(a)}`;
       const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
       if (epoch !== rt.epoch || a.blocker==='cancelled') throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
       a.usage=addUsage(a.usage,result.usage);
       let changes = { paths:[], patch:Buffer.alloc(0) };
       if (ws.mode !== 'shared' || ws.isolated) {
         if (!ws.files?.length) throw new Error('Task cannot collect changes without an explicit assigned file scope');
-        changes = collectTaskChanges(ws);
+        changes = await offThread('collectTaskChanges', ws);
+        changes.patch = Buffer.from(changes.patch || []); // a Uint8Array after the thread hop
       }
       const paths = ws.mode === 'shared' && !ws.isolated ? [...new Set((result.activity || []).filter(x => ['create','edit','delete'].includes(x.kind)).map(x => x.file || x.abs).filter(Boolean))] : changes.paths;
       a.patch = changes.patch?.toString('base64') || '';
@@ -526,7 +544,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
         // the row shows who is reviewing, not the worker's model
         a.reviewRoute = { provider, model, effort };
         setReqs(sid, { ...reqsOf(sid), assignments:coordinator.assignments.map(x => ({ ...x, workspace:x.workspace && { ...x.workspace } })) });
-        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. There is no UNKNOWN: every point is PASS or FAIL. Do not edit files or trust the worker report. First list the concrete check points this requirement implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
+        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. There is no UNKNOWN: every point is PASS or FAIL. Do not edit files or trust the worker report. First list the concrete check points this requirement implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.${strictness(a)} Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
         try {
           const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
           const verdict = readVerdict(result.text);
@@ -545,26 +563,44 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     const result = toCombine.length ? await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner) : { status:'passed' };
     if (epoch !== rt.epoch) return completed;
     const latest = reqsOf(sid) || {};
+    setReqs(sid, { ...reqsOf(sid), integration:null });
+    if (toCombine.length) integrationSummary(sid, result, completed, owner);
     if (result.status === 'passed') {
       // skipped items count as finished (they keep their skipped flag), so the lead's turn sees every requirement met and wraps up
       setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true, pct:100 })), finished:Date.now(), assignments:completed });
       handBackToLead(sid, owner, completed);
     } else {
       setReqs(sid, { ...latest, assignments:completed });
-      post(sid, owner, `Integration remains open: ${result.findings || result.blocker}. Requirements are still unchecked.`, trigger, null, { muted:true });
+      // the summary above says what failed; Retry on a task row or Finish runs the combine step again
     }
-    if (canCleanupRequirementWorkspaces(completed, result.status)) cleanupTaskWorkspaces(workspaces);
+    if (canCleanupRequirementWorkspaces(completed, result.status)) offThread('cleanupTaskWorkspaces', workspaces).catch(() => {});
     return completed;
   }).finally(() => { requirementCoordinators.delete(sid); reclaimWorkspaces(sid, workspaces.cleanup); });
   requirementCoordinators.set(sid, { coordinator, promise, workspaces });
   return promise;
+}
+// always posted after combining (pass or fail): what was combined, the checks, the review and the integrator's own report
+function integrationSummary(sid, result, completed, owner) {
+  const combined = completed.filter(a => a.status === 'passed'), files = [...new Set(combined.flatMap(a => a.changedPaths || []))];
+  const passed = result.status === 'passed', checks = String(result.checks?.evidence || '').trim().split('\n')[0].slice(0, 240);
+  const text = [
+    `**Integration summary** · ${passed ? `combined ${combined.length} task${combined.length === 1 ? '' : 's'} and the result passed verification` : `combining ${combined.length} task${combined.length === 1 ? '' : 's'} did not pass verification`}`,
+    files.length ? `Files: ${files.slice(0, 12).join(', ')}${files.length > 12 ? ` and ${files.length - 12} more` : ''}` : '',
+    checks ? `Checks: ${checks}` : '',
+    result.review?.verdict ? `Review: ${result.review.verdict}` : '',
+    !passed ? `What failed: ${String(result.findings || result.blocker || '').slice(0, 1200)}
+Retry a task or press Finish to combine again.` : '',
+    result.report ? `
+${String(result.report).trim().slice(-1500)}` : '',
+  ].filter(Boolean).join('\n');
+  post(sid, result.integrator?.provider || owner, text, null, null, { ...(result.integrator && { route:{ model:result.integrator.model, effort:result.integrator.effort } }) });
 }
 // the lead comes back: one last look over the combined result, then the wrap-up review and the summary
 function handBackToLead(sid, owner, completed) {
   const latest = reqsOf(sid) || {}, items = latest.items || [];
   const passed = completed.filter(a => a.status === 'passed').length, skipped = items.map((item, n) => item.skipped ? `#${n + 1}` : '').filter(Boolean);
   setReqs(sid, { ...latest, handedBack:Date.now() }); // saved, so a restart does not hand back twice
-  const handBack = post(sid, 'system', `All ${items.length} checklist tasks are finished: ${passed} passed${skipped.length ? `, ${skipped.length} skipped (${skipped.join(', ')})` : ''}${passed ? ', and the combined result passed verification' : ''}. @${owner} look over the project once more, fix anything small that is left, then wrap up with the summary.`, null);
+  const handBack = post(sid, 'system', `All ${items.length} checklist tasks are finished: ${passed} passed${skipped.length ? `, ${skipped.length} skipped (${skipped.join(', ')})` : ''}${passed ? ', and the combined result passed verification' : ''}. @${owner} you are the only one who touches anything remote: look over the combined local changes, fix anything small that is left, upload or deploy them where the request needs it (staging or live exactly as the user asked), do the final review, then wrap up with the summary.`, null);
   enqueue(sid, owner, handBack, null, true);
   saveResume(sid);
   if (Notification.isSupported()) new Notification({ title:'Checklist finished', body:`${store.getSession(sid)?.title || 'Chat'}: ${passed} passed${skipped.length ? `, ${skipped.length} skipped` : ''}. @${owner} is wrapping up.` }).show();
@@ -573,23 +609,28 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
   const rt = RT(sid), projectPath = cwdFor(sid);
   // Taken once before the first patch: a retry must undo an earlier attempt's out-of-scope edit, not hide it. ponytail: Git roots only; non-Git projects are not checked
   let before;
+  // each stage is saved so the typing line can say what the integrator is doing; its last report goes into the summary
+  const step = (text) => setReqs(sid, { ...reqsOf(sid), integration:{ step:text, at:Date.now() } });
+  let report = '';
   return runRequirementIntegration(assignments, {
     nextRoute: (assignment,reason) => nextWorkerRoute(assignment,routes,available.filter(provider=>!isDown(provider)),reason),
     persist: current => setReqs(sid, { ...reqsOf(sid), assignments:current.map(a => ({ ...a, workspace:a.workspace && { ...a.workspace } })) }),
     integrate: async (integrator, changes) => {
       if (epoch !== rt.epoch) throw Object.assign(new Error('Integration cancelled'),{cancelled:true});
       if (isDown(integrator.provider)) throw new Error(`${integrator.provider} is unavailable; replacing the integration worker`);
-      before ??= projectChanges(projectPath);
+      before ??= await offThread('projectChanges', projectPath);
       const conflicts = [];
-      if (!integrator.retryCount) for (const change of changes) {
+      if (!integrator.retryCount) for (const [i, change] of changes.entries()) {
         const owner = assignments.find(a => a.id === change.assignmentId);
+        step(`applying task changes (${i + 1} of ${changes.length})`);
         if (!change.patch.length || owner?.patchApplied) continue;
-        conflicts.push(...applyTaskChanges(projectPath, change));
+        conflicts.push(...await offThread('applyTaskChanges', projectPath, change));
         // saved at once: a restart after this point must not apply the same patch again
         if (owner) { owner.patchApplied = true; setReqs(sid, { ...reqsOf(sid), assignments:assignments.map(a => ({ ...a, workspace:a.workspace && { ...a.workspace } })) }); }
       }
       const assigned = assignments.filter(a => a.status === 'passed').map(a => ({ id:a.id, task:a.task, requirement:a.requirementIndex, files:a.changedPaths || [], patchIncluded:changes.some(c => c.assignmentId === a.id && c.patch.length) }));
-      const prompt = `${ACCESS_NOTE}\nYou are the single integration agent for the passed requirement tasks. Inspect the active project and integrate/reconcile their combined work, resolving overlaps and preserving existing user changes. Task summaries and patch application state: ${JSON.stringify(assigned)}\nPatch conflicts or scope errors: ${JSON.stringify(conflicts).slice(0,5000)}\n${integrator.previousFindings ? `Previous final-review findings to repair: ${integrator.previousFindings}` : ''}\nRequirements, including preservation constraints: ${JSON.stringify(reqsOf(sid)?.items || [])}\nOnly make changes needed to combine these passed tasks. Run the full project checks and report the exact command and result. Do not claim checks passed if they could not run.`;
+      const prompt = `${ACCESS_NOTE}\nYou are the single integration agent for the passed requirement tasks. LOCAL ONLY: combine and fix the files in this project; never upload, deploy, push or change a remote site, server or database. The lead does that after you. Inspect the active project and integrate/reconcile their combined work, resolving overlaps and preserving existing user changes. Task summaries and patch application state: ${JSON.stringify(assigned)}\nPatch conflicts or scope errors: ${JSON.stringify(conflicts).slice(0,5000)}\n${integrator.previousFindings ? `Previous final-review findings to repair: ${integrator.previousFindings}` : ''}\nRequirements, including preservation constraints: ${JSON.stringify(reqsOf(sid)?.items || [])}\nOnly make changes needed to combine these passed tasks. Run the full project checks and report the exact command and result. Do not claim checks passed if they could not run.`;
+      step(integrator.retryCount ? 'fixing what the last check found' : 'reconciling the combined work');
       const integrated = await seatRun(sid, integrator.owner || owner, 'coding', () => prompt, trigger, { quiet:true, cwd:projectPath, sub:'req-integration', routeOverride:{ provider:integrator.provider, model:integrator.model, effort:integrator.effort } });
       if (epoch !== rt.epoch) throw Object.assign(new Error('Integration cancelled'),{cancelled:true});
       let checkEvidence = 'No full project check could be run.';
@@ -597,7 +638,7 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
       let checkUnavailable=false;
       try {
         const packageJson = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf8'));
-        if (packageJson.scripts?.test) { checkEvidence = await run('requirement integration check', 'npm', ['test'], '', null, { cwd:projectPath, sid, sub:'req-integration-check' }); hasFullCheck = true; }
+        if (packageJson.scripts?.test) { step('running the project tests'); checkEvidence = await run('requirement integration check', 'npm', ['test'], '', null, { cwd:projectPath, sid, sub:'req-integration-check' }); hasFullCheck = true; }
         else {checkUnavailable=true;checkEvidence='No npm test script is defined. Independent verification of the actual acceptance criteria is required.';}
       } catch (error) {
         // run() also rejects a silent exit 0; the exit code, not the output wording, is the verdict
@@ -606,16 +647,18 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
         checkEvidence = hasFullCheck ? 'npm test exited 0 with no output.' : `Full project check failed: ${String(error.message || error)}`;
       }
       const scopes = changes.flatMap(c => c.scope);
-      const outside = (touchedSince(projectPath, before) || []).filter(file => !scopes.some(scope => scopeCovers(scope, file)));
+      const outside = ((await offThread('touchedSince', projectPath, before)) || []).filter(file => !scopes.some(scope => scopeCovers(scope, file)));
       if (outside.length) checkEvidence = `The integration edited files outside the passed tasks' scopes: ${outside.join(', ')}. Revert those edits; only the task scopes may change.
 ${checkEvidence}`;
       const checksPassed = hasFullCheck && !outside.length;
       let manualVerification=null;
+      report = integrated.text || report;
+      if(!checksPassed && checkUnavailable && !outside.length) step('verifying the combined result');
       if(!checksPassed && checkUnavailable && !outside.length) manualVerification=await reviewIntegratedResult(sid,integrator,{changes,text:integrated.text,checks:`No automated npm check is available. Verify the actual requirements independently from source and relevant commands, without a browser or live site. Do not treat a missing npm script as a defect. ${checkEvidence}`},epoch);
       return { checksPassed:checksPassed || manualVerification?.verdict==='PASS', manualVerification, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
     },
-    review: (integrator, changes, integrated) => integrated.manualVerification || reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
-  });
+    review: (integrator, changes, integrated) => integrated.manualVerification || (step('reviewing the combined result'), reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch)),
+  }).then(result => ({ ...result, report }));
 }
 // Reviewers answer PASS or FAIL only. They bold the verdict, write it after their check list, or still say UNKNOWN: an UNKNOWN or
 // "could not verify" is a FAIL. A reply with no verdict at all (a broken run) counts as no review: UNKNOWN, which combineVerdicts ignores
@@ -1601,7 +1644,7 @@ async function retryRequirement(sid,assignmentId,alternate=false,fixPrompt='') {
     }
     if (epoch!==rt.epoch) throw Object.assign(new Error('Retry cancelled'),{cancelled:true});
     if (retry.status!=='passed' && !validTaskWorkspace(retry.workspace,retry)) {
-      const spaces=createTaskWorkspaces(cwdFor(sid),sid,[retry]), workspace=spaces.tasks[0];
+      const spaces=await offThread('createTaskWorkspaces',cwdFor(sid),sid,[retry]), workspace=spaces.tasks[0];
       if (!workspace) throw new Error('Could not create a workspace for this retry.');
       retry.workspace={...workspace,...(spaces.cleanup?.[0] && {cleanup:spaces.cleanup[0]})}; retry.workspaceMode=spaces.mode;
       if(retry.status==='reviewing') retry.status='queued';

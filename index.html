@@ -1702,17 +1702,24 @@ $('#log').onclick = (e) => { const t = e.target.closest('.av.user, .nm.u'); if (
 // live status: main sends { who, status, since } on change and { who, status: null } when a run ends
 let act = {}; const actBy = {}; // agent activity of the open session; actBy keeps every session's
 const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's'; };
-let reqsNow = null; // the open chat's checklist, so the typing line can say the lead is splitting it into tasks
+let reqsNow = null; // the open chat's checklist: the typing line also shows the checklist's own agents (splitting, combining)
+// checklist steps that run an agent outside the chat, shown on the typing line like any other agent
+const reqJobs = (r) => {
+  const planner = r?.planning && !(r.assignments || []).length ? { who:r.planning, text:' is splitting into parallel tasks' } : null;
+  const ia = (r?.assignments || []).find((a) => ['integrating', 'retrying'].includes(a.integrationStatus)), route = ia && (ia.integrationRoute || ia);
+  const integrator = ia ? { who:route.provider, model:route.model, effort:route.effort, since:ia.integrationStarted, text:` is ${r.integration?.step || (ia.integrationStatus === 'retrying' ? 'fixing the combined result' : 'combining the tasks')}` } : null;
+  return [planner, integrator].filter(Boolean);
+};
 function renderTyping() {
-  const planner = reqsNow?.planning && !(reqsNow.assignments || []).length ? reqsNow.planning : null;
-  const ws = [...new Set([...Object.keys(act), ...(planner ? [planner] : [])])], sep = () => el('span', { textContent: '·' });
-  const doing = (w) => w === planner ? el('span', { className: 'rq-think', textContent: ' is splitting into parallel tasks' }) : ` is ${act[w].status}`;
-  $('#reqbar').classList.toggle('working', ws.length > 0); // live shimmer on the progress bar while agents run
-  if (!ws.length) { const busy = $('#busy'); if (busy.hasChildNodes()) busy.replaceChildren(); return; }
-  const dots = el('span', { className: 'dots', style: `color:${nameColor(ws[0])}` }, el('i'), el('i'), el('i'));
+  const jobs = reqJobs(reqsNow), sep = () => el('span', { textContent: '·' });
+  const rows = [...Object.keys(act).filter((w) => !jobs.some((j) => j.who === w && !j.model)).map((w) => ({ who:w, ...act[w], text:` is ${act[w].status}` })), ...jobs.map((j) => ({ ...j, job:true }))];
+  $('#reqbar').classList.toggle('working', rows.length > 0); // live shimmer on the progress bar while agents run
+  if (!rows.length) { const busy = $('#busy'); if (busy.hasChildNodes()) busy.replaceChildren(); return; }
+  const dots = el('span', { className: 'dots', style: `color:${nameColor(rows[0].who)}` }, el('i'), el('i'), el('i'));
   const nm = (w) => el('b', { textContent: w, style: `color:${nameColor(w)}` });
-  if (ws.length > 1 && ws.every((w) => act[w]?.status === 'typing')) return $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [i === ws.length - 1 ? ' and ' : ', '] : []), nm(w)]), ' are typing…');
-  $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [sep()] : []), avatar(w, 1, null, modelProvider(act[w]?.model)), nm(w), ...(act[w] ? [RoutingUI.badge(act[w].model, act[w].effort)] : []), doing(w), ...(act[w] ? [el('span', { className: 'mono', textContent: dur(Date.now() - act[w].since) })] : [])]));
+  if (rows.length > 1 && rows.every((x) => x.status === 'typing')) return $('#busy').replaceChildren(dots, ...rows.flatMap((x, i) => [...(i ? [i === rows.length - 1 ? ' and ' : ', '] : []), nm(x.who)]), ' are typing…');
+  $('#busy').replaceChildren(dots, ...rows.flatMap((x, i) => [...(i ? [sep()] : []), avatar(x.who, 1, null, modelProvider(x.model)), nm(x.who), ...(x.model ? [RoutingUI.badge(x.model, x.effort)] : []),
+    x.job ? el('span', { className: 'rq-think', textContent: x.text }) : x.text, ...(x.since ? [el('span', { className: 'mono', textContent: dur(Date.now() - x.since) })] : [])]));
 }
 // same rule as requirement-workflow pathsOverlap: a file is covered by itself or a folder above it
 const pathsOverlapUi = (a, b) => { const k = (p) => String(p).toLowerCase().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''); const x = k(a), y = k(b); return !!x && !!y && (x === y || x.startsWith(y + '/') || y.startsWith(x + '/')); };
@@ -1753,7 +1760,7 @@ function renderReqs(r) {
   const next = items.findIndex((i) => !i.done), assignmentByIndex = new Map((r.assignments || []).map((a) => [Number(a.requirementIndex), a]));
   const assignmentDetails = (a) => {
     const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', skipped:'Skipped', blocked:'Blocked', open:'Open', escalated:'Escalated' };
-    const state = a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
+    const state = status==='passed' && a.passedWithNotes ? 'Passed with notes' : a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
     const displayedRoute=status==='reviewing' && a.reviewRoute ? a.reviewRoute : a.integrationRoute || a;
     const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
     const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
@@ -1829,7 +1836,8 @@ function renderReqs(r) {
     sum.append(end);
   }
   box.replaceChildren(sum, list);
-  if (!!reqsNow?.planning !== !!r?.planning) { reqsNow = r; renderTyping(); } else reqsNow = r;
+  const jobsKey = (x) => JSON.stringify(reqJobs(x).map((j) => j.who + j.text));
+  if (jobsKey(reqsNow) !== jobsKey(r)) { reqsNow = r; renderTyping(); } else reqsNow = r;
 }
 api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(window.ActiveChat?.supercode ? d.reqs || { items: [], idle: true } : null); });
 api.on('agent:status', (d) => { const a = actBy[d.sid] ||= {}; if (d.status) a[d.who] = d; else delete a[d.who]; if (d.sid === openSid) { renderTyping(); renderSpend(); } });

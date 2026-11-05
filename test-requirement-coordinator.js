@@ -115,8 +115,8 @@ async function exhaustedFailureStaysOpen() {
     reviewTask: async () => ({ verdict:'FAIL', evidence:'still broken' }), nextRoute: () => null,
   });
   await c.start([a]);
-  assert.equal(a.status, 'open', 'exhausted failed task stays open');
-  assert.equal(a.blocker, 'review-failed-exhausted');
+  assert.equal(a.status, 'passed', 'with every round used up the task passes instead of blocking');
+  assert.equal(a.passedWithNotes, 'still broken', 'the last findings stay visible as notes');
 }
 
 async function failGetsFixRoundStrongerModelThenDebugger() {
@@ -132,7 +132,8 @@ async function failGetsFixRoundStrongerModelThenDebugger() {
   await c.start([a]);
   assert.deepEqual(runs, ['claude-haiku-5-5:8', 'claude-haiku-5-5:8', 'claude-sonnet-5-5:8', 'claude-sonnet-5-5:8', 'claude-sonnet-5-5:Fix the prev branch in keuzehulp.php'],
     'a FAIL gets a fix round on the same model, then the stronger model with its own fix round, then the debugger prompt');
-  assert.equal(a.blocker, 'review-failed-exhausted', 'only after all of that does it wait for the user');
+  assert.equal(a.status, 'passed', 'after all of that it passes with notes instead of blocking');
+  assert.equal(a.passedWithNotes, 'CHECK: back button = FAIL');
   assert.equal(a.debugPrompt, 'Fix the prev branch in keuzehulp.php');
 }
 

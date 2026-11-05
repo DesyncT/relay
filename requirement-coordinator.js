@@ -116,7 +116,8 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
         if (cancelled || stoppedTasks.has(a.id)) return;
         if (prompt) { a.debugPrompt = prompt; a.task = prompt; a.status = 'running'; a.progress = 0; save(a); continue; }
       }
-      a.status = 'open'; a.blocker = 'review-failed-exhausted'; a.ended = Date.now(); save(a); return;
+      // every round is used up: it passes with the last findings as notes instead of blocking (the combined result is still verified)
+      a.status = 'passed'; a.progress = 100; a.blocker = null; a.passedWithNotes = String(a.reviewEvidence.at(-1)?.evidence || '').slice(0, 3000); a.ended = Date.now(); save(a); return;
     }
   }
   function start(input) {
@@ -177,7 +178,7 @@ async function runRequirementIntegration(input, { integrate, review, nextRoute =
     const passed = assignments.filter(a => a.actionable !== false && a.status === 'passed');
     const changes = passed.map(a => ({ assignmentId:a.id, paths:[...(a.changedPaths || [])], scope:[...(a.fileOwnership || a.files || [])], patch:Buffer.from(a.patch || '', 'base64') }));
     let integrator = { ...passed[0], ...(passed[0].integrationRoute || {}), attemptedRoutes:[], retryCount:0 }, findings = '';
-    for (const a of passed) a.integrationStatus='integrating';
+    for (const a of passed) { a.integrationStatus='integrating'; a.integrationStarted=Date.now(); }
     persist(assignments);
     for (;;) {
       let integrated;

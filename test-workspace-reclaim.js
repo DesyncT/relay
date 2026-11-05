@@ -5,7 +5,9 @@ const fs = require('node:fs'), os = require('node:os'), path = require('node:pat
 const { createTaskWorkspaces, cleanupTaskWorkspaces } = require('./requirement-workspaces');
 const source = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
 const slice = (from, to) => { const a = source.indexOf(from), b = source.indexOf(to, a); assert.ok(a >= 0 && b > a, from); return source.slice(a, b); };
-const code = slice('function setReqs(sid, reqs) {', '\nasync function startRequirementWorkflow') + '\n' + slice('function workspacesFromAssignments(', '\nfunction resumeSessions');
+const code = (slice('function setReqs(sid, reqs) {', '\nasync function startRequirementWorkflow') + '\n' + slice('function workspacesFromAssignments(', '\nfunction resumeSessions'))
+  // the worker-thread hop runs inline here so the assertions can check the folders right away
+  .replace(/function offThread\([\s\S]*?\n}\r?\n/, 'function offThread(name, ...args) { cleanupTaskWorkspaces(...args); return Promise.resolve(); }\n');
 const sessions = { s: { reqs: null, projectId: 'p1' }, d: { reqs: null, projectId: 'p1' }, r: { reqs: null, projectId: 'p2' } };
 const store = {
   updateSession: (sid, patch) => Object.assign(sessions[sid], patch),

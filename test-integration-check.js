@@ -6,12 +6,12 @@ const { scopeCovers } = require('./requirement-workflow');
 const source = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
 const start = source.indexOf("      let checkEvidence = 'No full project check could be run.';"), end = source.indexOf('      let manualVerification', start);
 assert.ok(start > 0 && end > start, 'integration check block found in main.js');
-const gate = new Function('fs', 'path', 'run', 'projectPath', 'sid', 'changes', 'before', 'touchedSince', 'scopeCovers',
+const gate = new Function('fs', 'path', 'run', 'projectPath', 'sid', 'changes', 'before', 'offThread', 'scopeCovers', 'step',
   `return (async () => {\n${source.slice(start, end)}\nreturn { checksPassed, checkEvidence };\n})();`);
 const pkg = { readFileSync: () => JSON.stringify({ scripts: { test: 'x' } }) };
 const fail = (code) => async () => { const e = new Error('tests failed'); e.code = code; throw e; };
 const changes = [{ scope: ['src/', 'README.md'] }];
-const check = (fsLike, run, touched = []) => gate(fsLike, path, run, '.', 's', changes, new Map(), () => touched, scopeCovers);
+const check = (fsLike, run, touched = []) => gate(fsLike, path, run, '.', 's', changes, new Map(), async () => touched, scopeCovers, () => {});
 (async () => {
   assert.equal((await check(pkg, async () => 'ok')).checksPassed, true, 'exit 0 with output passes');
   assert.equal((await check(pkg, fail(1))).checksPassed, false, 'a red suite never counts as passed');
@@ -22,7 +22,7 @@ const check = (fsLike, run, touched = []) => gate(fsLike, path, run, '.', 's', c
   assert.equal(outside.checksPassed, false, 'an edit outside the task scopes fails the gate');
   assert.match(outside.checkEvidence, /outside the passed tasks' scopes: package\.json\. Revert/);
   const manualStart=source.indexOf('      let manualVerification',start),manualEnd=source.indexOf('      return { checksPassed',manualStart);
-  const manual=new Function('checksPassed','checkUnavailable','outside','reviewIntegratedResult','sid','integrator','changes','integrated','checkEvidence','epoch',`return(async()=>{${source.slice(manualStart,manualEnd)}return manualVerification;})();`);
+  const manual=new Function('checksPassed','checkUnavailable','outside','reviewIntegratedResult','sid','integrator','changes','integrated','checkEvidence','epoch',`return(async()=>{let report='';const step=()=>{};${source.slice(manualStart,manualEnd)}return manualVerification;})();`);
   let verifications=0;
   const verify=async()=>{verifications++;return {verdict:'PASS',evidence:'Verified acceptance criteria in staging'};};
   assert.equal((await manual(false,true,[],verify,'s',{},[],{text:'Done'},'No npm script',0)).verdict,'PASS');
