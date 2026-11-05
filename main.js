@@ -516,7 +516,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
         const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
         const effort = 'low';
         const route = { extra:argsFor(provider,'other',{ [provider]:{ other:{ model, effort } } },''), meta:{ phase:'review', model, effort } };
-        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. Verify the actual acceptance criteria through source inspection, relevant commands, or live staging/browser evidence. There is no UNKNOWN: every point is PASS or FAIL. Do not edit files or trust the worker report. First list the concrete check points this requirement implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Anything you cannot verify is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
+        const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. There is no UNKNOWN: every point is PASS or FAIL. Do not edit files or trust the worker report. First list the concrete check points this requirement implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
         try {
           const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
           const verdict = readVerdict(result.text);
@@ -582,7 +582,7 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
 ${checkEvidence}`;
       const checksPassed = hasFullCheck && !outside.length;
       let manualVerification=null;
-      if(!checksPassed && checkUnavailable && !outside.length) manualVerification=await reviewIntegratedResult(sid,integrator,{changes,text:integrated.text,checks:`No automated npm check is available. Verify the actual requirements independently using source, relevant checks, or live staging/browser evidence. Do not treat a missing npm script as a defect. ${checkEvidence}`},epoch);
+      if(!checksPassed && checkUnavailable && !outside.length) manualVerification=await reviewIntegratedResult(sid,integrator,{changes,text:integrated.text,checks:`No automated npm check is available. Verify the actual requirements independently from source and relevant commands, without a browser or live site. Do not treat a missing npm script as a defect. ${checkEvidence}`},epoch);
       return { checksPassed:checksPassed || manualVerification?.verdict==='PASS', manualVerification, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
     },
     review: (integrator, changes, integrated) => integrated.manualVerification || reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
@@ -606,7 +606,7 @@ async function reviewIntegratedResult(sid, integrator, changes, epoch) {
     const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
     const effort = 'low';
     const route = { extra:argsFor(provider, 'other', { [provider]:{ other:{ model, effort } } }, ''), meta:{ phase:'review', model, effort } };
-    const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. First list the concrete check points the requirements imply, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Anything you cannot verify is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.`;
+    const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. First list the concrete check points the requirements imply, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.`;
     try {
       const result = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:`req-final-review-${index}`, route });
       const verdict = readVerdict(result.text);
@@ -971,7 +971,7 @@ Review ONLY the active request below. Do not judge older tasks. Inspect the CURR
 User requests:\n${request}
 Worker report:\n${String(result.text).slice(-5000)}
 Changed paths to inspect now:\n${JSON.stringify(evidence)}
-First list the concrete check points the active request implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Anything you cannot verify is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL, and EVIDENCE: a short explanation with paths and specific defects. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED. Do not claim runtime or visual verification unless you performed it.  No more than 180 words.`;
+First list the concrete check points the active request implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL, and EVIDENCE: a short explanation with paths and specific defects. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.  No more than 180 words.`;
       const timer = setTimeout(() => { for (const proc of procs.values()) if (proc.sub === tag) killProc(proc, true); }, 90000);
       setStatusFor(sid, provider + ':' + roles[index][0].toLowerCase().replace(/\s+/g, '-'), 'reviewing', route.meta);
       try {
@@ -1536,7 +1536,7 @@ ipcMain.handle('chat:retry', async (_e, sid, targetProv) => {
   for (const who of first) enqueue(sid, who, lastUser, after, who === lead);
   return true;
 });
-async function retryRequirement(sid,assignmentId,alternate=false) {
+async function retryRequirement(sid,assignmentId,alternate=false,fixPrompt='') {
   if (!supercodeOn(sid)) throw new Error('Checklist retries are available in EasyCode.');
   const workflow=requirementCoordinators.get(sid);
   if (!workflow && chatBusy(sid)) throw new Error('A new request is starting. Retry this subagent in a moment.');
@@ -1548,6 +1548,8 @@ async function retryRequirement(sid,assignmentId,alternate=false) {
   const available=AGENT_NAMES.filter(provider=>!isDown(provider)), routes=initialWorkerRoutes(settings.routes, settings.taskMaxModel);
   const {prepareRequirementRetry}=require('./requirement-retry');
   let retry=prepareRequirementRetry(original,{alternate:!!alternate,routes,available});
+  // Fix with the debugger's prompt: the worker gets that prompt as its task and runs again
+  if (fixPrompt && retry.status!=='passed') retry={...retry,task:String(fixPrompt).slice(0,6000),status:'queued'};
   const trigger=session.messages.findLast(message=>message.from==='user');
   if (!trigger) throw new Error('No user request to retry.');
   const rt=RT(sid), epoch=rt.epoch;
@@ -1605,6 +1607,31 @@ async function skipRequirement(sid,assignmentId) {
   return true;
 }
 ipcMain.handle('chat:requirement-skip',(_e,sid,id)=>skipRequirement(sid,id));
+// Debugger: looks at a failing task (files, commands, the running app or staging page) and writes one prompt that fixes it
+async function debugRequirement(sid,assignmentId) {
+  const workflow=requirementCoordinators.get(sid), saved=reqsOf(sid)?.assignments || [];
+  const a=workflow?.coordinator.assignments.find(x=>x.id===assignmentId) || saved.find(x=>x.id===assignmentId);
+  if (!a) throw new Error('This task no longer exists.');
+  const provider=[a.provider,...AGENT_NAMES].find(p=>AGENT_NAMES.includes(p) && !isDown(p));
+  if (!provider) throw new Error('No provider is available to debug this task.');
+  const r=settings.routes?.[provider]?.other || {}, route={extra:argsFor(provider,'other',{[provider]:{other:r}},''),meta:{phase:'debug',...r}};
+  const last=(a.reviewEvidence || []).at(-1)?.evidence || a.integrationFindings || a.error || '';
+  const prompt=`You are the debugger for a checklist task that keeps failing.
+Requirement: ${reqsOf(sid)?.items?.[a.requirementIndex]?.t || ''}
+Task given to the worker: ${a.task || ''}
+Status: ${a.status}${a.blocker ? ' · ' + a.blocker : ''}
+Owned files: ${JSON.stringify(a.files || [])}
+Last review or error: ${String(last).slice(-4000)}
+Find the real cause. Read the files and run relevant commands in ${a.workspace?.path || cwdFor(sid)}. When the problem only shows when it runs, open the running app or the staging page in your browser tools and look at it: read only, never sign in, submit forms, publish or change the live site. Do not edit files.
+Then reply with ONLY one self-contained prompt for a coding agent that fixes it: what is wrong and why, the exact files and lines, the change to make, and how to check the fix from the code. Keep the owned files and the requirement's limits.`;
+  const result=await PROV[provider](prompt,null,{sid,cwd:a.workspace?.path || cwdFor(sid),quiet:true,readonly:true,sub:`req-debug-${a.id}`,route});
+  const debugPrompt=String(result.text || '').trim().slice(0,6000);
+  if (!debugPrompt) throw new Error('The debugger returned nothing. Try again.');
+  a.debugPrompt=debugPrompt;
+  setReqs(sid,{...reqsOf(sid),assignments:(workflow?.coordinator.assignments || saved).map(x=>x.id===assignmentId ? {...x,debugPrompt} : x)});
+  return debugPrompt;
+}
+ipcMain.handle('chat:requirement-debug',(_e,sid,id)=>debugRequirement(sid,id));
 ipcMain.handle('chat:bypass', (_e, sid, on) => { on ? bypass.add(sid) : bypass.delete(sid); send('chat:mode', { sid, mode: modeOf(sid), bypass: bypass.has(sid) }); }); // the renderer shows the confirm dialog first
 ipcMain.handle('chat:stop', (_e, sid) => {
   const rt = RT(sid);

@@ -49,7 +49,7 @@ const handlerSource=source.slice(source.indexOf('async function retryRequirement
   const session={lead:'codex',messages:[{from:'user',text:'Implement both',at:1}],reqs:{items:[{t:'First'},{t:'Second'}],assignments:[done,target]}};
   const retrying=new Set(), workflows=new Map();
   const context={
-    ipcMain:{handle:(channel,fn)=>{if(channel==='chat:requirement-skip') skip=fn; else handler=fn;}},supercodeOn:()=>true,chatBusy:()=>workflows.size>0,requirementCoordinators:workflows,reqsOf:()=>session.reqs,
+    ipcMain:{handle:(channel,fn)=>{if(channel==='chat:requirement-skip') skip=fn; else if(channel==='chat:requirement-retry') handler=fn;}},supercodeOn:()=>true,chatBusy:()=>workflows.size>0,requirementCoordinators:workflows,reqsOf:()=>session.reqs,
     store:{getSession:()=>session},AGENT_NAMES:['codex','claude'],down:{},isDown:()=>false,
     initialWorkerRoutes:require('./worker-routing').initialWorkerRoutes,settings:{routes},require,
     RT:()=>({epoch:0}),requirementRetries:retrying,validTaskWorkspace:()=>true,

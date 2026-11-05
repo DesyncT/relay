@@ -486,6 +486,9 @@
   .saved { color:var(--muted); font-size:13px; margin-left:8px; }
   /* checklist row that passed its own review: outlined tick until the final check fills it */
   #reqbar li.passed .rq-ic { border-color:var(--claude); color:var(--claude); }
+  #reqbar .rq-debug { flex-basis:100%; font-size:12px; color:var(--text-2); }
+  #reqbar .rq-debug summary { cursor:pointer; width:max-content; }
+  #reqbar .rq-debug pre { margin:8px 0; padding:8px 12px; max-height:240px; overflow:auto; white-space:pre-wrap; font-family:var(--mono); font-size:12px; line-height:16px; background:var(--raised); border:1px solid var(--line); border-radius:8px; }
   #reqbar li.passed .rq-ic svg { width:10px; height:10px; stroke-width:3; }
   .upd { display:flex; flex-direction:column; gap:8px; width:100%; }
   .upd-h { display:flex; align-items:center; justify-content:space-between; gap:16px; }
@@ -1750,6 +1753,14 @@ function renderReqs(r) {
           finally {retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);button.textContent=label;}
         };retryControls.append(button);
       }
+      // debugger: an agent looks at the failure (files, commands, the running page) and writes a prompt that fixes it
+      if(['blocked','open'].includes(status)) retryControls.append(el('button',{type:'button',className:'rq-retry',textContent:a.debugPrompt ? 'Debug again' : 'Debug',title:'An agent finds the cause and writes a prompt that fixes it',onclick:async(event)=>{
+        const button=event.currentTarget, label=button.textContent;
+        retryControls.querySelectorAll('button').forEach(control=>control.disabled=true); message.textContent=''; button.textContent='Debugging…';
+        try {await api.call('chat:requirement-debug',sid,a.id);}
+        catch(error) {message.textContent=error.message;}
+        finally {retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);button.textContent=label;}
+      }}));
       // too much work for what it is: drop it, the rest are combined without it
       if(['blocked','open'].includes(status)) retryControls.append(el('button',{type:'button',className:'rq-retry',textContent:'Skip',title:'Leave this one out; the passed tasks are combined without it',onclick:async(event)=>{
         retryControls.querySelectorAll('button').forEach(control=>control.disabled=true); message.textContent='';
@@ -1764,7 +1775,11 @@ function renderReqs(r) {
       ...(review ? [el('span', { className:'rq-assignment-review', title:evidence.map(x => x.evidence || x.verdict || '').filter(Boolean).join('\n'), textContent:review })] : []),
       ...(a.workerFailures?.length ? [el('span',{className:'rq-assignment-review',textContent:`${a.workerFailures.length} failed attempt${a.workerFailures.length===1 ? '' : 's'}`,title:a.workerFailures.map(failure=>`${failure.provider} · ${failure.model}: ${failure.error}`).join('\n')})] : []),
       ...(a.blocker ? [el('span', { className:'rq-assignment-blocker', title:a.error || evidence.map(review=>review.evidence).filter(Boolean).join('\n') || a.blocker, textContent:a.blocker==='review-unknown' ? 'Review could not verify the result' : `Blocked · ${a.blocker}` })] : []),
-      ...(retryable ? [retryControls] : [])];
+      ...(retryable ? [retryControls] : []),
+      ...(retryable && a.debugPrompt ? [el('details',{className:'rq-debug'},el('summary',{textContent:'Debugger’s fix prompt'}),el('pre',{textContent:a.debugPrompt}),
+        el('span',{className:'rq-retry-controls'},
+          el('button',{type:'button',className:'rq-retry',textContent:'Fix with this prompt',onclick:async(event)=>{const b=event.currentTarget;b.disabled=true;b.textContent='Queuing…';try{await api.call('chat:requirement-retry',openSid,a.id,false,a.debugPrompt);}catch(error){b.disabled=false;b.textContent='Fix with this prompt';alert(error.message);}}}),
+          el('button',{type:'button',className:'rq-retry',textContent:'Copy',onclick:(event)=>{const b=event.currentTarget;navigator.clipboard?.writeText(a.debugPrompt).then(()=>{b.textContent='Copied';setTimeout(()=>{b.textContent='Copy';},1200);});}})))] : [])];
   };
   const list = el('ol', {}, ...items.map((i, n) => {
     const a = assignmentByIndex.get(n);
