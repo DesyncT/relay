@@ -21,11 +21,11 @@ const marker='    reviewTask: ',start=source.indexOf(marker),end=source.indexOf(
     providerOrder:['claude','codex'],isDown:()=>false,epoch:0,rt:{epoch:0},judgeCount:()=>1,
     argsFor:()=>[],sid:'chat',checklist:[{t:'Fix header'}],isLimitError:()=>false,markDown:()=>{},
     ...require('node:vm').runInNewContext(source.slice(source.indexOf('function readVerdict'),source.indexOf('async function reviewIntegratedResult'))+';({readVerdict,combineVerdicts})'),
-    PROV:{claude:async()=>{calls++;return {text:'VERDICT: UNKNOWN\nEVIDENCE: Could not reach staging'};},codex:async()=>{calls++;return {text:allUnknown ? 'VERDICT: UNKNOWN\nEVIDENCE: Not accessible' : 'VERDICT: PASS\nEVIDENCE: Verified header in staging'};}},
+    PROV:{claude:async()=>{calls++;return {text:allUnknown ? 'VERDICT: UNKNOWN\nEVIDENCE: Could not reach staging' : 'The run ended before a verdict.'};},codex:async()=>{calls++;return {text:'VERDICT: PASS\nEVIDENCE: Verified header in staging'};}},
   });
   const assignment={id:'a',provider:'antigravity',requirementIndex:0,workspace:{path:'.'}};
   const result=await review(assignment,{paths:[],checkEvidence:'No npm test script',evidence:''});
-  assert.equal(result.verdict,'PASS');assert.equal(calls,2,'Inconclusive review tries another reviewer');
-  allUnknown=true;assert.equal((await review(assignment,{paths:[]})).verdict,'UNKNOWN','An unverifiable result never becomes an automatic pass');
+  assert.equal(result.verdict,'PASS');assert.equal(calls,2,'A reviewer that gave no verdict is skipped for the next one');
+  calls=0;allUnknown=true;assert.equal((await review(assignment,{paths:[]})).verdict,'FAIL','Could not verify is a FAIL, never a pass');assert.equal(calls,1);
   console.log('Inconclusive review fallback checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

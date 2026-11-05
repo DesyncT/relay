@@ -142,7 +142,10 @@ async function asks(responses, initial, count = 5) {
   assert.equal(readVerdict('**VERDICT: PASS**\nEVIDENCE: ok'), 'PASS');
   assert.equal(readVerdict('I read the files.\n\nVERDICT: PASS'), 'PASS');
   assert.equal(readVerdict('VERDICT: FAIL\n- FILE: latest.md LINE: 193. ACTUAL: not synced EXPECTED: synced'), 'FAIL');
-  assert.equal(readVerdict('VERDICT: FAIL\nit looks wrong'), 'UNKNOWN');
+  assert.equal(readVerdict('VERDICT: FAIL\nit looks wrong'), 'FAIL');
+  assert.equal(readVerdict('VERDICT: UNKNOWN\nEVIDENCE: staging unreachable'), 'FAIL', 'could not verify is a FAIL');
+  assert.equal(readVerdict('CHECK: header = PASS\nCHECK: images = FAIL\nVERDICT: FAIL'), 'FAIL', 'the verdict after the check list counts');
+  assert.equal(readVerdict('I ran out of time.'), 'UNKNOWN', 'no verdict at all is no review, not a pass');
   assert.equal(combineVerdicts([{ verdict: 'PASS' }, { verdict: 'UNKNOWN' }]), 'PASS');
   assert.equal(combineVerdicts([{ verdict: 'PASS' }, { verdict: 'FAIL' }]), 'FAIL');
   assert.equal(combineVerdicts([{ verdict: 'UNKNOWN' }]), 'UNKNOWN');

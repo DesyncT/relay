@@ -382,8 +382,13 @@
   #quota .q-v { color:var(--text); } #quota .q-v.hot { color:var(--claude); } #quota .q-v.full { color:var(--negative); }
   #quota .q-l { color:var(--muted); }
   #quota .stale .q-v { color:var(--text-2); }
-  @media (max-width:1180px) { #quota .q-r { display:none; } }
-  @media (max-width:980px) { #quota .q-l { display:none; } }
+  /* one line, never wrapped: an older workbench.css rule capped this at 60% and let it wrap; detail text drops out as the header narrows */
+  html body #chat.on .ch-head #quota { flex:0 1 auto; flex-wrap:nowrap; max-width:none; min-width:0; margin-left:auto; padding-right:0; overflow:hidden; }
+  html body #chat.on .ch-head #quota > span { flex:none; height:28px; }
+  #chat .ch-head { container-type:inline-size; }
+  @container (max-width:1100px) { #quota .q-r { display:none; } }
+  @container (max-width:860px) { #quota .q-l { display:none; } }
+
   #quota > span:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
   .queue-toggle { flex:none; display:inline-flex; align-items:center; gap:6px; height:32px; margin:0; padding:0 8px; color:var(--muted); font-size:13px; line-height:20px; white-space:nowrap; }
   .queue-toggle input { display:block; flex:none; margin:0; accent-color:var(--claude); }
@@ -479,6 +484,9 @@
   .rule-head label .dot:only-of-type { margin-right:16px; }
   .rule-head p { margin:4px 0 0; color:var(--muted); font:12px/16px var(--mono); word-break:break-all; }
   .saved { color:var(--muted); font-size:13px; margin-left:8px; }
+  /* checklist row that passed its own review: outlined tick until the final check fills it */
+  #reqbar li.passed .rq-ic { border-color:var(--claude); color:var(--claude); }
+  #reqbar li.passed .rq-ic svg { width:10px; height:10px; stroke-width:3; }
   .upd { display:flex; flex-direction:column; gap:8px; width:100%; }
   .upd-h { display:flex; align-items:center; justify-content:space-between; gap:16px; }
   .upd-h b { display:block; color:var(--text); font-size:13px; line-height:20px; font-weight:500; font-variant-numeric:tabular-nums; }
@@ -1755,12 +1763,14 @@ function renderReqs(r) {
     const title = el('span', { className:'rq-title' }, ...String(i.t).split(/("[^"\n]{1,120}")/).map((p, k) => k % 2 ? el('code', { textContent:p.slice(1, -1) }) : p));
     const live = !i.done && (i.by || a?.status === 'running' || a?.status === 'reviewing'), worker = a?.provider || i.by;
     // the spinner carries the logo of the model working on it
-    const ic = i.done ? svgI('<path d="M20 6 9 17l-5-5"/>') : live && worker ? logo(worker === 'claude' ? 'claude' : worker === 'antigravity' ? 'antigravity' : 'openai', 10, worker === 'claude' ? '#D97757' : worker === 'antigravity' ? '#4E88F5' : '#fff') : '';
+    // passed its own review: ticked (outlined) now, filled once every task is combined and the final check passes
+    const passed = !i.done && a?.status === 'passed';
+    const ic = i.done || passed ? svgI('<path d="M20 6 9 17l-5-5"/>') : live && worker ? logo(worker === 'claude' ? 'claude' : worker === 'antigravity' ? 'antigravity' : 'openai', 10, worker === 'claude' ? '#D97757' : worker === 'antigravity' ? '#4E88F5' : '#fff') : '';
     // a queued task waits because it edits the same files as a running one; say which
     const blocker = a?.status === 'queued' && (r.assignments || []).find((b) => b !== a && (b.status === 'running' || b.status === 'reviewing') && (b.files || []).some((f) => (a.files || []).some((g) => pathsOverlapUi(f, g))));
-    return el('li', { className: i.done ? 'done' : live ? 'now' : n === next && !r.planning ? 'next' : '' },
+    return el('li', { className: i.done ? 'done' : passed ? 'passed' : live ? 'now' : n === next && !r.planning ? 'next' : '' },
       el('span', { className:'rq-n', textContent:String(n + 1).padStart(2, '0') }),
-      el('span', { className:'rq-ic', innerHTML:ic, title: live && worker ? `${worker} is working on this` : '' }),
+      el('span', { className:'rq-ic', innerHTML:ic, title: passed ? 'Passed review. Fully checked once every task is combined and the final check passes' : live && worker ? `${worker} is working on this` : '' }),
       el('span', { className:'rq-content' }, title, ...(!i.done && i.by && !a ? [who(i)] : []),
         ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a), ...(blocker ? [el('span', { className:'rq-wait', textContent:`Waits for #${Number(blocker.requirementIndex) + 1}, same files` })] : []))] : [])));
   }));

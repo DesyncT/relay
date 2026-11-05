@@ -82,7 +82,9 @@ async function reviewEvidenceUnknownAndFailEscalation() {
   });
   const assignments = [task('1'), task('2')];
   await c.start(assignments);
-  assert.deepEqual(calls.filter(x => x[0] === 'review').map(x => x[1]), ['1','2','1'], 'every completed task is independently reviewed including retry');
+  const reviewsOf = (id) => calls.filter(x => x[0] === 'review' && x[1] === id).length;
+  assert.equal(reviewsOf('1'), 2, 'every completed task is independently reviewed including retry');
+  assert.equal(reviewsOf('2'), 2, 'an inconclusive review is asked once more before the task stops');
   assert.equal(assignments[0].status, 'passed');
   assert.deepEqual(calls.find(x => x[0] === 'run' && x[1] === '1').slice(2), ['claude','claude','claude-haiku-5-5','low']);
   const retry = calls.find(x => x[0] === 'run' && x[1] === '1' && x[2] === 'claude');
@@ -90,6 +92,20 @@ async function reviewEvidenceUnknownAndFailEscalation() {
   assert.equal(assignments[1].status, 'blocked', 'UNKNOWN prevents integration');
   assert.equal(assignments[1].blocker, 'review-unknown');
   assert.ok(assignments[0].workerEvidence && assignments[0].reviewEvidence, 'worker and reviewer evidence are retained');
+}
+
+async function unknownRetriesOnStrongerRoute() {
+  const a = task('7'), runs = [];
+  let reviews = 0;
+  const c = createRequirementCoordinator({
+    persist: () => {}, emit: () => {},
+    runTask: async x => { runs.push(x.model); return { paths:['7.js'], evidence:'done' }; },
+    reviewTask: async () => (++reviews <= 2 ? { verdict:'UNKNOWN', evidence:'could not verify' } : { verdict:'PASS', evidence:'verified' }),
+    nextRoute: () => ({ provider:'claude', model:'claude-sonnet-5-5', effort:'medium' }),
+  });
+  await c.start([a]);
+  assert.deepEqual(runs, ['claude-haiku-5-5', 'claude-sonnet-5-5'], 'after two inconclusive reviews the task reruns on a stronger route by itself');
+  assert.equal(a.status, 'passed');
 }
 
 async function exhaustedFailureStaysOpen() {
@@ -138,6 +154,7 @@ async function recoveringReviewDoesNotRerunWorker() {
   await sharedFolderSerializesOverlappingPaths();
   await reviewEvidenceUnknownAndFailEscalation();
   await exhaustedFailureStaysOpen();
+  await unknownRetriesOnStrongerRoute();
   await unscopedFallbackNeverStarts();
   await recoveringReviewDoesNotRerunWorker();
   await singleIntegrationRequiresAllPassAndFinalGates();

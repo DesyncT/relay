@@ -95,7 +95,14 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
       a.reviewAttempts = (a.reviewAttempts || 0) + 1;
       a.reviewEvidence = [...(a.reviewEvidence || []), { verdict, evidence: review?.evidence ?? review?.reason ?? '', at: Date.now(), reviewers: review?.reviewers || [] }];
       if (verdict === 'PASS') { a.status = 'passed'; a.progress = 100; a.blocker = null; a.ended = Date.now(); save(a); return; }
-      if (verdict === 'UNKNOWN') { a.status = 'blocked'; a.blocker = 'review-unknown'; a.ended = Date.now(); save(a); return; }
+      if (verdict === 'UNKNOWN') {
+        // inconclusive: ask the reviewers once more, then let a stronger worker gather verifiable evidence; only then is it the user's call
+        a.unknownStreak = (a.unknownStreak || 0) + 1;
+        if (a.unknownStreak === 1) { save(a); continue; } // still 'reviewing': the loop reviews the same work again
+        if (retry(a, 'review-unknown')) { a.unknownStreak = 0; continue; }
+        a.status = 'blocked'; a.blocker = 'review-unknown'; a.ended = Date.now(); save(a); return;
+      }
+      a.unknownStreak = 0;
       if (!retry(a,'review-failed')) { a.status = 'open'; a.blocker = 'review-failed-exhausted'; a.ended = Date.now(); save(a); return; }
     }
   }
