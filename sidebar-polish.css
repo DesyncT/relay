@@ -50,5 +50,5 @@ nav > button[data-tab]:focus-visible,
   .sb .sb-caret { transition:none; }
 }
 
-/* Square project/session controls retain the shared hover and focus colors. */
-.sb .sb-more, .sb .sb-group-h .sb-more { width:24px; height:24px; border-radius:0; }
+/* Compact project/session controls follow the current theme corners. */
+.sb .sb-more, .sb .sb-group-h .sb-more { width:24px; height:24px; border-radius:var(--app-radius, 6px); }

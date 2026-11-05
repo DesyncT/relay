@@ -56,4 +56,4 @@ html[data-theme-style="square"] body :is(.dot,.sb-dot,.sb-spin,.rq-ic),html[data
 :root[data-relay-theme] body ::selection { background:var(--claude); color:var(--deep); }
 :root[data-relay-theme] body .b.primary:hover { background:var(--text-2); }
 
-:root[data-relay-theme] body .sb .sb-more { width:24px; height:24px; min-height:24px; border-radius:0 !important; }
+:root[data-relay-theme] body .sb .sb-more { width:24px; height:24px; min-height:24px; border-radius:var(--app-radius) !important; }

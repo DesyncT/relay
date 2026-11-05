@@ -352,7 +352,7 @@ app.whenReady().then(async () => {
   assert.ok(appearance.terminal.rowHeight>=28 && appearance.terminal.rowHeight<=40,'Sidebar stays compact in themes');
   assert.equal(appearance.sidebar.titleHeight,appearance.sidebar.lineHeight);
   assert.equal(appearance.sidebar.nowrap,'nowrap');assert.equal(appearance.sidebar.ellipsis,'ellipsis');
-  assert.equal(appearance.sidebar.radius,'0px');assert.equal(appearance.sidebar.width,appearance.sidebar.height);
+  assert.equal(appearance.sidebar.radius,'8px');assert.equal(appearance.sidebar.width,appearance.sidebar.height);
   assert.equal(appearance.light,'light');
   assert.equal(appearance.preview,true); assert.equal(appearance.unchanged,true,'AI theme preview must not replace the active theme');
   assert.equal(appearance.generated.id,'custom'); assert.match(appearance.generated.font,/Georgia/);
