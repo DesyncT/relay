@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 // Execute the actual gate with a fake provider, without launching Electron or spending tokens.
 const source = fs.readFileSync(require.resolve('./main.js'), 'utf8');
-const parser = source.slice(source.indexOf('function applyReqTags('), source.indexOf('// A wrap-up'));
+const parser = 'const fixMojibake = (t) => t;\n' + source.slice(source.indexOf('function applyReqTags('), source.indexOf('// A wrap-up'));
 const gate = source.slice(source.indexOf('    const request = msgs()'), source.indexOf('    if (supercodeOn(sid) && /\\[escalate'));
 const askGate = source.slice(source.indexOf('  let asked = answeredQuestions'), source.indexOf('  const notes = [resumed'));
 const dispatch = source.slice(source.indexOf('const WRAP ='), source.indexOf("ipcMain.handle('chat:queue',"));

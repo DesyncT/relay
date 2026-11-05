@@ -19,7 +19,8 @@ const { requirementSubagents } = require('./requirement-subagents');
 const { createTaskWorkspaces, collectTaskChanges, applyTaskChanges, cleanupTaskWorkspaces, validTaskWorkspace, projectChanges, touchedSince } = require('./requirement-workspaces');
 const { createRequirementCoordinator, runRequirementIntegration, selectIndependentReviewers } = require('./requirement-coordinator');
 const { recoverRequirementAssignments, canCleanupRequirementWorkspaces } = require('./requirement-recovery');
-const ACCESS_NOTE = 'Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
+const { fixMojibake } = require('./mojibake');
+const ACCESS_NOTE = 'Text is UTF-8. In Windows PowerShell set [Console]::OutputEncoding = [Text.Encoding]::UTF8 first, read files with -Encoding UTF8, and fetch web pages with curl.exe (Invoke-WebRequest misreads them). Never copy garbled characters like â€™ or Â· into messages, files or requirements: write the real ones (’ ·). Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
 { const old = path.join(app.getPath('appData'), 'jarvis'); app.setPath('userData', !app.isPackaged ? path.join(app.getPath('appData'), 'Relay-dev') : require('fs').existsSync(old) ? old : path.join(app.getPath('appData'), 'Relay')); } // npm start gets its own data folder and instance lock so it runs beside the installed Relay; installs from before the rename keep their data folder
@@ -126,7 +127,8 @@ const routeFor = (agent, phase) => { const x = settings[agent + 'Args']; return 
 // onLine gets each complete stdout line as it arrives (live status for the streaming CLIs).
 function run(label, cmd, args, prompt, onLine, o = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: o.cwd || settings.cwd || HOME, shell: true, windowsHide: true, ...(o.env && { env: { ...process.env, ...o.env } }) });
+    const child = spawn(cmd, args, { cwd: o.cwd || settings.cwd || HOME, shell: true, windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', ...o.env } });
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     const id = nextId++;
     procs.set(id, { id, label, child, started: Date.now(), sid: o.sid, sub: o.sub, tag: o.tag });
     send('procs', procList());
@@ -635,6 +637,7 @@ function reqNote(sid, who) {
 }
 // [req: text] lines add items, [req-done: 1, 3] ticks them; returns the text without the tags
 function applyReqTags(sid, text, who) {
+  text = fixMojibake(text);
   const r = reqsOf(sid); if (!r) return text;
   const items = r.items.map((i) => ({ ...i })), cap = Math.min(r.target || limit('maxRequirements'), limit('maxRequirements'));
   // anywhere in a line: supercode replies start with "@claude [req: ...]"; skip the "[req: ...]" placeholder and repeats (agents restate them in the final message)
@@ -733,6 +736,7 @@ Your response:`;
 }
 
 function post(sid, from, text, replyTo, attachments, extra) {
+  text = fixMojibake(text);
   const m = { from, text, at: Date.now(), ...(replyTo && { replyTo }), ...(attachments?.length && { attachments }), ...extra };
   try { store.appendMessage(sid, m); } catch { return m; } // session deleted mid-run
   send('chat:msg', { ...m, sessionId: sid }); // the renderer shows it only if that session is open

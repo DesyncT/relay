@@ -489,6 +489,11 @@
   #reqbar .rq-debug { flex-basis:100%; font-size:12px; color:var(--text-2); }
   #reqbar .rq-debug summary { cursor:pointer; width:max-content; }
   #reqbar .rq-debug pre { margin:8px 0; padding:8px 12px; max-height:240px; overflow:auto; white-space:pre-wrap; font-family:var(--mono); font-size:12px; line-height:16px; background:var(--raised); border:1px solid var(--line); border-radius:8px; }
+  /* thinking: a light sweeps across the text while the typing dots bounce */
+  #reqbar .rq-think { background:linear-gradient(90deg, var(--text-2) 0%, var(--text-2) 40%, var(--text) 50%, var(--text-2) 60%, var(--text-2) 100%) 0 0 / 300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation:rqThink 2.4s linear infinite; }
+  #reqbar .rq-plan .dots { margin-left:-4px; color:var(--text-2); }
+  @keyframes rqThink { from { background-position:100% 0; } to { background-position:0 0; } }
+  @media (prefers-reduced-motion: reduce) { #reqbar .rq-think { animation:none; color:var(--text-2); } }
   #reqbar .rq-finished { display:inline-flex; align-items:center; gap:6px; color:var(--positive, var(--claude)); font-weight:500; }
   #reqbar .rq-finished svg { width:14px; height:14px; stroke-width:2.5; }
   #reqbar li.passed .rq-ic svg { width:10px; height:10px; stroke-width:3; }
@@ -1733,7 +1738,7 @@ function renderReqs(r) {
        el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` })),
        el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done${skippedN ? ` · ${skippedN} skipped` : ''}` }),
        ...(r.planning && !(r.assignments || []).length
-         ? [el('span', { className: 'rq-now rq-plan', title: `${r.planning} is splitting the checklist into tasks that can run at the same time` }, el('span', { className: 'rq-ic', innerHTML: logo(r.planning === 'claude' ? 'claude' : r.planning === 'antigravity' ? 'antigravity' : 'openai', 10, r.planning === 'claude' ? '#D97757' : r.planning === 'antigravity' ? '#4E88F5' : '#fff') }), 'Splitting into parallel tasks')]
+         ? [el('span', { className: 'rq-now rq-plan', title: `${r.planning} is splitting the checklist into tasks that can run at the same time` }, el('span', { className: 'rq-ic', innerHTML: logo(r.planning === 'claude' ? 'claude' : r.planning === 'antigravity' ? 'antigravity' : 'openai', 10, r.planning === 'claude' ? '#D97757' : r.planning === 'antigravity' ? '#4E88F5' : '#fff') }), el('span', { className: 'rq-think', textContent: 'Splitting into parallel tasks' }), el('span', { className: 'dots' }, el('i'), el('i'), el('i')))]
          : now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`)))]
     : [el('span', { textContent: label }), el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` }))];
   const sum = el('summary', { title: items.length ? 'Show all requirements' : '' }, ...(items.length ? [el('span', { className: 'rq-car', innerHTML: CARET })] : []), ...head);
