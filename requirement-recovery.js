@@ -18,13 +18,10 @@ function recoverRequirementAssignments(input, validateWorkspace = () => false) {
   const inFlightIntegration = assignments.some(a => a.integrationStatus === 'integrating' || a.integrationStatus === 'retrying');
   const priorIntegration = assignments.some(a => INTERRUPTED_INTEGRATION.has(a.integrationStatus) || a.integrationStatus === 'passed');
   if (priorIntegration && !inFlightIntegration) return { kind:'integration-open', assignments, integrate:false };
+  // a restart cut the combine step off: run it again. Patches already applied (patchApplied) are not applied twice
   if (inFlightIntegration) {
-    for (const a of assignments) if (a.actionable !== false && a.status === 'passed') {
-      a.integrationStatus = 'open';
-      a.blocker = 'integration-interrupted';
-      a.integrationFindings ||= 'Integration was interrupted by an application restart and was not retried automatically.';
-    }
-    return { kind:'integration-interrupted', assignments, integrate:false };
+    for (const a of assignments) if (a.actionable !== false && a.status === 'passed') { a.integrationStatus = 'pending'; a.blocker = null; }
+    return { kind:'resume', assignments, integrate:true };
   }
 
   let hasActive = false;

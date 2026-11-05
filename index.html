@@ -490,10 +490,11 @@
   #reqbar .rq-debug summary { cursor:pointer; width:max-content; }
   #reqbar .rq-debug pre { margin:8px 0; padding:8px 12px; max-height:240px; overflow:auto; white-space:pre-wrap; font-family:var(--mono); font-size:12px; line-height:16px; background:var(--raised); border:1px solid var(--line); border-radius:8px; }
   /* thinking: a light sweeps across the text while the typing dots bounce */
-  #reqbar .rq-think { background:linear-gradient(90deg, var(--text-2) 0%, var(--text-2) 40%, var(--text) 50%, var(--text-2) 60%, var(--text-2) 100%) 0 0 / 300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation:rqThink 2.4s linear infinite; }
+  #busy .rq-think, #reqbar .rq-think { background:linear-gradient(90deg, var(--text-2) 0%, var(--text-2) 40%, var(--text) 50%, var(--text-2) 60%, var(--text-2) 100%) 0 0 / 300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation:rqThink 2.4s linear infinite; }
   #reqbar .rq-plan .dots { margin-left:-4px; color:var(--text-2); }
   @keyframes rqThink { from { background-position:100% 0; } to { background-position:0 0; } }
   @media (prefers-reduced-motion: reduce) { #reqbar .rq-think { animation:none; color:var(--text-2); } }
+  #reqbar .rq-end.rq-fin { color:var(--claude); font-weight:500; }
   #reqbar .rq-finished { display:inline-flex; align-items:center; gap:6px; color:var(--positive, var(--claude)); font-weight:500; }
   #reqbar .rq-finished svg { width:14px; height:14px; stroke-width:2.5; }
   #reqbar li.passed .rq-ic svg { width:10px; height:10px; stroke-width:3; }
@@ -1701,14 +1702,17 @@ $('#log').onclick = (e) => { const t = e.target.closest('.av.user, .nm.u'); if (
 // live status: main sends { who, status, since } on change and { who, status: null } when a run ends
 let act = {}; const actBy = {}; // agent activity of the open session; actBy keeps every session's
 const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's'; };
+let reqsNow = null; // the open chat's checklist, so the typing line can say the lead is splitting it into tasks
 function renderTyping() {
-  const ws = Object.keys(act), sep = () => el('span', { textContent: '·' });
+  const planner = reqsNow?.planning && !(reqsNow.assignments || []).length ? reqsNow.planning : null;
+  const ws = [...new Set([...Object.keys(act), ...(planner ? [planner] : [])])], sep = () => el('span', { textContent: '·' });
+  const doing = (w) => w === planner ? el('span', { className: 'rq-think', textContent: ' is splitting into parallel tasks' }) : ` is ${act[w].status}`;
   $('#reqbar').classList.toggle('working', ws.length > 0); // live shimmer on the progress bar while agents run
   if (!ws.length) { const busy = $('#busy'); if (busy.hasChildNodes()) busy.replaceChildren(); return; }
   const dots = el('span', { className: 'dots', style: `color:${nameColor(ws[0])}` }, el('i'), el('i'), el('i'));
   const nm = (w) => el('b', { textContent: w, style: `color:${nameColor(w)}` });
-  if (ws.length > 1 && ws.every((w) => act[w].status === 'typing')) return $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [i === ws.length - 1 ? ' and ' : ', '] : []), nm(w)]), ' are typing…');
-  $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [sep()] : []), avatar(w, 1, null, modelProvider(act[w].model)), nm(w), RoutingUI.badge(act[w].model, act[w].effort), ` is ${act[w].status}`, el('span', { className: 'mono', textContent: dur(Date.now() - act[w].since) })]));
+  if (ws.length > 1 && ws.every((w) => act[w]?.status === 'typing')) return $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [i === ws.length - 1 ? ' and ' : ', '] : []), nm(w)]), ' are typing…');
+  $('#busy').replaceChildren(dots, ...ws.flatMap((w, i) => [...(i ? [sep()] : []), avatar(w, 1, null, modelProvider(act[w]?.model)), nm(w), ...(act[w] ? [RoutingUI.badge(act[w].model, act[w].effort)] : []), doing(w), ...(act[w] ? [el('span', { className: 'mono', textContent: dur(Date.now() - act[w].since) })] : [])]));
 }
 // same rule as requirement-workflow pathsOverlap: a file is covered by itself or a folder above it
 const pathsOverlapUi = (a, b) => { const k = (p) => String(p).toLowerCase().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''); const x = k(a), y = k(b); return !!x && !!y && (x === y || x.startsWith(y + '/') || y.startsWith(x + '/')); };
@@ -1722,7 +1726,10 @@ function renderReqs(r) {
   // the bar counts partial progress of requirements an agent is on ([req-now: 3 60%]), the label counts finished ones
   // a task that passed its own review (its row shows the tick) or that you skipped counts as done
   const passedIdx = new Set((r.assignments || []).filter((a) => a.status === 'passed' || a.status === 'skipped').map((a) => Number(a.requirementIndex)));
-  const ok = (i, n) => i.done || passedIdx.has(n);
+  // an item with no task of its own (a "keep as is" constraint) counts once every task is passed or skipped
+  const tasks = r.assignments || [], assigned = new Set(tasks.map((a) => Number(a.requirementIndex)));
+  const allTasksDone = tasks.length > 0 && tasks.every((a) => passedIdx.has(Number(a.requirementIndex)) || a.actionable === false);
+  const ok = (i, n) => i.done || passedIdx.has(n) || (allTasksDone && !assigned.has(n));
   const done = items.filter(ok).length, part = (i, n) => ok(i, n) ? 100 : i.by ? i.pct || 0 : 0;
   const pct = items.length ? Math.round(items.reduce((s, i, n) => s + part(i, n), 0) / items.length) : 0;
   const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements' : 'Clarifying your request';
@@ -1731,15 +1738,14 @@ function renderReqs(r) {
   // finished = every item ticked (skipped ones too); combining = every task passed or skipped, the final check still running
   const skippedN = items.filter((i, n) => i.skipped || assignmentStatus(r, n) === 'skipped').length;
   const finished = items.every((i) => i.done), combining = !finished && done === items.length;
+  const moving = (r.assignments || []).some((a) => ['queued', 'running', 'reviewing'].includes(a.status) || ['integrating', 'retrying'].includes(a.integrationStatus));
   // one line: Requirements · 93% (accent) · bar · 1 of 3 done · @claude #1 — full texts live in the dropdown and tooltips
   const head = items.length
     ? [finished ? el('span', { className: 'rq-lbl rq-finished', innerHTML: svgI('<path d="M20 6 9 17l-5-5"/>') + '<span>All done</span>' })
-         : el('span', { className: 'rq-lbl', textContent: combining ? 'Combining and checking' : 'Requirements' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
+         : el('span', { className: 'rq-lbl', textContent: combining ? (moving ? 'Combining and checking' : 'Ready to finish') : 'Requirements' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
        el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` })),
        el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done${skippedN ? ` · ${skippedN} skipped` : ''}` }),
-       ...(r.planning && !(r.assignments || []).length
-         ? [el('span', { className: 'rq-now rq-plan', title: `${r.planning} is splitting the checklist into tasks that can run at the same time` }, el('span', { className: 'rq-ic', innerHTML: logo(r.planning === 'claude' ? 'claude' : r.planning === 'antigravity' ? 'antigravity' : 'openai', 10, r.planning === 'claude' ? '#D97757' : r.planning === 'antigravity' ? '#4E88F5' : '#fff') }), el('span', { className: 'rq-think', textContent: 'Splitting into parallel tasks' }), el('span', { className: 'dots' }, el('i'), el('i'), el('i')))]
-         : now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`)))]
+       ...now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`))]
     : [el('span', { textContent: label }), el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` }))];
   const sum = el('summary', { title: items.length ? 'Show all requirements' : '' }, ...(items.length ? [el('span', { className: 'rq-car', innerHTML: CARET })] : []), ...head);
   sum.setAttribute('aria-label', label);
@@ -1748,7 +1754,7 @@ function renderReqs(r) {
   const assignmentDetails = (a) => {
     const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', skipped:'Skipped', blocked:'Blocked', open:'Open', escalated:'Escalated' };
     const state = a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
-    const displayedRoute=a.integrationRoute || a;
+    const displayedRoute=status==='reviewing' && a.reviewRoute ? a.reviewRoute : a.integrationRoute || a;
     const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
     const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
     const progress = ['passed','skipped'].includes(status) ? 100 : Math.max(0, Math.min(100, Number(a.progress) || 0));
@@ -1810,6 +1816,12 @@ function renderReqs(r) {
       el('span', { className:'rq-content' }, title, ...(!i.done && i.by && !a ? [who(i)] : []),
         ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a), ...(blocker ? [el('span', { className:'rq-wait', textContent:`Waits for #${Number(blocker.requirementIndex) + 1}, same files` })] : []))] : [])));
   }));
+  // Finish: every task passed or skipped but nothing is moving: combine them and hand back to the lead
+  if (combining && !moving) {
+    const fin = el('button', { type: 'button', className: 'rq-end rq-fin', textContent: 'Finish', title: 'Combine the finished tasks, then the lead wraps up with a summary' });
+    fin.onclick = async (e) => { e.preventDefault(); e.stopPropagation(); fin.disabled = true; fin.textContent = 'Finishing…'; try { await api.call('chat:requirement-finish', openSid); } catch (error) { fin.disabled = false; fin.textContent = 'Finish'; fin.title = error.message; alert(error.message); } };
+    sum.append(fin);
+  }
   // End task: two clicks (the first one asks), never toggles the dropdown
   if (!r.idle) {
     const end = el('button', { type: 'button', className: 'rq-end', textContent: 'End task', title: 'Stop, drop these requirements and start fresh. What the agents learned is kept' });
@@ -1817,6 +1829,7 @@ function renderReqs(r) {
     sum.append(end);
   }
   box.replaceChildren(sum, list);
+  if (!!reqsNow?.planning !== !!r?.planning) { reqsNow = r; renderTyping(); } else reqsNow = r;
 }
 api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(window.ActiveChat?.supercode ? d.reqs || { items: [], idle: true } : null); });
 api.on('agent:status', (d) => { const a = actBy[d.sid] ||= {}; if (d.status) a[d.who] = d; else delete a[d.who]; if (d.sid === openSid) { renderTyping(); renderSpend(); } });

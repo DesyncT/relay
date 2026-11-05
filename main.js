@@ -413,6 +413,10 @@ for (const [name, sessionIds] of [['deleteSession', (id) => [id]], ['removeProje
     return result;
   };
 }
+// what the last reviewer failed, for the worker's next attempt (the files still hold its previous work)
+const lastFail = (a) => { const r = (a.reviewEvidence || []).at(-1); return r?.verdict === 'FAIL' ? `
+Your previous attempt is already in these files and FAILED review. Fix exactly the failed checks below, keep what passed, and do not start over:
+${String(r.evidence || '').slice(-3000)}` : ''; };
 async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = null) {
   const rt = RT(sid), existing = requirementCoordinators.get(sid);
   if (existing) return existing.promise;
@@ -484,6 +488,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     persist: current => setReqs(sid, { ...reqsOf(sid), assignments: current.map(a => ({ ...a, workspace: a.workspace && { ...a.workspace } })) }),
     emit: ({ assignments: current }) => send('reqs:update', { sid, reqs:reqsOf(sid), assignments:current }),
     nextRoute: (a,reason) => nextWorkerRoute(a,routes,available.filter(provider=>!isDown(provider)),reason),
+    autoFix: (a) => { post(sid, 'system', `Task #${a.requirementIndex + 1} kept failing review. The debugger is finding the cause for one last attempt.`, null, null, { muted:true }); return writeFixPrompt(sid, a); },
     runTask: async a => {
       if (a.status !== 'running' || a.blocker === 'missing-file-scope' || !a.files?.length || !a.workspace?.files?.length) throw Object.assign(new Error('Task cannot run without an explicit assigned file scope'),{nonRetryable:true});
       if (epoch !== rt.epoch) throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
@@ -491,7 +496,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
       const workerPath = ws.path && path.resolve(ws.path), projectPath = path.resolve(cwdFor(sid));
       if (!workerPath || ws.blocked || (process.platform === 'win32' ? workerPath.toLowerCase() === projectPath.toLowerCase() : workerPath === projectPath)) throw Object.assign(new Error('Task cannot run without an isolated workspace'),{nonRetryable:true});
       if (isDown(a.provider)) throw new Error(`${a.provider} is unavailable; replacing this worker`);
-      const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.`;
+      const prompt = `${ACCESS_NOTE}\nYou are implementing one assigned requirement for a larger project. Work ONLY on this task: ${a.task}\nRequirement: ${checklist[a.requirementIndex]?.t || ''}\nOwned paths: ${JSON.stringify(a.files)}\nDo not edit files outside your assigned paths. Run the relevant checks and report exactly what changed and what checks ran.${lastFail(a)}`;
       const result = await seatRun(sid, a.owner, 'coding', isStandIn => prompt + (isStandIn ? `\n\n${standIn(a.owner).trim()}` : ''), trigger, { quiet:true, sub:a.id, cwd:ws.path, routeOverride:{ provider:a.provider, model:a.model, effort:a.effort } });
       if (epoch !== rt.epoch || a.blocker==='cancelled') throw Object.assign(new Error('Workflow cancelled'),{cancelled:true});
       a.usage=addUsage(a.usage,result.usage);
@@ -518,6 +523,9 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
         const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
         const effort = 'low';
         const route = { extra:argsFor(provider,'other',{ [provider]:{ other:{ model, effort } } },''), meta:{ phase:'review', model, effort } };
+        // the row shows who is reviewing, not the worker's model
+        a.reviewRoute = { provider, model, effort };
+        setReqs(sid, { ...reqsOf(sid), assignments:coordinator.assignments.map(x => ({ ...x, workspace:x.workspace && { ...x.workspace } })) });
         const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. There is no UNKNOWN: every point is PASS or FAIL. Do not edit files or trust the worker report. First list the concrete check points this requirement implies, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
         try {
           const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
@@ -533,17 +541,14 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
   const promise = coordinator.start(assignments).then(async completed => {
     if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
     // every task skipped: nothing to combine
-    const result = completed.some(a => a.status === 'passed') ? await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner) : { status:'passed' };
+    const toCombine = completed.filter(a => a.status === 'passed' && a.integrationStatus !== 'passed');
+    const result = toCombine.length ? await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner) : { status:'passed' };
     if (epoch !== rt.epoch) return completed;
     const latest = reqsOf(sid) || {};
     if (result.status === 'passed') {
       // skipped items count as finished (they keep their skipped flag), so the lead's turn sees every requirement met and wraps up
       setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true, pct:100 })), finished:Date.now(), assignments:completed });
-      const passed = completed.filter(a => a.status === 'passed').length, skipped = (latest.items || []).map((item, n) => item.skipped ? `#${n + 1}` : '').filter(Boolean);
-      // the lead comes back: one last look over the combined result, then the wrap-up review and the summary
-      const handBack = post(sid, 'system', `All ${latest.items?.length || 0} checklist tasks are finished: ${passed} passed${skipped.length ? `, ${skipped.length} skipped (${skipped.join(', ')})` : ''}${passed ? ', and the combined result passed verification' : ''}. @${owner} look over the project once more, fix anything small that is left, then wrap up with the summary.`, null);
-      enqueue(sid, owner, handBack, null, true);
-      if (Notification.isSupported()) new Notification({ title:'Checklist finished', body:`${store.getSession(sid)?.title || 'Chat'}: ${passed} passed${skipped.length ? `, ${skipped.length} skipped` : ''}. @${owner} is wrapping up.` }).show();
+      handBackToLead(sid, owner, completed);
     } else {
       setReqs(sid, { ...latest, assignments:completed });
       post(sid, owner, `Integration remains open: ${result.findings || result.blocker}. Requirements are still unchecked.`, trigger, null, { muted:true });
@@ -553,6 +558,16 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
   }).finally(() => { requirementCoordinators.delete(sid); reclaimWorkspaces(sid, workspaces.cleanup); });
   requirementCoordinators.set(sid, { coordinator, promise, workspaces });
   return promise;
+}
+// the lead comes back: one last look over the combined result, then the wrap-up review and the summary
+function handBackToLead(sid, owner, completed) {
+  const latest = reqsOf(sid) || {}, items = latest.items || [];
+  const passed = completed.filter(a => a.status === 'passed').length, skipped = items.map((item, n) => item.skipped ? `#${n + 1}` : '').filter(Boolean);
+  setReqs(sid, { ...latest, handedBack:Date.now() }); // saved, so a restart does not hand back twice
+  const handBack = post(sid, 'system', `All ${items.length} checklist tasks are finished: ${passed} passed${skipped.length ? `, ${skipped.length} skipped (${skipped.join(', ')})` : ''}${passed ? ', and the combined result passed verification' : ''}. @${owner} look over the project once more, fix anything small that is left, then wrap up with the summary.`, null);
+  enqueue(sid, owner, handBack, null, true);
+  saveResume(sid);
+  if (Notification.isSupported()) new Notification({ title:'Checklist finished', body:`${store.getSession(sid)?.title || 'Chat'}: ${passed} passed${skipped.length ? `, ${skipped.length} skipped` : ''}. @${owner} is wrapping up.` }).show();
 }
 async function integrateRequirementTasks(sid, assignments, trigger, epoch, workspaces, routes, available, owner) {
   const rt = RT(sid), projectPath = cwdFor(sid);
@@ -566,7 +581,13 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
       if (isDown(integrator.provider)) throw new Error(`${integrator.provider} is unavailable; replacing the integration worker`);
       before ??= projectChanges(projectPath);
       const conflicts = [];
-      if (!integrator.retryCount) for (const change of changes) if (change.patch.length) conflicts.push(...applyTaskChanges(projectPath, change));
+      if (!integrator.retryCount) for (const change of changes) {
+        const owner = assignments.find(a => a.id === change.assignmentId);
+        if (!change.patch.length || owner?.patchApplied) continue;
+        conflicts.push(...applyTaskChanges(projectPath, change));
+        // saved at once: a restart after this point must not apply the same patch again
+        if (owner) { owner.patchApplied = true; setReqs(sid, { ...reqsOf(sid), assignments:assignments.map(a => ({ ...a, workspace:a.workspace && { ...a.workspace } })) }); }
+      }
       const assigned = assignments.filter(a => a.status === 'passed').map(a => ({ id:a.id, task:a.task, requirement:a.requirementIndex, files:a.changedPaths || [], patchIncluded:changes.some(c => c.assignmentId === a.id && c.patch.length) }));
       const prompt = `${ACCESS_NOTE}\nYou are the single integration agent for the passed requirement tasks. Inspect the active project and integrate/reconcile their combined work, resolving overlaps and preserving existing user changes. Task summaries and patch application state: ${JSON.stringify(assigned)}\nPatch conflicts or scope errors: ${JSON.stringify(conflicts).slice(0,5000)}\n${integrator.previousFindings ? `Previous final-review findings to repair: ${integrator.previousFindings}` : ''}\nRequirements, including preservation constraints: ${JSON.stringify(reqsOf(sid)?.items || [])}\nOnly make changes needed to combine these passed tasks. Run the full project checks and report the exact command and result. Do not claim checks passed if they could not run.`;
       const integrated = await seatRun(sid, integrator.owner || owner, 'coding', () => prompt, trigger, { quiet:true, cwd:projectPath, sub:'req-integration', routeOverride:{ provider:integrator.provider, model:integrator.model, effort:integrator.effort } });
@@ -1135,11 +1156,13 @@ function resumeSessions() {
       const recovered = recoverRequirementAssignments(persistedAssignments, (workspace, assignment) => validTaskWorkspace(workspace, assignment));
       const reqs = s.reqs || {};
       if (recovered.kind === 'integrated') {
-        const items = (reqs.items || []).map(item => ({ ...item, done:true }));
+        const items = (reqs.items || []).map(item => ({ ...item, done:true, pct:100 }));
         setReqs(s.id, { ...reqs, items, assignments:recovered.assignments });
-        if (!reqs.items?.every(item => item.done)) post(s.id, 'system', 'Recovered the already completed requirement integration; no worker or integrator was restarted.', null, null, { muted:true });
-        saveResume(s.id); drainUserQueue(s.id); continue;
-      }
+        const owner = recovered.assignments.find(a => a.owner)?.owner || s.lead || settings.lead || 'claude';
+        // combined but the lead never got its turn: hand back now. Otherwise the agents that were mid-turn resume below
+        if (!reqs.handedBack && !r?.who?.length) { handBackToLead(s.id, owner, recovered.assignments); continue; }
+        if (!r?.who?.length) { saveResume(s.id); drainUserQueue(s.id); continue; }
+      } else {
       setReqs(s.id, { ...reqs, assignments:recovered.assignments });
       if (recovered.kind === 'integration-interrupted' || recovered.kind === 'integration-open') {
         const explanation = recovered.kind === 'integration-interrupted'
@@ -1167,7 +1190,9 @@ function resumeSessions() {
       }
       const open = recovered.assignments.filter(a => ['open','blocked','failed'].includes(a.status));
       if (open.length) post(s.id, 'system', `Requirement work remains open after restart: ${open.map(a => `${a.id}: ${a.blocker || a.status} — ${a.error || ''}`).join('; ')}`, null, null, { muted:true });
-      saveResume(s.id); drainUserQueue(s.id); continue;
+      // agents that were mid-turn (the lead wrapping up, a teammate answering) pick up below instead of going quiet
+      if (!r?.who?.length) { saveResume(s.id); drainUserQueue(s.id); continue; }
+      }
     }
     if (!r?.who?.length) continue;
     const rt = RT(s.id);
@@ -1273,7 +1298,7 @@ ipcMain.handle('sessions:working', () => workingIds());
 async function pump(sid, who) {
   // Supercode chats run until the user says "wrap up" (or the team goes idle); a single agent keeps the maxTurns cap
   const rt = RT(sid), lane = rt.lanes[who], ep = rt.epoch, max = supercodeOn(sid) ? Infinity : Math.max(1, +settings.maxTurns || 4);
-  lane.busy = true; sendWorking();
+  lane.busy = true; sendWorking(); saveResume(sid); // saved as it starts: closing Relay mid-turn still knows who was working
   while (lane.next && ep === rt.epoch) {
     const { trigger, after, lead } = lane.next; lane.next = null;
     if (rt.paused || rt.turns >= max) {
@@ -1611,17 +1636,35 @@ async function skipRequirement(sid,assignmentId) {
   if (live) { Object.assign(live,skip); setReqs(sid,{...reqsOf(sid),items,assignments:workflow.coordinator.assignments}); return true; }
   const assignments=saved.map(a=>a.id===assignmentId ? {...a,...skip} : {...a});
   setReqs(sid,{...reqsOf(sid),items,assignments});
+  if (assignments.every(a=>a.actionable===false || a.status==='passed')) await finishChecklist(sid);
+  return true;
+}
+// Every task passed or skipped and nothing is running: combine the passed ones, then the lead wraps up with the summary.
+// Skip calls it, and the Finish button forces it when a run stalled
+async function finishChecklist(sid) {
+  if (requirementCoordinators.has(sid)) throw new Error('The tasks are still being combined and checked.');
+  const session=store.getSession(sid), reqs=reqsOf(sid) || session.reqs || {}, assignments=(reqs.assignments || []).map(a=>({...a}));
+  if (!assignments.length || assignments.some(a=>a.actionable!==false && a.status!=='passed')) throw new Error('Some tasks are not finished yet. Retry or skip them first.');
   const trigger=session.messages.findLast(message=>message.from==='user');
-  if (!trigger || chatBusy(sid) || !assignments.some(a=>a.status==='passed') || assignments.some(a=>a.actionable!==false && a.status!=='passed')) return true;
+  if (!trigger) throw new Error('No user request to finish.');
+  // an integration cut off mid-way starts over; one that already passed is not applied twice
+  for (const a of assignments) if (['integrating','retrying'].includes(a.integrationStatus)) a.integrationStatus='pending';
   await startRequirementWorkflow(sid,assignments.find(a=>a.owner)?.owner || session.lead || 'codex',trigger,RT(sid).epoch,{assignments,workspaces:workspacesFromAssignments(assignments)});
   return true;
 }
+ipcMain.handle('chat:requirement-finish',(_e,sid)=>finishChecklist(sid));
 ipcMain.handle('chat:requirement-skip',(_e,sid,id)=>skipRequirement(sid,id));
 // Debugger: looks at a failing task (files, commands, the running app or staging page) and writes one prompt that fixes it
 async function debugRequirement(sid,assignmentId) {
   const workflow=requirementCoordinators.get(sid), saved=reqsOf(sid)?.assignments || [];
   const a=workflow?.coordinator.assignments.find(x=>x.id===assignmentId) || saved.find(x=>x.id===assignmentId);
   if (!a) throw new Error('This task no longer exists.');
+  const debugPrompt=await writeFixPrompt(sid,a);
+  a.debugPrompt=debugPrompt;
+  setReqs(sid,{...reqsOf(sid),assignments:(workflow?.coordinator.assignments || saved).map(x=>x.id===assignmentId ? {...x,debugPrompt} : x)});
+  return debugPrompt;
+}
+async function writeFixPrompt(sid,a) {
   const provider=[a.provider,...AGENT_NAMES].find(p=>AGENT_NAMES.includes(p) && !isDown(p));
   if (!provider) throw new Error('No provider is available to debug this task.');
   const r=settings.routes?.[provider]?.other || {}, route={extra:argsFor(provider,'other',{[provider]:{other:r}},''),meta:{phase:'debug',...r}};
@@ -1637,8 +1680,6 @@ Then reply with ONLY one self-contained prompt for a coding agent that fixes it:
   const result=await PROV[provider](prompt,null,{sid,cwd:a.workspace?.path || cwdFor(sid),quiet:true,readonly:true,sub:`req-debug-${a.id}`,route});
   const debugPrompt=String(result.text || '').trim().slice(0,6000);
   if (!debugPrompt) throw new Error('The debugger returned nothing. Try again.');
-  a.debugPrompt=debugPrompt;
-  setReqs(sid,{...reqsOf(sid),assignments:(workflow?.coordinator.assignments || saved).map(x=>x.id===assignmentId ? {...x,debugPrompt} : x)});
   return debugPrompt;
 }
 ipcMain.handle('chat:requirement-debug',(_e,sid,id)=>debugRequirement(sid,id));
@@ -1768,7 +1809,7 @@ app.whenReady().then(() => {
   ensureAntigravityProxy();
   createWindow().webContents.once('did-finish-load', () => setTimeout(resumeSessions, 1500)); // let the renderer settle, then restart interrupted work
 });
-app.on('before-quit', () => { quitting = true; panels.killAll(); if (proxyProcess) { try { proxyProcess.kill(); } catch {} } });
+app.on('before-quit', () => { if (!quitting) for (const meta of store.listSessions()) if (rts.has(meta.id)) saveResume(meta.id); quitting = true; panels.killAll(); if (proxyProcess) { try { proxyProcess.kill(); } catch {} } });
 app.on('window-all-closed', () => app.quit());
 // Tray: click shows Relay; the menu shows what's running and your 5h usage, and Exit is the real quit
 let tray = null;

@@ -119,6 +119,23 @@ async function exhaustedFailureStaysOpen() {
   assert.equal(a.blocker, 'review-failed-exhausted');
 }
 
+async function failGetsFixRoundStrongerModelThenDebugger() {
+  const a = task('8'), runs = [];
+  let stronger = false;
+  const c = createRequirementCoordinator({
+    persist: () => {}, emit: () => {},
+    runTask: async x => { runs.push(`${x.model}:${x.task}`); return { paths:['8.js'], evidence:'done' }; },
+    reviewTask: async () => ({ verdict:'FAIL', evidence:'CHECK: back button = FAIL' }),
+    nextRoute: x => stronger || x.model !== 'claude-haiku-5-5' ? null : (stronger = true, { provider:'claude', model:'claude-sonnet-5-5', effort:'low' }),
+    autoFix: async () => 'Fix the prev branch in keuzehulp.php',
+  });
+  await c.start([a]);
+  assert.deepEqual(runs, ['claude-haiku-5-5:8', 'claude-haiku-5-5:8', 'claude-sonnet-5-5:8', 'claude-sonnet-5-5:8', 'claude-sonnet-5-5:Fix the prev branch in keuzehulp.php'],
+    'a FAIL gets a fix round on the same model, then the stronger model with its own fix round, then the debugger prompt');
+  assert.equal(a.blocker, 'review-failed-exhausted', 'only after all of that does it wait for the user');
+  assert.equal(a.debugPrompt, 'Fix the prev branch in keuzehulp.php');
+}
+
 async function unscopedFallbackNeverStarts() {
   const a = { ...task('4'), files:[], fileOwnership:[], status:'queued', blocker:null };
   let starts = 0;
@@ -154,6 +171,7 @@ async function recoveringReviewDoesNotRerunWorker() {
   await sharedFolderSerializesOverlappingPaths();
   await reviewEvidenceUnknownAndFailEscalation();
   await exhaustedFailureStaysOpen();
+  await failGetsFixRoundStrongerModelThenDebugger();
   await unknownRetriesOnStrongerRoute();
   await unscopedFallbackNeverStarts();
   await recoveringReviewDoesNotRerunWorker();

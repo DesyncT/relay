@@ -23,10 +23,10 @@ assert.match(invalid.assignments[0].error, /workspace/i);
 const integration = recoverRequirementAssignments([
   { id:'done', status:'passed', integrationStatus:'integrating', files:['src/a.js'] },
 ], valid);
-assert.equal(integration.kind, 'integration-interrupted');
-assert.equal(integration.integrate, false, 'an interrupted integration is not launched a second time');
-assert.equal(integration.assignments[0].integrationStatus, 'open');
-assert.equal(integration.assignments[0].blocker, 'integration-interrupted');
+assert.equal(integration.kind, 'resume', 'a combine step cut off by a restart runs again');
+assert.equal(integration.integrate, true);
+assert.equal(integration.assignments[0].integrationStatus, 'pending');
+assert.equal(integration.assignments[0].blocker, null);
 const exhaustedIntegration = recoverRequirementAssignments([
   { id:'done', status:'passed', integrationStatus:'open', blocker:'integration-exhausted', files:['src/a.js'] },
 ], valid);

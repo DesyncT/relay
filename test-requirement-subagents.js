@@ -19,7 +19,7 @@ const marker='    reviewTask: ',start=source.indexOf(marker),end=source.indexOf(
   let calls=0,allUnknown=false;
   const review=require('node:vm').runInNewContext('('+source.slice(start+marker.length,end)+'\n})',{
     providerOrder:['claude','codex'],isDown:()=>false,epoch:0,rt:{epoch:0},judgeCount:()=>1,
-    argsFor:()=>[],sid:'chat',checklist:[{t:'Fix header'}],isLimitError:()=>false,markDown:()=>{},
+    argsFor:()=>[],sid:'chat',checklist:[{t:'Fix header'}],isLimitError:()=>false,markDown:()=>{},setReqs:()=>{},reqsOf:()=>({}),coordinator:{assignments:[]},
     ...require('node:vm').runInNewContext(source.slice(source.indexOf('function readVerdict'),source.indexOf('async function reviewIntegratedResult'))+';({readVerdict,combineVerdicts})'),
     PROV:{claude:async()=>{calls++;return {text:allUnknown ? 'VERDICT: UNKNOWN\nEVIDENCE: Could not reach staging' : 'The run ended before a verdict.'};},codex:async()=>{calls++;return {text:'VERDICT: PASS\nEVIDENCE: Verified header in staging'};}},
   });

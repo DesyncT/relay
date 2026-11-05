@@ -11,7 +11,7 @@ const hasExplicitScope = assignment => {
   });
 };
 
-function createRequirementCoordinator({ persist = () => {}, emit = () => {}, runTask, reviewTask, nextRoute = () => null, limit = 3, workspaceMode = 'worktree' }) {
+function createRequirementCoordinator({ persist = () => {}, emit = () => {}, runTask, reviewTask, nextRoute = () => null, autoFix = async () => null, limit = 3, workspaceMode = 'worktree' }) {
   let assignments = [];
   let active = 0;
   const inFlight = new Set(); // ids whose execute() is running; only a recovered 'reviewing' task (not in flight) resumes
@@ -103,7 +103,20 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
         a.status = 'blocked'; a.blocker = 'review-unknown'; a.ended = Date.now(); save(a); return;
       }
       a.unknownStreak = 0;
-      if (!retry(a,'review-failed')) { a.status = 'open'; a.blocker = 'review-failed-exhausted'; a.ended = Date.now(); save(a); return; }
+      // a FAIL first gets a fix round on the same model (the worker now sees the failed checks), then a stronger model
+      const routeFails = (a.reviewEvidence || []).filter(r => r.verdict === 'FAIL' && r.route === routeKey(a)).length;
+      a.reviewEvidence.at(-1).route = routeKey(a);
+      if (routeFails < 1) { a.status = 'running'; a.progress = 0; save(a); continue; }
+      if (retry(a,'review-failed')) continue;
+      // out of models: the debugger finds the cause and writes a fix prompt, which gets one last attempt
+      if (!a.autoDebugged) {
+        a.autoDebugged = true;
+        let prompt = null;
+        try { prompt = await autoFix(a); } catch {}
+        if (cancelled || stoppedTasks.has(a.id)) return;
+        if (prompt) { a.debugPrompt = prompt; a.task = prompt; a.status = 'running'; a.progress = 0; save(a); continue; }
+      }
+      a.status = 'open'; a.blocker = 'review-failed-exhausted'; a.ended = Date.now(); save(a); return;
     }
   }
   function start(input) {
