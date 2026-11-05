@@ -2,6 +2,12 @@
 const { randomUUID } = require('node:crypto');
 const copy = value => structuredClone(value);
 const text = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 12000;
+// Raw git/tool failures can be thousands of lines; keep the one line that says why.
+function brief(error) {
+  const lines=String(error?.message || error).split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const line=lines.find(l=>/^error:/i.test(l)) || lines.find(l=>/^fatal:/i.test(l)) || lines[0] || 'Unknown error';
+  return line.length>300?line.slice(0,297)+'...':line;
+}
 const strings = value => Array.isArray(value) && value.every(text);
 function createRequest(originalRequest) {
   if (!text(originalRequest)) throw Error('Describe what you want to change.');
@@ -69,7 +75,7 @@ function createController({get,save,discover,execute,preflight=async()=>null,can
       const setup=await preflight(sid,copy(r));
       if(!same(sid,id,revision,'inspecting'))return;
       r={...r,setup};save(sid,r);
-    } catch(error) {if(same(sid,id,revision,'inspecting'))save(sid,{...r,state:'blocked',failureKind:'setup',error:String(error.message || error)});return;}
+    } catch(error) {if(same(sid,id,revision,'inspecting'))save(sid,{...r,state:'blocked',failureKind:'setup',error:brief(error)});return;}
     let repairReason='';
     for(let attempt=0;attempt<2;attempt++) {
       try {
@@ -83,7 +89,7 @@ function createController({get,save,discover,execute,preflight=async()=>null,can
       } catch(error) {
         repairReason=String(error.message || error);
         if(!same(sid,id,revision,'inspecting'))return;
-        if(attempt===1)save(sid,{...get(sid),state:'blocked',error:String(error.message || error)});
+        if(attempt===1)save(sid,{...get(sid),state:'blocked',error:brief(error)});
       }
     }
   }
@@ -91,11 +97,11 @@ function createController({get,save,discover,execute,preflight=async()=>null,can
     save(sid,r);
     try {
       try {await preflight(sid,copy(r));}
-      catch(error) {if(same(sid,r.id,r.revision,'running'))save(sid,{...r,state:'blocked',failureKind:'setup',error:String(error.message || error)});return;}
+      catch(error) {if(same(sid,r.id,r.revision,'running'))save(sid,{...r,state:'blocked',failureKind:'setup',error:brief(error)});return;}
       if(!same(sid,r.id,r.revision,'running'))return;
       const result=await execute(sid,copy(r));
       if(same(sid,r.id,r.revision,'running') || same(sid,r.id,r.revision,'verifying'))save(sid,finishRequest(get(sid),result));
-    } catch(error) {if(same(sid,r.id,r.revision,'running') || same(sid,r.id,r.revision,'verifying'))save(sid,{...get(sid),state:'blocked',error:String(error.message || error)});}
+    } catch(error) {if(same(sid,r.id,r.revision,'running') || same(sid,r.id,r.revision,'verifying'))save(sid,{...get(sid),state:'blocked',error:brief(error)});}
   }
   return {
     async start(sid,originalRequest) {
@@ -132,4 +138,4 @@ function createController({get,save,discover,execute,preflight=async()=>null,can
     }
   };
 }
-module.exports={createRequest,validateDiscovery,applyDiscovery,applyAnswer,confirmRequest,cancelRequest,editRequest,recoverRequest,finishRequest,discoveryPrompt,createController};
+module.exports={brief,createRequest,validateDiscovery,applyDiscovery,applyAnswer,confirmRequest,cancelRequest,editRequest,recoverRequest,finishRequest,discoveryPrompt,createController};

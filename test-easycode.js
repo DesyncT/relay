@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const easy = require('./easycode');
 async function test() {
   assert.equal(typeof easy.createRequest, 'function');
+  assert.equal(easy.brief(Error('Command failed: git add -A\nwarning: LF will be replaced\nerror: open("a/b.php"): Filename too long\nfatal: adding files failed')), 'error: open("a/b.php"): Filename too long');
   let r = easy.createRequest('fix');
   const question = {kind:'question', question:'What is broken?',decisionKey:'target',unresolved:'The affected screen is not specified.', options:['Login','Checkout'], inspection:'Found login and checkout screens.'};
   r = easy.applyDiscovery(r, {...question,recommended:'Checkout'}, r.revision);

@@ -1544,7 +1544,7 @@ function saveEasycode(sid, request) {
     text=[s.summary,`Preserve: ${s.preserve.join('; ') || 'Existing behavior outside this change.'}`,`Files: ${s.files.join(', ')}`,`Success: ${s.acceptance.join('; ')}`,`Checks: ${s.checks.join('; ')}`].join('\n\n');
     options=['Do it',...(request.history.length?['Change an answer']:[]),'Edit summary'];
   } else if(request.state==='blocked') {
-    text=[`Stopped: ${request.error || 'Verification needs review.'}`,...(request.evidence || []).map(c=>`${c.command}: ${c.exitCode===0?'passed':`exit ${c.exitCode ?? 'unavailable'}`}\n${c.exitCode===0?'':String(c.output || '').slice(-1200)}`),...(request.worker?.workspace?.path?[`Saved work: ${request.worker.workspace.path}`]:[])].join('\n\n');
+    text=[`Stopped: ${request.error || 'Verification needs review.'}`,...(request.evidence || []).map(c=>`${c.command}: ${c.exitCode===0?'passed':`exit ${c.exitCode ?? 'unavailable'}`}\n${c.exitCode===0?'':String(c.output || '').slice(-400)}`),...(request.worker?.workspace?.path?[`Saved work: ${request.worker.workspace.path}`]:[])].join('\n\n');
     options=['Fix setup and retry','Review and retry',...(request.worker?['Retry with stronger route']:[]),...(request.history.length?['Change an answer']:[])];
   }
   else if(request.state==='running') text='Working on your confirmed change. One worker, with at most one targeted repair.';

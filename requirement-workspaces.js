@@ -11,7 +11,8 @@ const { scopeCovers, pathsOverlap } = require('./requirement-workflow');
 
 const OWNED_MARKER = '.relay-requirement-workspaces.json';
 function runGit(cwd, args, input) {
-  return execFileSync('git', args, {
+  // Deep user folders (backups etc.) exceed MAX_PATH on Windows without longpaths.
+  return execFileSync('git', ['-c', 'core.longpaths=true', ...args], {
     cwd, input, stdio:'pipe', encoding: 'buffer', maxBuffer: 128 * 1024 * 1024,
     windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
   });
