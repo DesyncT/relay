@@ -1379,6 +1379,7 @@ function renderFailureCard(m) {
       alert(e.message);
     }
   };
+  if (f.action === 'install') actions.append(el('button', {className:'b failure-btn',type:'button',textContent:`Install ${provLabel} CLI`,onclick:()=>authInstall(prov)}));
   actions.append(retryBtn);
 
   const disabled = (typeof cfg !== 'undefined' && cfg.disabledProviders) || [];
@@ -2252,7 +2253,7 @@ function authStatusEl(k) { // right-hand part of a provider chip: status text + 
   const draw = () => {
     const s = AUTHST?.[k];
     if (!s) return box.replaceChildren('Checking…');
-    if (!s.installed) return box.replaceChildren('Not installed', ...(k === 'antigravity' ? [] : [btn('Install', () => authInstall(k))]));
+    if (!s.installed) return box.replaceChildren(k === 'antigravity' ? 'Not installed' : `${k === 'codex' ? 'Codex' : 'Claude Code'} CLI not installed`, ...(k === 'antigravity' ? [] : [btn('Install CLI', () => authInstall(k))]));
     if (k === 'antigravity') return box.replaceChildren('Installed');
     if (s.loggedIn) {
       const out = async () => { box.replaceChildren('Signing out…'); try { AUTHST = await api.call('auth:logout', k); } catch {} redrawAuth(); };

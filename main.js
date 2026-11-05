@@ -308,8 +308,23 @@ function addSpend(sid, provider, usage) {
 }
 const tracked = (provider, sid, result) => { if (sid && result?.usage) addSpend(sid, provider, result.usage); return result; };
 const runClaude = claudeRun, runCodex = codexRun;
-claudeRun = async (label, who, prompt, c = {}) => tracked(/^(claude|codex|antigravity)/.exec(label)?.[1] || 'claude', c.sid, await runClaude(label, who, prompt, c));
-codexRun = async (prompt, images, c = {}) => tracked('codex', c.sid, await runCodex(prompt, images, c));
+const preflightCli = async (provider, cmd, c = {}) => {
+  const ep = c.sid && typeof RT === 'function' ? RT(c.sid)?.epoch : null;
+  await models.requireCli(provider, cmd);
+  if (ep != null && RT(c.sid)?.epoch !== ep) {
+    const err = new Error('Cancelled');
+    err.cancelled = true;
+    throw err;
+  }
+};
+claudeRun = async (label, who, prompt, c = {}) => {
+  if (!c.cmd) await preflightCli('claude', settings.claudeCmd, c);
+  return tracked(/^(claude|codex|antigravity)/.exec(label)?.[1] || 'claude', c.sid, await runClaude(label, who, prompt, c));
+};
+codexRun = async (prompt, images, c = {}) => {
+  await preflightCli('codex', settings.codexCmd, c);
+  return tracked('codex', c.sid, await runCodex(prompt, images, c));
+};
 const PROV = {
   claude: (p, _t, c) => c.sub ? claudeRun('claude (sub)', 'claude:sub', p, c) : claudeRun('claude (chat)', c.seat || 'claude', p, c),
   codex: (p, trigger, c) => codexRun(p, (trigger?.attachments || []).filter((a) => IMG_EXT.test(a.name)), c),

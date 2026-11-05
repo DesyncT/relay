@@ -206,7 +206,11 @@ function formatFailureInfo(errText, provider = 'claude') {
 
   const lower = cleanMsg.toLowerCase() + ' ' + String(errText).toLowerCase();
 
-  if (/session limit|rate limit|quota|429/i.test(lower)) {
+  if (/CLI is not installed or could not be started/i.test(cleanMsg)) {
+    title = 'Install the CLI';
+    badge = 'amber';
+    action = 'install';
+  } else if (/session limit|rate limit|quota|429/i.test(lower)) {
     title = 'Session limit reached';
     badge = 'amber';
     action = 'switch';

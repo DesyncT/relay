@@ -48,7 +48,7 @@ async function detect(cmds = {}) {
   const out = { presets: {}, cli: {} };
   await Promise.all([
     ...PRESETS.map(async (p) => { out.presets[p.id] = p.local ? { running: await probe(p.baseUrl) } : { keyFound: !!(p.envKey && process.env[p.envKey]) }; }),
-    ...['claude', 'codex', 'antigravity'].map(async (n) => { out.cli[n] = await has(cmds[n] || n); }),
+    ...['claude', 'codex', 'antigravity'].map(async (n) => { out.cli[n] = await cliInstalled(n, cmds[n] || n); }),
   ]);
   return out;
 }
@@ -105,13 +105,28 @@ const cliName = (ctx, k) => { const c = ctx.cmds?.()?.[k]; return typeof c === '
 const runCli = (cmd, args) => new Promise((r) => {
   try { execFile(cmd + ' ' + args.join(' '), { shell: true, windowsHide: true, timeout: 8000 }, (e, o, se) => r({ ok: !e, out: String(o || '') + '\n' + String(se || '') })); } catch { r({ ok: false, out: '' }); }
 });
+// A desktop app or stale shim on PATH is not necessarily the provider's CLI.
+async function cliInstalled(provider, cmd = provider) {
+  if (!await has(cmd)) return false;
+  if (!AUTH[provider]) return true;
+  const version = await runCli(cmd, ['--version']);
+  return version.ok && (provider === 'codex' ? /\bcodex-cli\s+\d/i : /\d[^\n]*\(Claude Code\)/i).test(version.out);
+}
+async function requireCli(provider, cmd = provider) {
+  if (await cliInstalled(provider, cmd)) return;
+  const name = provider === 'codex' ? 'Codex' : 'Claude Code';
+  const err = new Error(`${name} CLI is not installed or could not be started. Open Settings and click Install CLI for ${name}, then try again.`);
+  err.provider = provider;
+  throw err;
+}
 async function authStatus(ctx) {
   const out = { antigravity: { installed: await has(cliName(ctx, 'antigravity')) } };
   await Promise.all(Object.keys(AUTH).map(async (k) => {
-    const cmd = cliName(ctx, k), installed = await has(cmd);
+    const cmd = cliName(ctx, k), installed = await cliInstalled(k, cmd);
     let loggedIn = false, method = '';
     if (installed) {
       const r = await runCli(cmd, AUTH[k].status);
+      if (!r.ok) { out[k] = { installed, loggedIn:false, method:'' }; return; }
       if (k === 'claude') {
         try { const j = JSON.parse(r.out.slice(r.out.indexOf('{'), r.out.lastIndexOf('}') + 1)); loggedIn = !!j.loggedIn; method = j.authMethod || ''; } catch {}
       } else {
@@ -178,4 +193,4 @@ function resolve(settings, ref) {
   return conn && SAFE_MODEL.test(r.model) ? { conn, model: r.model, ...spec(conn, r.model) } : null;
 }
 
-module.exports = { authStatus, PRESETS, register, resolve, dropModel, isConn, detect, listModels, spec, pub };
+module.exports = { cliInstalled, requireCli, authStatus, PRESETS, register, resolve, dropModel, isConn, detect, listModels, spec, pub };

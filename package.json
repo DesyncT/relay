@@ -11,7 +11,7 @@
   "scripts": {
     "start": "electron .",
     "check": "node usage.js",
-    "test": "node test-code-mode.js && node test-mojibake.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-question-controls.js && node test-resume-queue.js && node test-workflow-modes.js && node spreader.js",
+    "test": "node test-code-mode.js && node test-mojibake.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-question-controls.js && node test-resume-queue.js && node test-workflow-modes.js && node spreader.js && node test-cli-installation.js",
     "test:ui": "electron test-renderer.js",
     "test:electron": "electron test-electron-workspaces.js",
     "dist": "electron-builder --win --publish never",

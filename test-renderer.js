@@ -307,6 +307,17 @@ app.whenReady().then(async () => {
   assert.match(modes.progress,/75%/);assert.equal(modes.legacyButtons,0);
   await win.webContents.executeJavaScript(`document.querySelector('[data-theme=graphite]').click();document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('on',s.id==='chat'));`);
   fs.writeFileSync(path.join(output,'code-easycode-modes.png'),(await win.webContents.capturePage()).toPNG());
+  const cli=await win.webContents.executeJavaScript(`(async()=>{
+    AUTHST={codex:{installed:false,loggedIn:true,method:'chatgpt'}};
+    const chip=authStatusEl('codex');document.body.append(chip);
+    const missing=chip.textContent;chip.querySelector('button').click();await Promise.resolve();
+    AUTHST={codex:{installed:true,loggedIn:true,method:'chatgpt'}};redrawAuth();const signedIn=chip.textContent;
+    const failure=renderFailureCard({from:'system',failure:formatFailureInfo('Codex CLI is not installed or could not be started. Open Settings and click Install CLI for Codex, then try again.','codex')});
+    const install=[...failure.querySelectorAll('button')].find(b=>b.textContent==='Install Codex CLI');install.click();await Promise.resolve();
+    const calls=await api.call('test:calls');chip.remove();
+    return {missing,signedIn,installCalls:calls.filter(c=>c[0]==='auth:install' && c[1]==='codex').length};
+  })()`);
+  assert.match(cli.missing,/Codex CLI not installed/);assert.doesNotMatch(cli.missing,/Signed in/);assert.match(cli.signedIn,/Signed in/);assert.ok(cli.installCalls>=2);
   console.log('Renderer layout, progress, question controls and theme checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();
 }).catch(error => { console.error(error); app.exit(1); });
