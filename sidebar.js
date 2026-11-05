@@ -116,7 +116,6 @@
     const r = el('div', { className: 'sb-row' + (s.id === tree.active ? ' on' : ''), tabIndex: 0, role: 'button', title: s.title + '\nF2 to rename · Alt+↑/↓ to reorder' });
     r.dataset.id = s.id;
     r.setAttribute('aria-pressed', String(s.id === tree.active));
-    r.append(el('span', { className:'sb-supercode', title: s.supercode ? 'EasyCode' : '', innerHTML: !s.supercode ? '' :'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-12h-7z"/></svg>' }));
     r.append(title);
     if (working.has(s.id)) r.append(el('span', { className: 'sb-spin', title: 'Working' }));
     else if (s.unread) r.append(el('span', { className: 'sb-dot', title: 'Done, not read yet' }));

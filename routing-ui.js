@@ -1,25 +1,14 @@
-// "Model routing" panel (Rules tab). Classic script: window.RoutingUI = { mount, badge }.
+// "Default models" panel (Rules tab): one model + effort per provider. Classic script: window.RoutingUI = { mount, badge }.
 // Uses the page's globals el() and logo() when present; falls back to tiny local versions (standalone harness).
 (() => {
-  const PHASES = [['planning', 'Planning', 'Before you say go, and the lead’s first proposal'], ['coding', 'Coding', 'After go, while agents build and edit'], ['other', 'Other', 'Quick @mention questions, reviews, chit-chat, subagents']];
   const EFFORTS = ['low', 'medium', 'high'];
   const MODELS = {
     claude: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1'],
     codex: ['gpt-6-luna', 'gpt-6.1-sol', 'gpt-6-astra'],
     antigravity: ['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low', 'gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.8-pro'],
   };
-  const DEFAULTS = {
-    claude: { planning: ['claude-haiku-5-5', 'low'], coding: ['claude-opus-5-5', 'medium'], other: ['claude-sonnet-5-5', 'medium'] },
-    codex: { planning: ['gpt-6-luna', 'low'], coding: ['gpt-6-astra', 'medium'], other: ['gpt-6.1-sol', 'medium'] },
-    antigravity: { planning: ['gemini-3.5-flash-lite', 'low'], coding: ['gemini-3.8-flash-low', 'low'], other: ['gemini-3.5-flash-lite', 'low'] },
-  };
-  const DEFAULT_ROUTES = DEFAULTS;
-  // same ladders as worker-routing.js: requirement tasks start on the first and climb at most to the limit
-  const TASK_LADDER = {
-    claude: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'],
-    codex: ['gpt-6-luna', 'gpt-6.1-sol', 'gpt-6-astra'],
-    antigravity: ['gemini-3.5-flash-lite', 'gemini-3.8-flash-low', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-high'],
-  };
+  const one = (model, effort) => ({ planning: [model, effort], coding: [model, effort], other: [model, effort] });
+  const DEFAULTS = { claude: one('claude-sonnet-5-5', 'low'), codex: one('gpt-6.1-sol', 'low'), antigravity: one('gemini-3.8-flash-low', 'low') };
   const defaults = () => Object.fromEntries(Object.entries(DEFAULTS).map(([a, ph]) => [a, Object.fromEntries(Object.entries(ph).map(([p, [model, effort]]) => [p, { model, effort }]))]));
 
   const mk = typeof el === 'function' ? el : (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, attrs); e.append(...kids); return e; };
@@ -68,7 +57,7 @@
     return c;
   }
 
-  function mount(container, { get, save, prices, disabledProviders, limits = {}, saveLimits } = {}) {
+  function mount(container, { get, save, prices, disabledProviders } = {}) {
     injectCss();
     let routes = null, timer;
     const norm = () => {
@@ -81,31 +70,21 @@
     const saved = mk('span', { className: 'rt-saved', textContent: 'Saved' });
     const commit = () => { save && save(JSON.parse(JSON.stringify(routes))); saved.classList.add('on'); clearTimeout(timer); timer = setTimeout(() => saved.classList.remove('on'), 1200); };
 
-    const cell = (agent, phase) => {
-      const r = norm()[agent][phase], price = mk('div', { className: 'rt-price' });
-      const dl = mk('datalist', { id: `rt-${agent}-${phase}` }, ...(MODELS[agent] || []).map((m) => mk('option', { value: m })));
+    // One model per provider: every phase (planning, coding, other) runs the same default
+    const cell = (agent) => {
+      const all = norm()[agent], r = all.coding, price = mk('div', { className: 'rt-price' });
+      const dl = mk('datalist', { id: `rt-${agent}` }, ...(MODELS[agent] || []).map((m) => mk('option', { value: m })));
+      const sync = () => { for (const p in all) all[p] = { model: r.model, effort: r.effort }; };
       const upd = () => { price.textContent = priceOf(prices, r.model); };
-      const inp = mk('input', { type: 'text', value: r.model, spellcheck: false, autocomplete: 'off', placeholder: DEFAULTS[agent][phase][0] });
-      inp.setAttribute('list', dl.id); inp.setAttribute('aria-label', `${agent} ${phase} model`);
-      inp.onchange = () => { r.model = inp.value.trim() || DEFAULTS[agent][phase][0]; inp.value = r.model; upd(); commit(); };
+      const inp = mk('input', { type: 'text', value: r.model, spellcheck: false, autocomplete: 'off', placeholder: DEFAULTS[agent].coding[0] });
+      inp.setAttribute('list', dl.id); inp.setAttribute('aria-label', `${agent} default model`);
+      inp.onchange = () => { r.model = inp.value.trim() || DEFAULTS[agent].coding[0]; inp.value = r.model; upd(); sync(); commit(); };
       const seg = mk('div', { className: 'seg', role: 'group' });
-      seg.setAttribute('aria-label', `${agent} ${phase} effort`);
-      const btns = EFFORTS.map((e) => { const b = mk('button', { type: 'button', textContent: e }); b.setAttribute('aria-pressed', 'false'); b.onclick = () => { r.effort = e; paint(); commit(); }; return b; });
+      seg.setAttribute('aria-label', `${agent} effort`);
+      const btns = EFFORTS.map((e) => { const b = mk('button', { type: 'button', textContent: e }); b.setAttribute('aria-pressed', 'false'); b.onclick = () => { r.effort = e; paint(); sync(); commit(); }; return b; });
       const paint = () => btns.forEach((b, i) => { const on = EFFORTS[i] === r.effort; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
       seg.append(...btns); paint(); upd();
       return mk('div', { className: 'rt-cell' }, dl, inp, price, seg);
-    };
-
-    // Task limit: the strongest model a requirement task may move up to when it fails (default: the middle tier)
-    const limitCell = (agent) => {
-      const ladder = TASK_LADDER[agent] || [], price = mk('div', { className: 'rt-price' });
-      const sel = mk('select', {}, ...ladder.map((m) => mk('option', { value: m, textContent: m })));
-      sel.value = ladder.includes(limits[agent]) ? limits[agent] : ladder[1];
-      sel.setAttribute('aria-label', `${agent} task model limit`);
-      const upd = () => { price.textContent = priceOf(prices, sel.value); };
-      sel.onchange = () => { limits = { ...limits, [agent]: sel.value }; upd(); saveLimits && saveLimits(limits); saved.classList.add('on'); clearTimeout(timer); timer = setTimeout(() => saved.classList.remove('on'), 1200); };
-      upd();
-      return mk('div', { className: 'rt-cell' }, sel, price);
     };
 
     const render = () => {
@@ -116,16 +95,12 @@
       const agentNames = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity' };
       const grid = mk('div', { className: 'rt-grid' },
         mk('div'), ...agents.map(a => mk('div', { className: 'rt-col' }, mkLogo(a), agentNames[a])),
-        ...PHASES.flatMap(([p, name, desc]) => [
-          mk('div', { className: 'rt-phase' }, mk('b', { textContent: name }), mk('span', { textContent: desc })),
-          ...agents.map(a => cell(a, p))
-        ]),
-        mk('div', { className: 'rt-phase' }, mk('b', { textContent: 'Task limit' }), mk('span', { textContent: 'Strongest model a checklist task may move up to when it fails' })),
-        ...agents.map(limitCell)
+        mk('div', { className: 'rt-phase' }, mk('b', { textContent: 'Default model' }), mk('span', { textContent: 'Used for every task. Spreader runs this model on whichever provider it picks' })),
+        ...agents.map(cell)
       );
       grid.style.gridTemplateColumns = `minmax(140px,1fr) repeat(${agents.length},minmax(200px,1.3fr))`;
       container.replaceChildren(mk('div', { className: 'rt' },
-        mk('div', { className: 'rt-head' }, mk('h3', { textContent: 'Model routing' }), saved),
+        mk('div', { className: 'rt-head' }, mk('h3', { textContent: 'Default models' }), saved),
         grid, mk('div', { className: 'rt-foot' }, reset)));
     };
     render();

@@ -1688,7 +1688,7 @@ const CMDS = [
   { n: 'subs', d: 'Show the subagents panel', run: () => subs.length ? openSubs() : card('No subagents in this session yet') },
   { n: 'stop', d: 'Stop agents and subagents', run: () => { api.call('chat:stop', openSid); card('Stopped agents and subagents.'); } },
   { n: 'end', d: 'End this task: stop, drop the requirements, start fresh (keeps what the agents learned)', run: () => api.call('chat:endTask', openSid) },
-  { n: 'lead', a: 'claude|codex|random', d: 'Who answers first', run: (x) => { if (!LEADS.some((l) => l[0] === x)) return card('Usage: /lead claude, codex or random'); setLead(x); card('Lead is now ' + x + '.'); } },
+  { n: 'lead', a: 'claude|codex|spreader', d: 'Who answers', run: (x) => { if (!LEADS.some((l) => l[0] === x)) return card('Usage: /lead claude, codex or spreader'); setLead(x); card('Lead is now ' + x + '.'); } },
   { n: 'mode', a: 'auto|manual|edits|plan', d: 'Set the session mode', run: (x) => { const m = MODES.find((y) => y[0] === x.toLowerCase()); if (!m) return card('Usage: /mode auto, manual, edits or plan'); pickMode(m[0]); card('Mode is now ' + m[1] + '.'); } },
   { n: 'model', d: 'Show model routing', run: async () => {
     await refreshCfg(); const b = el('button', { textContent: 'Open Rules to change' }); b.onclick = () => showTab('rules');
@@ -1793,7 +1793,7 @@ function renderReqs(r) {
   const ok = (i, n) => i.done || passedIdx.has(n) || (allTasksDone && !assigned.has(n));
   const done = items.filter(ok).length, part = (i, n) => ok(i, n) ? 100 : i.by ? i.pct || 0 : 0;
   const pct = items.length ? Math.round(items.reduce((s, i, n) => s + part(i, n), 0) / items.length) : 0;
-  const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements' : 'Clarifying your request';
+  const label = items.length ? `Progress ${done}/${items.length} · ${pct}%` : r.idle ? 'Progress' : 'Clarifying your request';
   const who = (i) => el('span', { className: 'rq-who' }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), el('span', { className: 'rq-mini' }, el('i', { style: `width:${i.pct || 0}%` })), el('span', { className: 'mono', textContent: `${i.pct || 0}%` }));
   const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
   // finished = every item ticked (skipped ones too); combining = every task passed or skipped, the final check still running
@@ -1806,7 +1806,7 @@ function renderReqs(r) {
   const head = items.length
     ? [uploading ? el('span', { className: 'rq-lbl' }, el('span', { className: 'rq-think', textContent: `${r.handedBack && reqsLead(r) ? '@' + reqsLead(r) + ' is uploading and doing the final review' : 'Uploading and final review'}` }))
        : finished ? el('span', { className: 'rq-lbl rq-finished', innerHTML: svgI('<path d="M20 6 9 17l-5-5"/>') + '<span>All done</span>' })
-         : el('span', { className: 'rq-lbl', textContent: combining ? (moving ? 'Combining and checking' : 'Ready to finish') : 'Requirements' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
+         : el('span', { className: 'rq-lbl', textContent: combining ? (moving ? 'Combining and checking' : 'Ready to finish') : 'Progress' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
        el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` })),
        el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done${skippedN ? ` · ${skippedN} skipped` : ''}` }),
        ...now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`))]
@@ -1898,7 +1898,7 @@ function renderReqs(r) {
   const jobsKey = (x) => JSON.stringify(reqJobs(x).map((j) => j.who + j.text));
   if (jobsKey(reqsNow) !== jobsKey(r)) { reqsNow = r; renderTyping(); } else reqsNow = r;
 }
-api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(window.ActiveChat?.supercode ? d.reqs || { items: [], idle: true } : null); });
+api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(d.reqs || null); });
 api.on('spend:update', (d) => { if (d.sid !== openSid) return; spendLedger = true; spendTotals = JSON.parse(JSON.stringify(d.spend || {})); renderSpend(true); });
 api.on('agent:status', (d) => { const a = actBy[d.sid] ||= {}; if (d.status) a[d.who] = d; else delete a[d.who]; if (d.sid === openSid) { renderTyping(); renderSpend(); } });
 setInterval(renderTyping, 1000);
@@ -2046,7 +2046,7 @@ const ALL_PROVIDERS = [
   ['codex', 'Codex', logo('openai', 14, '#fff')],
   ['antigravity', 'Antigravity', logo('antigravity', 14, '#4E88F5')]
 ];
-const LEADS = [['claude', 'Claude', logo('claude', 14, '#D97757')], ['codex', 'Codex', logo('openai', 14, '#fff')], ['antigravity', 'Antigravity', logo('antigravity', 14, '#4E88F5')], ['random', 'Random', svgI('<path d="m18 14 4 4-4 4"/><path d="m18 2 4 4-4 4"/><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22"/><path d="M2 6h1.972a4 4 0 0 1 3.6 2.2"/><path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"/>')]];
+const LEADS = [['claude', 'Claude', logo('claude', 14, '#D97757')], ['codex', 'Codex', logo('openai', 14, '#fff')], ['antigravity', 'Antigravity', logo('antigravity', 14, '#4E88F5')], ['spreader', 'Spreader', svgI('<path d="m18 14 4 4-4 4"/><path d="m18 2 4 4-4 4"/><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22"/><path d="M2 6h1.972a4 4 0 0 1 3.6 2.2"/><path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"/>')]];
 // composer toolbar: lead picker + edits chip. The lead is stored per session, edits is the global setting.
 let leadCur = 'claude', cfg = { routes: {}, edit: false };
 const CHEV = '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
@@ -2056,12 +2056,12 @@ function renderLead(cur) {
   const availableLeads = LEADS.filter(l => !disabled.includes(l[0]));
   leadCur = cur || (availableLeads[0]?.[0] || 'claude');
   if (disabled.includes(leadCur)) leadCur = availableLeads[0]?.[0] || 'claude';
-  if (!window.ActiveChat?.supercode && leadCur === 'random') leadCur = availableLeads.find(l => l[0] !== 'random')?.[0] || 'codex';
+  if (leadCur === 'random') leadCur = 'spreader';
   const [, name, icon] = LEADS.find((l) => l[0] === leadCur) || availableLeads[0] || LEADS[0];
   $('#leadPick').dataset.provider = leadCur;
   $('#leadPick').innerHTML = `<span class="lead-mark">${icon}</span><span>${name}</span>${CHEV}`;
   renderNormalModel();
-  $('#leadMenu').replaceChildren(...availableLeads.filter(l => window.ActiveChat?.supercode || l[0] !== 'random').map(([k, n, ic]) => {
+  $('#leadMenu').replaceChildren(...availableLeads.map(([k, n, ic]) => {
     const b = el('button', { className: 'mi', innerHTML: ic + n + (k === leadCur ? '<span class="ck">' + svgI('<path d="M20 6 9 17l-5-5"/>') + '</span>' : '') });
     b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', k === leadCur);
     b.onclick = () => { setLead(k); toggleLeadMenu(false); $('#input').focus(); };
@@ -2120,14 +2120,15 @@ function renderNormalModel() {
   const chat = window.ActiveChat, provider = (leadCur === 'codex' || leadCur === 'antigravity') ? leadCur : 'claude';
   const model = $('#normalModel'), effort = $('#normalEffort');
   // supercode: models come from routing, unless you put a connected model on the team (both seats share it when only one provider is available)
-  model.hidden = !chat?.sid || (!!chat.supercode && !CONNS.length);
-  effort.hidden = !chat?.sid || !!chat.supercode;
+  // Spreader picks the provider itself, so it runs each provider's default model from Settings
+  model.hidden = !chat?.sid || leadCur === 'spreader' || (!!chat.supercode && !CONNS.length);
+  effort.hidden = !chat?.sid || leadCur === 'spreader' || !!chat.supercode;
   if (model.hidden) { toggleNormalModelMenu(false); toggleNormalEffortMenu(false); return; }
   if (effort.hidden) toggleNormalEffortMenu(false);
 
   // Model Picker
   const options = [...(chat.supercode ? [['', 'Team routing']] : CHAT_MODELS[provider] || CHAT_MODELS.claude), ...CONNS.flatMap((c) => [['', c.name, 1], ...c.models.map((m) => ['conn:' + c.id + '/' + m, m])])];
-  const defaultModel = provider === 'codex' ? 'gpt-6.1-sol' : provider === 'antigravity' ? 'gemini-3.5-flash-lite' : 'claude-sonnet-5-5';
+  const defaultModel = cfg.routes?.[provider]?.coding?.model || (provider === 'codex' ? 'gpt-6.1-sol' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-sonnet-5-5');
   const selected = chat.supercode ? (String(chat.chatModels?.[provider] || '').startsWith('conn:') ? chat.chatModels[provider] : '') : chat.chatModels?.[provider] || defaultModel;
   const selOpt = options.find(([v]) => v && v === selected) || options[0] || [selected, selected];
   model.dataset.value = selected;
@@ -2294,7 +2295,7 @@ setInterval(async () => renderProcs(await api.call('procs:list')), 2000);
 // ---------- rules ----------
 async function loadRouting() {
   const [s, prices] = await Promise.all([api.call('settings:get'), api.call('prices:get')]);
-  RoutingUI.mount($('#routing'), { get: () => s.routes, save: (routes) => { s.routes = routes; api.call('settings:save', { routes }); }, prices, disabledProviders: s.disabledProviders || [], limits: s.taskMaxModel || {}, saveLimits: (taskMaxModel) => { s.taskMaxModel = taskMaxModel; api.call('settings:save', { taskMaxModel }); } });
+  RoutingUI.mount($('#routing'), { get: () => s.routes, save: (routes) => { s.routes = routes; api.call('settings:save', { routes }); }, prices, disabledProviders: s.disabledProviders || [] });
 }
 async function loadRules() {
   const r = await api.call('rules:get');
@@ -2322,7 +2323,7 @@ async function loadRules() {
 
 // ---------- settings ----------
 // Settings page. Text fields live in their sections; numeric limits come from main.js LIMITS (settings:limits), so a new limit shows up here on its own.
-const FIELDS = [['claudeCmd'], ['claudeArgs'], ['codexCmd'], ['codexArgs'], ['antigravityCmd'], ['antigravityArgs'], ['cwd'], ['supercodeInstructions']];
+const FIELDS = [['claudeCmd'], ['claudeArgs'], ['codexCmd'], ['codexArgs'], ['antigravityCmd'], ['antigravityArgs'], ['cwd']];
 const SET_MODES = [['edits', 'Full access', 'Agents edit and run commands; you answer their questions'], ['auto', 'Auto', 'Voters answer routine questions; important ones still come to you'], ['super', 'Super Auto', 'Voters answer every question, so a run can finish overnight']];
 const SET_SECS = [['profile', 'Profile'], ['providers', 'Providers'], ['agents', 'Agents'], ['limits', 'Limits'], ['updates', 'Updates']];
 let SET_LIMITS = {}, setSnap = '';
@@ -2500,7 +2501,6 @@ async function loadSettings() {
   const cwd = txt('cwd', 'Working directory', 'Project folder');
   const browse = el('button', { className: 'b', type: 'button', textContent: 'Browse', onclick: async () => { const p = await api.call('settings:pickFolder'); if (p) { cwd.value = p; cwd.dispatchEvent(new Event('input', { bubbles: true })); } } });
   const mode = el('div', { className: 'set-modes', role: 'radiogroup', ariaLabel: 'Mode for new sessions' }, ...SET_MODES.map(([k, n, d]) => el('label', { className: 'set-mode' }, el('input', { type: 'radio', name: 's-mode', value: k, checked: (s.defaultMode || 'edits') === k }), el('b', { textContent: n }), el('span', { textContent: d }))));
-  const roles = el('textarea', { id: 's-supercodeInstructions', value: s.supercodeInstructions ?? '', rows: 4, placeholder: ['Claude: architecture and complex logic', 'Codex: unit tests, scripts, file scaffolding', 'Priority: critical refactors to Opus, routine tasks to Luna'].join('\n') });
   const limTile = ([k, [def, min, max, label, hint, , unit]]) => {
     const input = el('input', { id: 's-' + k, type: 'number', min, max, step: 1, value: s[k] ?? def, className: 'lim-in', inputMode: 'numeric' });
     const reset = el('button', { className: 'lim-reset', type: 'button', textContent: 'Reset', ariaLabel: `Reset ${label} to ${def}` });
@@ -2524,8 +2524,7 @@ async function loadSettings() {
     sec('agents', 'Agents', 'How new sessions start and how each CLI is launched', null,
       row('', 'Mode for new sessions', 'Each chat can still switch from its mode menu', mode),
       row('', 'Commands', 'The CLI each provider runs, plus flags added to every run', cli),
-      row('s-cwd', 'Working directory', 'Used by chats outside a project', el('div', { className: 'set-inline' }, cwd, browse)),
-      row('s-supercodeInstructions', 'EasyCode roles', 'Guided mode only: worker responsibilities and escalation guidance', roles)),
+      row('s-cwd', 'Working directory', 'Used by chats outside a project', el('div', { className: 'set-inline' }, cwd, browse))),
     sec('limits', 'Limits', 'How much the team may do per task. A dot marks a value you changed', resetAll,
       ...Object.entries(groups).map(([g, items]) => el('div', { className: 'lim-group' }, el('h4', { textContent: g }), el('div', { className: 'lim-grid' }, ...items.map(limTile))))),
     sec('updates', 'Updates', 'Relay downloads new versions in the background and installs them when you restart', null, upd));

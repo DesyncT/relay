@@ -44,4 +44,14 @@ function codex(e, acc, cwd) {
 
 const clean = (acc) => acc.map(({ _id, ...r }) => r);
 
-module.exports = { claude, codex, clean };
+// The agent's own todo list (Claude TodoWrite, Codex todo_list) as [{t, done, now}], or null when the event has none.
+function todos(e) {
+  if (e.type === 'assistant') {
+    const b = (e.message?.content || []).findLast((x) => x.type === 'tool_use' && x.name === 'TodoWrite');
+    return b ? (b.input?.todos || []).map((x) => ({ t: String(x.content || ''), done: x.status === 'completed', now: x.status === 'in_progress' })) : null;
+  }
+  if (e.item?.type === 'todo_list') return (e.item.items || []).map((x) => ({ t: String(x.text || ''), done: !!x.completed, now: false }));
+  return null;
+}
+
+module.exports = { claude, codex, clean, todos };

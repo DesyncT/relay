@@ -1,23 +1,9 @@
 // Per-phase model + effort routing. Pure (no Electron) so it can be tested with node.
 const PHASES = ['planning', 'coding', 'other'];
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-const DEFAULT_ROUTES = {
-  claude: {
-    planning: { model: 'claude-haiku-5-5', effort: 'low' },
-    coding: { model: 'claude-haiku-5-5', effort: 'low' },
-    other: { model: 'claude-haiku-5-5', effort: 'low' },
-  },
-  codex: {
-    planning: { model: 'gpt-6-luna', effort: 'low' },
-    coding: { model: 'gpt-6-luna', effort: 'low' },
-    other: { model: 'gpt-6-luna', effort: 'low' },
-  },
-  antigravity: {
-    planning: { model: 'gemini-3.5-flash-lite', effort: 'low' },
-    coding: { model: 'gemini-3.8-flash-low', effort: 'low' },
-    other: { model: 'gemini-3.5-flash-lite', effort: 'low' },
-  },
-};
+// One standard model per provider; every phase uses it.
+const one = (model, effort = 'low') => ({ planning: { model, effort }, coding: { model, effort }, other: { model, effort } });
+const DEFAULT_ROUTES = { claude: one('claude-sonnet-5-5'), codex: one('gpt-6.1-sol'), antigravity: one('gemini-3.8-flash-low') };
 
 // Fill gaps in saved routes with defaults; drop junk. Always returns a fresh, complete object.
 function mergeRoutes(saved) {

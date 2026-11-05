@@ -15,6 +15,7 @@ const { providerArgs } = require('./permissions');
 const { createAssignments, scopeCovers } = require('./requirement-workflow');
 const { initialWorkerRoutes, balanceWorkers, nextWorkerRoute } = require('./worker-routing');
 const { normalPrompt, createProgressStream } = require('./normal-code');
+const { pickProvider } = require('./spreader');
 const easycode = require('./easycode');
 const { executeRequest } = require('./easycode-execution');
 const { requirementSubagents } = require('./requirement-subagents');
@@ -105,7 +106,7 @@ const store = createSessions({ dataDir: DATA, send });
 registerIpc(ipcMain, dialog, store);
 store.migrateLegacyChat(CHAT_FILE, settings.cwd || HOME); // first run: the old global chat.json becomes the "Global chat" session
 const sessOf = (sid) => { try { return store.getSession(sid); } catch { return null; } };
-const supercodeOn = (sid) => !!sessOf(sid)?.supercode;
+const supercodeOn = () => false; // EasyCode is retired: every chat runs the CLI directly (Spreader asks questions and picks the provider)
 const cwdFor = (sid) => { try { return store.listProjects().find((p) => p.id === sessOf(sid).projectId).path; } catch { return settings.cwd || HOME; } };
 // Session mode: auto | manual | edits | plan. Edits are allowed in auto and edits; the global "Let agents edit files" setting is the default for sessions that never picked a mode.
 // Full access is the default for every provider; the toggle turns it off per session (in memory: back on after a restart).
@@ -209,7 +210,7 @@ function claudeRun(label, who, prompt, c = {}) {
   let shared = []; if (!c.nativeCode && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // Shared Relay skills belong to EasyCode; Code uses the CLI's own environment.
   return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
     const e = json(l);
-    try { activity.claude(e, act, c.cwd); } catch {}
+    try { activity.claude(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
     if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) { said.push(b.text); progress.push(b.text); } if (b.type === 'tool_use') progress.flush(); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
     else if (e.type === 'system' && e.subtype === 'init') { model = e.model || ''; if (e.session_id) c.onSession?.(e.session_id); }
     else if (e.type === 'result') {
@@ -237,7 +238,7 @@ function codexRun(prompt, images, c = {}) {
   const runModel = modelFromArgs(args, c.route?.meta?.model || (readText(path.join(HOME, '.codex', 'config.toml')).match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || 'gpt-unknown');
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
     const e = json(l), it = e.item || {};
-    try { activity.codex(e, act, c.cwd); } catch {}
+    try { activity.codex(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
     if (e.type === 'error' && e.message) errText = String(e.message); else if (e.type === 'turn.failed' && e.error?.message) errText = String(e.error.message); // surfaced so limit detection can see them
     if (e.type === 'thread.started' && e.thread_id) c.onSession?.(e.thread_id);
     if (e.type === 'turn.started') setStatus('codex', 'thinking');
@@ -343,7 +344,7 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
   for (let i = 0; ; i++) {
     const enhanced = supercodeOn(sid);
     // Normal chats always run on the provider you picked (no silent swaps), like using Claude Code / Codex directly
-    const prov = c.routeOverride?.provider || (enhanced ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat);
+    const prov = c.routeOverride?.provider || (enhanced || c.spread ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat);
     if (!prov) throw bothErr();
     const rd = routeFor(prov, phase);
     if (c.routeOverride) {
@@ -363,8 +364,10 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
       }
     }
     if (!enhanced) {
-      const session = sessOf(sid), model = session?.chatModels?.[prov] || (prov === 'codex' ? 'gpt-6.1-sol' : prov === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-sonnet-5-5');
-      const effort = session?.chatEffort || 'low';
+      // The chat's own picker wins; otherwise (and always for Spreader) the provider's default model from Settings
+      const session = sessOf(sid), std = settings.routes?.[prov]?.coding || {}, own = !c.spread;
+      const model = (own && session?.chatModels?.[prov]) || std.model || 'claude-sonnet-5-5';
+      const effort = (own && session?.chatEffort) || std.effort || 'low';
       const routes = { [prov]: { [phase]: { model, effort } } };
       rd.extra = argsFor(prov, phase, routes, settings[prov + 'Args']);
       rd.meta = resolved(prov, phase, routes, settings[prov + 'Args']);
@@ -387,7 +390,7 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
       if (e.cancelled || !isLimitError(e.message)) throw e;
       markDown(prov, e.message);
       if (c.routeOverride) throw e; // The coordinator chooses another worker; a pinned route must never retry itself.
-      if (!enhanced) throw e;
+      if (!enhanced && !c.spread) throw e;
       if (i >= 2 || !provOf(seat)) throw provOf(seat) ? e : bothErr();
     }
   }
@@ -869,14 +872,19 @@ async function ask(sid, who, trigger, isLead) {
   if (!supercodeOn(sid)) {
     try {
       if (!snapTaken.has(sid)) { snapTaken.add(sid); panels.snapshot(sid)?.catch?.(()=>{}); }
+      const spread=isSpreader(sid);
       const result = await seatRun(sid,who,'coding',(_stand,state)=>{
         const session=store.getSession(sid);
-        return normalPrompt(session,who,state.resumed);
-      },trigger,{onProgress: text => {
+        return (spread?SPREAD_ASK+'\n\n':'')+normalPrompt(session,who,state.resumed);
+      },trigger,{spread,onTodos: list => {
+        // the agent's todo list drives the progress bar
+        if (ep === rt.epoch) setReqs(sid,{items:list.map(x=>({t:x.t,done:x.done,...(x.now && {by:who,pct:50})})),requestAt:trigger?.at});
+      },onProgress: text => {
         if (ep === rt.epoch && !rt.paused) post(sid,who,text,null,null,{progress:true});
       }});
       if (ep !== rt.epoch) return {next:[]};
-      const msg = post(sid,who,result.text,null,null,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta});
+      const asked=spread?parseTurn(result.text,result.prov || who):null, from=result.prov || who;
+      const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,null,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(asked?.askUser && {askUser:true,options:asked.options || []})});
       if (result.usage) send('agent:usage',{sid,who,...result.usage});
       return {next:[],msg,ended:true};
     } catch (error) {
@@ -1450,7 +1458,7 @@ ipcMain.handle('chat:export', async (event, sid) => {
 // per-session settings the chat header needs: title, lead (falls back to the global default), project
 ipcMain.handle('chat:info', (_e, sid) => {
   const s = store.getSession(sid), p = store.listProjects().find((x) => x.id === s.projectId);
-  return { easycode:s.easycode || null, spend: s.spend || null, reqs: s.supercode ? s.reqs || null : null, supercode:!!s.supercode, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
+  return { easycode:s.easycode || null, spend: s.spend || null, reqs: s.reqs || null, supercode:false, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
 });
 // End task: stop the agents, drop the requirements and close the task (know-how stays), so the next message starts fresh
 ipcMain.handle('chat:endTask', (_e, sid) => {
@@ -1705,12 +1713,29 @@ function continueChecklist(sid, trigger, force = false) {
   startRequirementWorkflow(sid, owner, trigger, rt.epoch).catch((e) => post(sid, 'system', `Parallel run failed: ${String(e.message).slice(-300)}`, null, null, { failure:formatFailureInfo(e.message,owner) }));
   return true;
 }
+// Spreader: one normal agent run per message, on the subscription with the most quota left.
+const isSpreader = (sid) => ['spreader', 'random'].includes(sessOf(sid)?.lead || settings.lead);
+const SPREAD_ASK = 'Before changing anything, check the request is clear. If a missing product decision would change what you build, ask ONE short plain-language question and stop, ending your message with [ask-user: Option A | Option B | Option C] (2-4 concrete outcomes, the one you recommend first). Never ask about details you can settle by reading the project. At most 3 questions per task; once the request is clear, just do the work.';
+async function spreadTo(sid) {
+  const sess = sessOf(sid), avail = AGENT_NAMES.filter((p) => !isDown(p));
+  const prev = sess?.messages?.findLast((x) => AGENT_NAMES.includes(x.from));
+  // An answer goes back to the agent that asked the question, so it keeps its context.
+  if (prev?.askUser && avail.includes(prev.from)) return prev.from;
+  const quota = await require('./quota').readQuota().catch(() => ({}));
+  const p = pickProvider(quota, avail, sess?.spreadLast) || 'claude';
+  try { store.updateSession(sid, { spreadLast: p }); } catch {}
+  return p;
+}
 function dispatchUser(sid, { text, files, reply }) {
   const sess = store.getSession(sid), rt = RT(sid); // throws on an unknown session
   const m = post(sid, 'user', text, reply, files);
   if (!supercodeOn(sid)) {
     const selected=sess.lead || settings.lead;
     rt.turns=0; rt.paused=false; rt.awaiting=false;
+    // a new task (not an answer to the agent's question) starts with an empty progress bar
+    const answering=sessOf(sid)?.messages?.slice(0,-1).findLast(x=>AGENT_NAMES.includes(x.from))?.askUser;
+    if (!answering && reqsOf(sid)) setReqs(sid,null);
+    if (isSpreader(sid)) { spreadTo(sid).then(p=>enqueue(sid,p,m,null,true)); return; }
     enqueue(sid,AGENT_NAMES.includes(selected) ? selected : 'codex',m,null,true);
     return;
   }
@@ -1782,7 +1807,6 @@ ipcMain.handle('chat:interrupt-send', (_e, sid, text, attachments = [], options 
 });
 ipcMain.handle('chat:mode', (_e, sid, mode) => {
   if (!['auto', 'super', 'manual', 'edits', 'plan'].includes(mode)) return;
-  if (mode === 'super' && !supercodeOn(sid) && !chatBusy(sid)) { store.updateSession(sid, { supercode: true }); send('workflow:changed', { sid, supercode: true }); } // voters only run in Supercode
   setMode(sid, mode);
 });
 ipcMain.handle('chat:retry', async (_e, sid, targetProv) => {

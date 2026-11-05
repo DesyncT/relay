@@ -13,7 +13,7 @@ const dispatch = source.slice(source.indexOf('const WRAP ='),source.indexOf("ipc
 for (const text of ['Fix this bug','What is React?','wrap up','[req: literal text]']) {
   const queued = [], posted = [], state = {};
   vm.runInNewContext(`${dispatch}; dispatchUser('test',{text:input});`, {
-    input:text, store:{getSession:()=>({lead:'codex'})}, RT:()=>state, supercodeOn:()=>false,
+    input:text, store:{getSession:()=>({lead:'codex'})}, sessOf:()=>({lead:'codex'}), reqsOf:()=>null, RT:()=>state, supercodeOn:()=>false,
     post:(_sid,from,text)=>{const message={from,text};posted.push(message);return message;},
     AGENT_NAMES:['claude','codex'], settings:{lead:'claude'}, enqueue:(...args)=>queued.push(args),
     setReqs:()=>assert.fail('Code mode must not create a requirements workflow'),
