@@ -571,10 +571,16 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     },
   });
   const promise = coordinator.start(assignments).then(async completed => {
-    if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
+    if (epoch !== rt.epoch || !completed.length) return completed;
+    // a task that is still stuck after its fix rounds and the debugger goes to the lead instead of waiting on you: the rest are combined, the lead finishes it
+    const stuck = completed.filter(a => a.actionable !== false && a.status !== 'passed');
+    for (const a of stuck) Object.assign(a, { status:'skipped', actionable:false, leadTodo:String(a.error || a.blocker || (a.reviewEvidence || []).at(-1)?.evidence || 'did not finish').slice(0, 1200), blocker:null, ended:Date.now() });
+    const leadTodo = stuck.map(a => `#${a.requirementIndex + 1} ${checklist[a.requirementIndex]?.t || a.task}: ${a.leadTodo}`).join('\n');
     // every task skipped: nothing to combine
     const toCombine = completed.filter(a => a.status === 'passed' && a.integrationStatus !== 'passed');
     const result = toCombine.length ? await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner) : { status:'passed' };
+    const todo = leadTodo ? `These tasks did not finish, so do them yourself:
+${leadTodo}` : '';
     if (epoch !== rt.epoch) return completed;
     const latest = reqsOf(sid) || {};
     setReqs(sid, { ...reqsOf(sid), integration:null });
@@ -582,10 +588,12 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     if (result.status === 'passed') {
       // skipped items count as finished (they keep their skipped flag), so the lead's turn sees every requirement met and wraps up
       setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true, pct:100 })), finished:Date.now(), assignments:completed });
-      handBackToLead(sid, owner, completed);
+      handBackToLead(sid, owner, completed, todo);
     } else {
-      setReqs(sid, { ...latest, assignments:completed });
-      // the summary above says what failed; Retry on a task row or Finish runs the combine step again
+      // combining could not get it green: rather than a blocked list, the lead (full context, can edit) fixes what the check found, then uploads and wraps up
+      for (const a of completed) if (a.integrationStatus === 'open') { a.integrationStatus = 'passed'; a.blocker = null; a.passedWithNotes = String(result.findings || '').slice(0, 3000); }
+      setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true, pct:100 })), finished:Date.now(), assignments:completed });
+      handBackToLead(sid, owner, completed, [String(result.findings || result.blocker || 'the combined check did not pass'), todo].filter(Boolean).join('\n'));
     }
     if (canCleanupRequirementWorkspaces(completed, result.status)) offThread('cleanupTaskWorkspaces', workspaces).catch(() => {});
     return completed;
@@ -610,11 +618,13 @@ ${String(result.report).trim().slice(-1500)}` : '',
   post(sid, result.integrator?.provider || owner, text, null, null, { ...(result.integrator && { route:{ model:result.integrator.model, effort:result.integrator.effort } }) });
 }
 // the lead comes back: one last look over the combined result, then the wrap-up review and the summary
-function handBackToLead(sid, owner, completed) {
+function handBackToLead(sid, owner, completed, issues = '') {
   const latest = reqsOf(sid) || {}, items = latest.items || [];
   const passed = completed.filter(a => a.status === 'passed').length, skipped = items.map((item, n) => item.skipped ? `#${n + 1}` : '').filter(Boolean);
   setReqs(sid, { ...latest, handedBack:Date.now() }); // saved, so a restart does not hand back twice
-  const handBack = post(sid, 'system', `All ${items.length} checklist tasks are finished: ${passed} passed${skipped.length ? `, ${skipped.length} skipped (${skipped.join(', ')})` : ''}${passed ? ', and the combined result passed verification' : ''}. @${owner} you are the only one who touches anything remote: look over the combined local changes, fix anything small that is left, upload or deploy them where the request needs it (staging or live exactly as the user asked), do the final review, then wrap up with the summary.`, null);
+  const handBack = post(sid, 'system', `All ${items.length} checklist tasks are finished: ${passed} passed${skipped.length ? `, ${skipped.length} skipped (${skipped.join(', ')})` : ''}${passed && !issues ? ', and the combined result passed verification' : ''}. ${issues ? `The combined check still found problems, so fix these in the local files first and rerun the checks:
+${issues.slice(0, 2000)}
+` : ''}@${owner} you are the only one who touches anything remote: look over the combined local changes, fix anything small that is left, upload or deploy them where the request needs it (staging or live exactly as the user asked), do the final review, then wrap up with the summary.`, null);
   enqueue(sid, owner, handBack, null, true);
   saveResume(sid);
   if (Notification.isSupported()) new Notification({ title:'Checklist finished', body:`${store.getSession(sid)?.title || 'Chat'}: ${passed} passed${skipped.length ? `, ${skipped.length} skipped` : ''}. @${owner} is wrapping up.` }).show();
@@ -1230,7 +1240,8 @@ function resumeSessions() {
         post(s.id, 'system', `${explanation} It was not run a second time; review the saved integration findings before continuing.`, null, null, { muted:true });
         saveResume(s.id); drainUserQueue(s.id); continue;
       }
-      if (recovered.kind === 'resume') {
+      // stuck tasks go through the workflow again too: it settles at once and hands them to the lead instead of waiting on you
+      if (recovered.kind === 'resume' || (!reqsOf(s.id)?.finished && recovered.assignments.some(a => a.actionable !== false && ['open','blocked','failed'].includes(a.status)))) {
         const lastUser = s.messages.findLast(m => m.from === 'user');
         const unavailable = recovered.assignments.filter(a => a.blocker === 'workspace-unavailable');
         const suffix = unavailable.length ? ` These assignments are left open because their temporary workspaces are unavailable: ${unavailable.map(a => `${a.id} (${a.error})`).join('; ')}.` : '';

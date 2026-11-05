@@ -30,8 +30,9 @@ assert.equal(integration.assignments[0].blocker, null);
 const exhaustedIntegration = recoverRequirementAssignments([
   { id:'done', status:'passed', integrationStatus:'open', blocker:'integration-exhausted', files:['src/a.js'] },
 ], valid);
-assert.equal(exhaustedIntegration.kind, 'integration-open');
-assert.equal(exhaustedIntegration.assignments[0].blocker, 'integration-exhausted', 'recovery preserves an exhausted integration blocker');
+assert.equal(exhaustedIntegration.kind, 'resume', 'a failed combine runs again after a restart');
+assert.equal(exhaustedIntegration.integrate, true);
+assert.equal(exhaustedIntegration.assignments[0].blocker, null);
 
 const integrated = recoverRequirementAssignments([
   { id:'done', status:'passed', integrationStatus:'passed', files:['src/a.js'] },

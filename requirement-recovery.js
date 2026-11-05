@@ -15,7 +15,8 @@ function recoverRequirementAssignments(input, validateWorkspace = () => false) {
   if (actionable.length && actionable.every(a => a.integrationStatus === 'passed'))
     return { kind:'integrated', assignments, integrate:false };
 
-  const inFlightIntegration = assignments.some(a => a.integrationStatus === 'integrating' || a.integrationStatus === 'retrying');
+  // an earlier failed combine ('open') runs again too: it now ends with the lead fixing what is left instead of a blocked list
+  const inFlightIntegration = assignments.some(a => INTERRUPTED_INTEGRATION.has(a.integrationStatus));
   const priorIntegration = assignments.some(a => INTERRUPTED_INTEGRATION.has(a.integrationStatus) || a.integrationStatus === 'passed');
   if (priorIntegration && !inFlightIntegration) return { kind:'integration-open', assignments, integrate:false };
   // a restart cut the combine step off: run it again. Patches already applied (patchApplied) are not applied twice

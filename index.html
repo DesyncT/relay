@@ -1726,6 +1726,7 @@ function renderTyping() {
 const pathsOverlapUi = (a, b) => { const k = (p) => String(p).toLowerCase().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''); const x = k(a), y = k(b); return !!x && !!y && (x === y || x.startsWith(y + '/') || y.startsWith(x + '/')); };
 // Requirements checklist progress (main.js reqs): bar + count, click to see the list
 const reqsLead = (r) => (r?.assignments || []).find((a) => a.owner)?.owner || '';
+const assignmentByIndexOf = (r, n) => (r?.assignments || []).find((a) => Number(a.requirementIndex) === n);
 const assignmentStatus = (r, n) => (r?.assignments || []).find((a) => Number(a.requirementIndex) === n)?.status;
 function renderReqs(r) {
   const box = $('#reqbar'), items = r?.items || [];
@@ -1745,7 +1746,7 @@ function renderReqs(r) {
   const who = (i) => el('span', { className: 'rq-who' }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), el('span', { className: 'rq-mini' }, el('i', { style: `width:${i.pct || 0}%` })), el('span', { className: 'mono', textContent: `${i.pct || 0}%` }));
   const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
   // finished = every item ticked (skipped ones too); combining = every task passed or skipped, the final check still running
-  const skippedN = items.filter((i, n) => i.skipped || assignmentStatus(r, n) === 'skipped').length;
+  const skippedN = items.filter((i, n) => i.skipped || (assignmentStatus(r, n) === 'skipped' && !assignmentByIndexOf(r, n)?.leadTodo)).length;
   // after combining, the lead uploads and does the final review; All done once its wrap-up summary is in
   const uploading = items.every((i) => i.done) && !!r.handedBack && !r.wrappedUp;
   const finished = items.every((i) => i.done) && !uploading, combining = !items.every((i) => i.done) && done === items.length;
@@ -1765,7 +1766,7 @@ function renderReqs(r) {
   const next = items.findIndex((i) => !i.done), assignmentByIndex = new Map((r.assignments || []).map((a) => [Number(a.requirementIndex), a]));
   const assignmentDetails = (a) => {
     const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', skipped:'Skipped', blocked:'Blocked', open:'Open', escalated:'Escalated' };
-    const state = status==='passed' && a.passedWithNotes ? 'Passed with notes' : a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
+    const state = a.leadTodo ? `@${reqsLead(r) || 'lead'} finishes this` : status==='passed' && a.passedWithNotes ? 'Passed with notes' : a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
     const displayedRoute=status==='reviewing' && a.reviewRoute ? a.reviewRoute : a.integrationRoute || a;
     const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
     const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
@@ -1826,7 +1827,9 @@ function renderReqs(r) {
       el('span', { className:'rq-n', textContent:String(n + 1).padStart(2, '0') }),
       el('span', { className:'rq-ic', innerHTML:ic, title: passed ? 'Passed review. Fully checked once every task is combined and the final check passes' : live && worker ? `${worker} is working on this` : '' }),
       el('span', { className:'rq-content' }, title, ...(!i.done && i.by && !a ? [who(i)] : []),
-        ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a), ...(blocker ? [el('span', { className:'rq-wait', textContent:`Waits for #${Number(blocker.requirementIndex) + 1}, same files` })] : []))] : [])));
+        ...(a ? [el('span', { className:'rq-assignment' }, ...assignmentDetails(a), ...(blocker ? [el('span', { className:'rq-wait', textContent:`Waits for #${Number(blocker.requirementIndex) + 1}, same files` })] : []))] : []),
+        // no task of its own: the planner folded it into the others as a rule they keep, so it is not skipped
+        ...(!a && tasks.length && !i.skipped ? [el('span', { className:'rq-assignment' }, el('span', { className:'rq-assignment-state', textContent:'Kept by the other tasks', title:'A rule the other tasks follow, checked when they are combined' }))] : [])));
   }));
   // Finish: every task passed or skipped but nothing is moving: combine them and hand back to the lead
   if (combining && !moving) {
