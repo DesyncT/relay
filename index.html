@@ -243,9 +243,8 @@
   .opt:hover { background:color-mix(in srgb, var(--raised) 85%, #fff); } .opt:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
   .opt.pri { background:#ededed; color:#141415; border-color:transparent; } .opt.pri:hover { background:#fff; }
   .opt:disabled { opacity:.5; cursor:default; pointer-events:none; }
-  /* question choices: lettered cards so a pick reads as A / B / C */
-  .opts.lettered { counter-reset:opt; gap:8px; } .opts.lettered .opt { height:36px; padding:0 14px 0 6px; gap:10px; } .opts.lettered .opt::before { counter-increment:opt; content:counter(opt, upper-alpha); display:inline-grid; place-items:center; width:22px; height:22px; border-radius:6px; background:var(--card); color:var(--text-2); font-size:12px; font-weight:500; }
-  .opts.lettered .opt.pri::before { background:rgba(20,20,21,.12); color:#141415; }
+  /* Question choices show their labels without letter badges. */
+  .opts.lettered { gap:8px; } .opts.lettered .opt { height:36px; padding:0 14px; }
   .opts.lettered .opt-own { height:36px; min-height:36px; flex-basis:100%; }
   /* .opts prefix beats workbench.css's input:not([type=checkbox]) so it matches the .opt buttons beside it */
   .opts .opt-own { flex:1 1 220px; width:auto; min-width:0; height:32px; min-height:32px; box-sizing:border-box; padding:0 12px; border-radius:8px; background:var(--raised); border:1px solid var(--line-strong); color:var(--text); font:inherit; font-size:14px; transition:border-color .15s var(--ease); }
