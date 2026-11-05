@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage, Tray, Menu, Notification } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -529,13 +529,19 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     },
   });
   const promise = coordinator.start(assignments).then(async completed => {
-    if (epoch !== rt.epoch || !completed.some(a => a.status === 'passed') || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
-    const result = await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner);
+    if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
+    // every task skipped: nothing to combine
+    const result = completed.some(a => a.status === 'passed') ? await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner) : { status:'passed' };
     if (epoch !== rt.epoch) return completed;
     const latest = reqsOf(sid) || {};
     if (result.status === 'passed') {
-      setReqs(sid, { ...latest, items:(latest.items || []).map(item => item.skipped ? item : { ...item, done:true }), assignments:completed });
-      post(sid, owner, `Integrated the passed requirement tasks. Independent verification passed; all ${latest.items?.length || 0} requirements are complete.`, trigger, null, { muted:true });
+      // skipped items count as finished (they keep their skipped flag), so the lead's turn sees every requirement met and wraps up
+      setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true, pct:100 })), finished:Date.now(), assignments:completed });
+      const passed = completed.filter(a => a.status === 'passed').length, skipped = (latest.items || []).map((item, n) => item.skipped ? `#${n + 1}` : '').filter(Boolean);
+      // the lead comes back: one last look over the combined result, then the wrap-up review and the summary
+      const handBack = post(sid, 'system', `All ${latest.items?.length || 0} checklist tasks are finished: ${passed} passed${skipped.length ? `, ${skipped.length} skipped (${skipped.join(', ')})` : ''}${passed ? ', and the combined result passed verification' : ''}. @${owner} look over the project once more, fix anything small that is left, then wrap up with the summary.`, null);
+      enqueue(sid, owner, handBack, null, true);
+      if (Notification.isSupported()) new Notification({ title:'Checklist finished', body:`${store.getSession(sid)?.title || 'Chat'}: ${passed} passed${skipped.length ? `, ${skipped.length} skipped` : ''}. @${owner} is wrapping up.` }).show();
     } else {
       setReqs(sid, { ...latest, assignments:completed });
       post(sid, owner, `Integration remains open: ${result.findings || result.blocker}. Requirements are still unchecked.`, trigger, null, { muted:true });

@@ -489,6 +489,8 @@
   #reqbar .rq-debug { flex-basis:100%; font-size:12px; color:var(--text-2); }
   #reqbar .rq-debug summary { cursor:pointer; width:max-content; }
   #reqbar .rq-debug pre { margin:8px 0; padding:8px 12px; max-height:240px; overflow:auto; white-space:pre-wrap; font-family:var(--mono); font-size:12px; line-height:16px; background:var(--raised); border:1px solid var(--line); border-radius:8px; }
+  #reqbar .rq-finished { display:inline-flex; align-items:center; gap:6px; color:var(--positive, var(--claude)); font-weight:500; }
+  #reqbar .rq-finished svg { width:14px; height:14px; stroke-width:2.5; }
   #reqbar li.passed .rq-ic svg { width:10px; height:10px; stroke-width:3; }
   .upd { display:flex; flex-direction:column; gap:8px; width:100%; }
   .upd-h { display:flex; align-items:center; justify-content:space-between; gap:16px; }
@@ -1706,6 +1708,7 @@ function renderTyping() {
 // same rule as requirement-workflow pathsOverlap: a file is covered by itself or a folder above it
 const pathsOverlapUi = (a, b) => { const k = (p) => String(p).toLowerCase().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''); const x = k(a), y = k(b); return !!x && !!y && (x === y || x.startsWith(y + '/') || y.startsWith(x + '/')); };
 // Requirements checklist progress (main.js reqs): bar + count, click to see the list
+const assignmentStatus = (r, n) => (r?.assignments || []).find((a) => Number(a.requirementIndex) === n)?.status;
 function renderReqs(r) {
   const box = $('#reqbar'), items = r?.items || [];
   box.hidden = !items.length; box.classList.toggle('has', items.length > 0);
@@ -1720,11 +1723,15 @@ function renderReqs(r) {
   const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements' : 'Clarifying your request';
   const who = (i) => el('span', { className: 'rq-who' }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), el('span', { className: 'rq-mini' }, el('i', { style: `width:${i.pct || 0}%` })), el('span', { className: 'mono', textContent: `${i.pct || 0}%` }));
   const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
+  // finished = every item ticked (skipped ones too); combining = every task passed or skipped, the final check still running
+  const skippedN = items.filter((i, n) => i.skipped || assignmentStatus(r, n) === 'skipped').length;
+  const finished = items.every((i) => i.done), combining = !finished && done === items.length;
   // one line: Requirements · 93% (accent) · bar · 1 of 3 done · @claude #1 — full texts live in the dropdown and tooltips
   const head = items.length
-    ? [el('span', { className: 'rq-lbl', textContent: 'Requirements' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
+    ? [finished ? el('span', { className: 'rq-lbl rq-finished', innerHTML: svgI('<path d="M20 6 9 17l-5-5"/>') + '<span>All done</span>' })
+         : el('span', { className: 'rq-lbl', textContent: combining ? 'Combining and checking' : 'Requirements' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
        el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` })),
-       el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done` }),
+       el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done${skippedN ? ` · ${skippedN} skipped` : ''}` }),
        ...(r.planning && !(r.assignments || []).length
          ? [el('span', { className: 'rq-now rq-plan', title: `${r.planning} is splitting the checklist into tasks that can run at the same time` }, el('span', { className: 'rq-ic', innerHTML: logo(r.planning === 'claude' ? 'claude' : r.planning === 'antigravity' ? 'antigravity' : 'openai', 10, r.planning === 'claude' ? '#D97757' : r.planning === 'antigravity' ? '#4E88F5' : '#fff') }), 'Splitting into parallel tasks')]
          : now.slice(0, 2).map((i) => el('span', { className: 'rq-now', title: `${i.n}. ${i.t} · ${i.pct || 0}%` }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), ` #${i.n}`)))]
@@ -1739,7 +1746,7 @@ function renderReqs(r) {
     const displayedRoute=a.integrationRoute || a;
     const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
     const review = a.reviewAttempts ? `Review ${a.reviewAttempts}${evidence.length ? ` · ${evidence.at(-1).verdict || evidence.at(-1).evidence || 'evidence saved'}` : ''}` : '';
-    const progress = Math.max(0, Math.min(100, Number(a.progress) || 0));
+    const progress = ['passed','skipped'].includes(status) ? 100 : Math.max(0, Math.min(100, Number(a.progress) || 0));
     const retryable=['blocked','open'].includes(status) || a.integrationStatus==='open';
     const retryControls=el('span',{className:'rq-retry-controls'});
     if(retryable) {
@@ -1788,7 +1795,7 @@ function renderReqs(r) {
     const live = !i.done && (i.by || a?.status === 'running' || a?.status === 'reviewing'), worker = a?.provider || i.by;
     // the spinner carries the logo of the model working on it
     // passed its own review: ticked (outlined) now, filled once every task is combined and the final check passes
-    const passed = !i.done && a?.status === 'passed';
+    const passed = !i.done && (a?.status === 'passed' || a?.status === 'skipped');
     const ic = i.done || passed ? svgI('<path d="M20 6 9 17l-5-5"/>') : live && worker ? logo(worker === 'claude' ? 'claude' : worker === 'antigravity' ? 'antigravity' : 'openai', 10, worker === 'claude' ? '#D97757' : worker === 'antigravity' ? '#4E88F5' : '#fff') : '';
     // a queued task waits because it edits the same files as a running one; say which
     const blocker = a?.status === 'queued' && (r.assignments || []).find((b) => b !== a && (b.status === 'running' || b.status === 'reviewing') && (b.files || []).some((f) => (a.files || []).some((g) => pathsOverlapUi(f, g))));
