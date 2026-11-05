@@ -1250,7 +1250,8 @@ function replyTo(m) {
 const ftok = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
 const fcost = (c) => '$' + (c < 0.1 ? c.toFixed(3) : c.toFixed(2));
   // spend strip: summed from the messages in the log, so it follows whatever chat is loaded
-  const shown = {}; let spendTotals = {}, spendSignature = null;
+  // spendTotals: the session's ledger (main.js addSpend counts every run: tasks, reviews, subagents); older chats add up their messages
+  const shown = {}; let spendTotals = {}, spendSignature = null, spendLedger = false;
   const spendTxt = (s) => (s && s.cost > 0 ? `${fcost(s.cost)} · ` : '') + `${ftok(Math.round(s?.tokens || 0))} tokens`;
   function renderSpend(live) {
     const sum = spendTotals;
@@ -1460,7 +1461,7 @@ function addMsg(m, live, batch = false) {
     log.append(el('div',{className:'msg review-context-row'},reviewContextNode({request:related?.text,requestAt:related?.at,round},true)));
   }
   row._m = m;
-  if (m.usage) {
+  if (m.usage && !spendLedger) {
     const k = m.via || m.from.split(':')[0], u = m.usage;
     const total = spendTotals[k] ||= {tokens:0,cost:0,input:0,output:0,cached:0,model:''};
     for (const field of ['tokens','cost','input','output','cached']) total[field] += u[field] || 0;
@@ -1724,6 +1725,7 @@ function renderTyping() {
 // same rule as requirement-workflow pathsOverlap: a file is covered by itself or a folder above it
 const pathsOverlapUi = (a, b) => { const k = (p) => String(p).toLowerCase().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''); const x = k(a), y = k(b); return !!x && !!y && (x === y || x.startsWith(y + '/') || y.startsWith(x + '/')); };
 // Requirements checklist progress (main.js reqs): bar + count, click to see the list
+const reqsLead = (r) => (r?.assignments || []).find((a) => a.owner)?.owner || '';
 const assignmentStatus = (r, n) => (r?.assignments || []).find((a) => Number(a.requirementIndex) === n)?.status;
 function renderReqs(r) {
   const box = $('#reqbar'), items = r?.items || [];
@@ -1744,11 +1746,14 @@ function renderReqs(r) {
   const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
   // finished = every item ticked (skipped ones too); combining = every task passed or skipped, the final check still running
   const skippedN = items.filter((i, n) => i.skipped || assignmentStatus(r, n) === 'skipped').length;
-  const finished = items.every((i) => i.done), combining = !finished && done === items.length;
+  // after combining, the lead uploads and does the final review; All done once its wrap-up summary is in
+  const uploading = items.every((i) => i.done) && !!r.handedBack && !r.wrappedUp;
+  const finished = items.every((i) => i.done) && !uploading, combining = !items.every((i) => i.done) && done === items.length;
   const moving = (r.assignments || []).some((a) => ['queued', 'running', 'reviewing'].includes(a.status) || ['integrating', 'retrying'].includes(a.integrationStatus));
   // one line: Requirements · 93% (accent) · bar · 1 of 3 done · @claude #1 — full texts live in the dropdown and tooltips
   const head = items.length
-    ? [finished ? el('span', { className: 'rq-lbl rq-finished', innerHTML: svgI('<path d="M20 6 9 17l-5-5"/>') + '<span>All done</span>' })
+    ? [uploading ? el('span', { className: 'rq-lbl' }, el('span', { className: 'rq-think', textContent: `${r.handedBack && reqsLead(r) ? '@' + reqsLead(r) + ' is uploading and doing the final review' : 'Uploading and final review'}` }))
+       : finished ? el('span', { className: 'rq-lbl rq-finished', innerHTML: svgI('<path d="M20 6 9 17l-5-5"/>') + '<span>All done</span>' })
          : el('span', { className: 'rq-lbl', textContent: combining ? (moving ? 'Combining and checking' : 'Ready to finish') : 'Requirements' }), el('span', { className: 'rq-pct', textContent: pct + '%' }),
        el('span', { className: 'rq-track' }, el('span', { className: 'rq-fill', style: `width:${pct}%` })),
        el('span', { className: 'rq-cnt', textContent: `${done} of ${items.length} done${skippedN ? ` · ${skippedN} skipped` : ''}` }),
@@ -1840,6 +1845,7 @@ function renderReqs(r) {
   if (jobsKey(reqsNow) !== jobsKey(r)) { reqsNow = r; renderTyping(); } else reqsNow = r;
 }
 api.on('reqs:update', (d) => { if (d.sid === openSid) renderReqs(window.ActiveChat?.supercode ? d.reqs || { items: [], idle: true } : null); });
+api.on('spend:update', (d) => { if (d.sid !== openSid) return; spendLedger = true; spendTotals = JSON.parse(JSON.stringify(d.spend || {})); renderSpend(true); });
 api.on('agent:status', (d) => { const a = actBy[d.sid] ||= {}; if (d.status) a[d.who] = d; else delete a[d.who]; if (d.sid === openSid) { renderTyping(); renderSpend(); } });
 setInterval(renderTyping, 1000);
 // Compact provider availability; reset details stay available on hover.
@@ -2170,7 +2176,7 @@ async function openSession(id, show = true) {
   act = actBy[openSid] ||= {};
   replying = null; renderChip(); pend = []; renderPend();
   $('#input').value = loadDraft(openSid); grow();
-  $('#log').innerHTML = ''; spendTotals = {}; spendSignature = null; for (const k in shown) delete shown[k]; prev = null; waitFor = null;
+  $('#log').innerHTML = ''; spendLedger = !!info?.spend; spendTotals = spendLedger ? JSON.parse(JSON.stringify(info.spend)) : {}; spendSignature = null; for (const k in shown) delete shown[k]; prev = null; waitFor = null;
   const lg = $('#log'); lg.classList.remove('sw-in'); void lg.offsetWidth; lg.classList.add('sw-in'); // replay the open animation
   $('#chat').classList.toggle('ro', !openSid);
   openTitle = info ? info.title : '';

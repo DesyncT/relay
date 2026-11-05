@@ -303,6 +303,20 @@ async function ensureAntigravityProxy() {
 }
 
 // Providers (the CLIs). A seat (@claude / @codex) normally runs on its own provider; c.seat names the seat for status lines.
+// Every agent run counts toward its session's spend: chat turns, task workers, reviewers, the integrator, the debugger,
+// subagents and votes. Kept on the session (session.spend), so it survives restarts and the footer shows the real total.
+function addSpend(sid, provider, usage) {
+  const s = sessOf(sid); if (!s || !usage) return;
+  // a chat from before the ledger starts from what its messages recorded, so the total never drops
+  const base = s.spend || (s.messages || []).reduce((t, m) => { if (!m.usage) return t; const k = m.via || String(m.from).split(':')[0]; return { ...t, [k]:addUsage(t[k], m.usage) }; }, {});
+  const spend = { ...base, [provider]:addUsage(base[provider], usage) };
+  try { store.updateSession(sid, { spend }); } catch { return; }
+  send('spend:update', { sid, spend });
+}
+const tracked = (provider, sid, result) => { if (sid && result?.usage) addSpend(sid, provider, result.usage); return result; };
+const runClaude = claudeRun, runCodex = codexRun;
+claudeRun = async (label, who, prompt, c = {}) => tracked(/^(claude|codex|antigravity)/.exec(label)?.[1] || 'claude', c.sid, await runClaude(label, who, prompt, c));
+codexRun = async (prompt, images, c = {}) => tracked('codex', c.sid, await runCodex(prompt, images, c));
 const PROV = {
   claude: (p, _t, c) => c.sub ? claudeRun('claude (sub)', 'claude:sub', p, c) : claudeRun('claude (chat)', c.seat || 'claude', p, c),
   codex: (p, trigger, c) => codexRun(p, (trigger?.attachments || []).filter((a) => IMG_EXT.test(a.name)), c),
@@ -644,7 +658,8 @@ async function integrateRequirementTasks(sid, assignments, trigger, epoch, works
         // run() also rejects a silent exit 0; the exit code, not the output wording, is the verdict
         hasFullCheck = error?.code === 0;
         checkUnavailable=error?.code==='ENOENT';
-        checkEvidence = hasFullCheck ? 'npm test exited 0 with no output.' : `Full project check failed: ${String(error.message || error)}`;
+        // no package.json (a WordPress site, a plain folder) means there is no test suite, not a failed one
+        checkEvidence = hasFullCheck ? 'npm test exited 0 with no output.' : checkUnavailable ? 'This project has no package.json, so there are no automated tests; the combined result is reviewed instead.' : `Full project check failed: ${String(error.message || error)}`;
       }
       const scopes = changes.flatMap(c => c.scope);
       const outside = ((await offThread('touchedSince', projectPath, before)) || []).filter(file => !scopes.some(scope => scopeCovers(scope, file)));
@@ -655,7 +670,7 @@ ${checkEvidence}`;
       report = integrated.text || report;
       if(!checksPassed && checkUnavailable && !outside.length) step('verifying the combined result');
       if(!checksPassed && checkUnavailable && !outside.length) manualVerification=await reviewIntegratedResult(sid,integrator,{changes,text:integrated.text,checks:`No automated npm check is available. Verify the actual requirements independently from source and relevant commands, without a browser or live site. Do not treat a missing npm script as a defect. ${checkEvidence}`},epoch);
-      return { checksPassed:checksPassed || manualVerification?.verdict==='PASS', manualVerification, evidence:checkEvidence, text:integrated.text, activity:integrated.activity || [] };
+      return { checksPassed:checksPassed || manualVerification?.verdict==='PASS', manualVerification, evidence:manualVerification && manualVerification.verdict!=='PASS' ? `Combined review: ${String(manualVerification.evidence || manualVerification.verdict).slice(0, 2500)}` : checkEvidence, text:integrated.text, activity:integrated.activity || [] };
     },
     review: (integrator, changes, integrated) => integrated.manualVerification || (step('reviewing the combined result'), reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch)),
   }).then(result => ({ ...result, report }));
@@ -678,7 +693,7 @@ async function reviewIntegratedResult(sid, integrator, changes, epoch) {
     const model = provider === 'codex' ? 'gpt-6-luna' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-haiku-5-5';
     const effort = 'low';
     const route = { extra:argsFor(provider, 'other', { [provider]:{ other:{ model, effort } } }, ''), meta:{ phase:'review', model, effort } };
-    const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. First list the concrete check points the requirements imply, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.`;
+    const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. Each task already passed its own review: judge the combined result. FAIL only if the changes conflict with each other, break something that worked, or clearly miss a requirement; small gaps and points you cannot verify are PASS with a note. Uploading and deploying are not part of this check (the lead does that next). First list the concrete check points the requirements imply, one per line as CHECK: <point> = PASS or FAIL, each with the evidence you saw. Check from source, the diff and commands only: do not open a browser, take screenshots, use computer-use or visit live or staging sites. A visual or live point (how a page looks, what staging shows) is checked from the code that produces it, and is PASS when that code clearly does it. A point that code and commands cannot settle is FAIL, saying what is missing. Then end with VERDICT: PASS only if every check passed, otherwise VERDICT: FAIL. For a FAIL, name the failed check and, where it applies, FILE, LINE, ACTUAL and EXPECTED.`;
     try {
       const result = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:`req-final-review-${index}`, route });
       const verdict = readVerdict(result.text);
@@ -978,6 +993,7 @@ async function ask(sid, who, trigger, isLead) {
     const checked = rt.reviewChanges.length && editsOn(sid) ? await reviewResult(sid, who, trigger, r, rt.reviewChanges, ep) : { summary: 'Wrapped up. No local file changes to review.' };
     if (ep !== rt.epoch) return { next: [] };
     rt.wrapping = false; rt.requests = []; rt.reviewChanges = []; rt.reviewRequestAt = null;
+    if (reqsOf(sid)?.handedBack) setReqs(sid, { ...reqsOf(sid), wrappedUp:Date.now() }); // the header moves from uploading to All done
     // the user gets a real recap, also when the work happened elsewhere (uploaded to a server, a remote, a database)
     const SUMMARY = `WRAP-UP SUMMARY for the user (no tags, no @mentions, nothing else). Check the files/state if you need to, then write short sections in plain words with **bold** labels:
 **What changed:** each file or thing changed, and WHERE: local only, or uploaded/deployed to the server (name it), or committed/pushed.
@@ -1395,7 +1411,7 @@ ipcMain.handle('chat:export', async (event, sid) => {
 // per-session settings the chat header needs: title, lead (falls back to the global default), project
 ipcMain.handle('chat:info', (_e, sid) => {
   const s = store.getSession(sid), p = store.listProjects().find((x) => x.id === s.projectId);
-  return { reqs: s.supercode ? s.reqs || null : null, supercode:!!s.supercode, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
+  return { spend: s.spend || null, reqs: s.supercode ? s.reqs || null : null, supercode:!!s.supercode, chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
 });
 // End task: stop the agents, drop the requirements and close the task (know-how stays), so the next message starts fresh
 ipcMain.handle('chat:endTask', (_e, sid) => {
