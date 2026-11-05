@@ -14,7 +14,11 @@ assert.equal(alternate.provider,'claude');
 assert.equal(alternate.model,'claude-haiku-5-5','Provider failure must not require paying for a flagship');
 const stronger = nextWorkerRoute(first,routes,['codex'],{reason:'review-failed'});
 assert.equal(stronger.model,'gpt-6.1-sol');
+assert.equal(stronger.effort,'low','A stronger model keeps the effort from routing settings');
 assert.equal(nextWorkerRoute(first,routes,[],{reason:'worker-failed'}),null);
+assert.equal(nextWorkerRoute({...first,model:'gpt-6.1-sol'},routes,['codex'],{reason:'review-failed'}),null,'Automatic escalation never reaches a flagship model');
+assert.equal(nextWorkerRoute({...first,model:'gpt-6.1-sol'},initialWorkerRoutes(configured,{codex:'gpt-6-astra'}),['codex'],{reason:'review-failed'}).model,'gpt-6-astra','The Task limit setting allows the flagship');
+assert.equal(nextWorkerRoute(first,initialWorkerRoutes(configured,{codex:'gpt-6-luna'}),['codex'],{reason:'review-failed'}),null,'A limit on the cheapest model never escalates');
 (async()=>{
   const task = {...first,files:['a.js'],fileOwnership:['a.js']}; const calls=[];
   const coordinator = createRequirementCoordinator({

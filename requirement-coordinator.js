@@ -111,7 +111,7 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
     assignments = Array.isArray(input) ? input : [];
     cancelled=false;
     pendingRetries.clear();stoppedTasks.clear();
-    for (const assignment of assignments) if (!hasExplicitScope(assignment)) {
+    for (const assignment of assignments) if (assignment.actionable !== false && !hasExplicitScope(assignment)) {
       assignment.status = 'blocked'; assignment.blocker = 'missing-file-scope'; assignment.coordinatorOwned = true;
     }
     // This synchronous write is intentionally before launch() can start any worker.
@@ -119,7 +119,8 @@ function createRequirementCoordinator({ persist = () => {}, emit = () => {}, run
     emit({ assignments, assignment: null });
     const promise = new Promise(resolve => { settled = resolve; });
     launch();
-    if (!assignments.length) { const done = settled; settled = null; done?.(assignments); }
+    // nothing left to run (every task passed or was skipped): settle now so the passed ones get combined
+    if (!active && !assignments.some(a => ['queued','running','reviewing'].includes(a.status))) { const done = settled; settled = null; done?.(assignments); }
     return promise;
   }
   function cancel() {

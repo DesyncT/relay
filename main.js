@@ -331,7 +331,7 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
       const tier = (m) => /opus|astra|flash-(?:medium|high)/i.test(m || '') ? 2 : /sonnet|sol/i.test(m || '') ? 1 : 0;
       const up = c.escalate === 2 ? (prov === 'codex' ? 'gpt-6-astra' : prov === 'antigravity' ? 'gemini-3.8-flash-medium' : 'claude-opus-5-5') : (prov === 'codex' ? 'gpt-6.1-sol' : prov === 'antigravity' ? 'gemini-3.8-flash-medium' : 'claude-sonnet-5-5');
       if (tier(up) > tier(rd.meta?.model)) {
-        const effort = ['low', undefined].includes(rd.meta?.effort) ? 'medium' : rd.meta.effort;
+        const effort = rd.meta?.effort || 'low'; // a stronger model keeps your effort setting
         rd.extra = argsFor(prov, phase, { [prov]: { [phase]: { model: up, effort } } }, settings[prov + 'Args']);
         rd.meta = { ...rd.meta, model: up, effort };
       }
@@ -416,7 +416,7 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
   if (existing) return existing.promise;
   const checklist = reqsOf(sid)?.items || [];
   const available = AGENT_NAMES.filter(p => !isDown(p) && settings.routes?.[p]?.coding);
-  const routes = initialWorkerRoutes(settings.routes || {});
+  const routes = initialWorkerRoutes(settings.routes || {}, settings.taskMaxModel);
   let assignments, workspaces;
   if (recovery) {
     assignments = recovery.assignments;
@@ -529,12 +529,12 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
     },
   });
   const promise = coordinator.start(assignments).then(async completed => {
-    if (epoch !== rt.epoch || !completed.length || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
+    if (epoch !== rt.epoch || !completed.some(a => a.status === 'passed') || completed.some(a => a.actionable !== false && a.status !== 'passed')) return completed;
     const result = await integrateRequirementTasks(sid, completed, trigger, epoch, workspaces, routes, available, owner);
     if (epoch !== rt.epoch) return completed;
     const latest = reqsOf(sid) || {};
     if (result.status === 'passed') {
-      setReqs(sid, { ...latest, items:(latest.items || []).map(item => ({ ...item, done:true })), assignments:completed });
+      setReqs(sid, { ...latest, items:(latest.items || []).map(item => item.skipped ? item : { ...item, done:true }), assignments:completed });
       post(sid, owner, `Integrated the passed requirement tasks. Independent verification passed; all ${latest.items?.length || 0} requirements are complete.`, trigger, null, { muted:true });
     } else {
       setReqs(sid, { ...latest, assignments:completed });
@@ -1545,7 +1545,7 @@ async function retryRequirement(sid,assignmentId,alternate=false) {
   if (!original) throw new Error('This task no longer exists.');
   const retryProvider=original.status==='passed' ? original.integrationRoute?.provider || original.provider : original.provider;
   if (!alternate && AGENT_NAMES.includes(retryProvider)) down[retryProvider]=0;
-  const available=AGENT_NAMES.filter(provider=>!isDown(provider)), routes=initialWorkerRoutes(settings.routes);
+  const available=AGENT_NAMES.filter(provider=>!isDown(provider)), routes=initialWorkerRoutes(settings.routes, settings.taskMaxModel);
   const {prepareRequirementRetry}=require('./requirement-retry');
   let retry=prepareRequirementRetry(original,{alternate:!!alternate,routes,available});
   const trigger=session.messages.findLast(message=>message.from==='user');
@@ -1587,6 +1587,24 @@ async function retryRequirement(sid,assignmentId,alternate=false) {
   } finally {requirementRetries.delete(sid);drainUserQueue(sid);}
 }
 ipcMain.handle('chat:requirement-retry',(_e,...args)=>retryRequirement(...args));
+// You drop a blocked or open task: it stops counting, and once the rest passed they are combined without it
+async function skipRequirement(sid,assignmentId) {
+  const session=store.getSession(sid), workflow=requirementCoordinators.get(sid);
+  const live=workflow?.coordinator.assignments.find(a=>a.id===assignmentId), saved=(reqsOf(sid)?.assignments || session.reqs?.assignments || []);
+  const target=live || saved.find(a=>a.id===assignmentId);
+  if (!target) throw new Error('This task no longer exists.');
+  if (!['blocked','open'].includes(target.status)) throw new Error('Only a blocked or open task can be skipped.');
+  const skip={status:'skipped',actionable:false,blocker:null,ended:target.ended || Date.now()};
+  const items=(reqsOf(sid)?.items || session.reqs?.items || []).map((item,n)=>n===Number(target.requirementIndex) ? {...item,skipped:true} : item);
+  if (live) { Object.assign(live,skip); setReqs(sid,{...reqsOf(sid),items,assignments:workflow.coordinator.assignments}); return true; }
+  const assignments=saved.map(a=>a.id===assignmentId ? {...a,...skip} : {...a});
+  setReqs(sid,{...reqsOf(sid),items,assignments});
+  const trigger=session.messages.findLast(message=>message.from==='user');
+  if (!trigger || chatBusy(sid) || !assignments.some(a=>a.status==='passed') || assignments.some(a=>a.actionable!==false && a.status!=='passed')) return true;
+  await startRequirementWorkflow(sid,assignments.find(a=>a.owner)?.owner || session.lead || 'codex',trigger,RT(sid).epoch,{assignments,workspaces:workspacesFromAssignments(assignments)});
+  return true;
+}
+ipcMain.handle('chat:requirement-skip',(_e,sid,id)=>skipRequirement(sid,id));
 ipcMain.handle('chat:bypass', (_e, sid, on) => { on ? bypass.add(sid) : bypass.delete(sid); send('chat:mode', { sid, mode: modeOf(sid), bypass: bypass.has(sid) }); }); // the renderer shows the confirm dialog first
 ipcMain.handle('chat:stop', (_e, sid) => {
   const rt = RT(sid);
@@ -1663,7 +1681,7 @@ ipcMain.handle('themes:generate', () => {
   if (generatingTheme) return generatingTheme;
   generatingTheme=(async()=>{
     const {parseTheme,themePrompt}=require('./theme-generator');
-    const prompt=themePrompt(), routes=initialWorkerRoutes(settings.routes);
+    const prompt=themePrompt(), routes=initialWorkerRoutes(settings.routes, settings.taskMaxModel);
     let lastError;
     for(const provider of ['codex','claude','antigravity'].filter(provider=>!isDown(provider))) {
       try {

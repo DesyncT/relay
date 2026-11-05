@@ -1709,8 +1709,11 @@ function renderReqs(r) {
   // Keep the expanded state so a temporarily empty checklist reappears as before.
   if (!items.length) return box.replaceChildren();
   // the bar counts partial progress of requirements an agent is on ([req-now: 3 60%]), the label counts finished ones
-  const done = items.filter((i) => i.done).length, part = (i) => i.done ? 100 : i.by ? i.pct || 0 : 0;
-  const pct = items.length ? Math.round(items.reduce((s, i) => s + part(i), 0) / items.length) : 0;
+  // a task that passed its own review (its row shows the tick) or that you skipped counts as done
+  const passedIdx = new Set((r.assignments || []).filter((a) => a.status === 'passed' || a.status === 'skipped').map((a) => Number(a.requirementIndex)));
+  const ok = (i, n) => i.done || passedIdx.has(n);
+  const done = items.filter(ok).length, part = (i, n) => ok(i, n) ? 100 : i.by ? i.pct || 0 : 0;
+  const pct = items.length ? Math.round(items.reduce((s, i, n) => s + part(i, n), 0) / items.length) : 0;
   const label = items.length ? `Requirements ${done}/${items.length} · ${pct}%` : r.idle ? 'Requirements' : 'Clarifying your request';
   const who = (i) => el('span', { className: 'rq-who' }, el('b', { textContent: '@' + i.by, style: `color:${nameColor(i.by)}` }), el('span', { className: 'rq-mini' }, el('i', { style: `width:${i.pct || 0}%` })), el('span', { className: 'mono', textContent: `${i.pct || 0}%` }));
   const now = items.map((i, n) => ({ ...i, n: n + 1 })).filter((i) => !i.done && i.by);
@@ -1728,7 +1731,7 @@ function renderReqs(r) {
   // icon per row: check = done, spinner = an agent is on it, grey circle = not started. "next" = first open one, spun while agents work and none is flagged
   const next = items.findIndex((i) => !i.done), assignmentByIndex = new Map((r.assignments || []).map((a) => [Number(a.requirementIndex), a]));
   const assignmentDetails = (a) => {
-    const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', blocked:'Blocked', open:'Open', escalated:'Escalated' };
+    const status = a.status || 'queued', labels = { queued:'Queued', running:'Running', reviewing:'Reviewing', passed:'Passed', skipped:'Skipped', blocked:'Blocked', open:'Open', escalated:'Escalated' };
     const state = a.blocker==='review-unknown' ? 'Needs verification' : a.integrationStatus==='open' ? 'Integration failed' : ['integrating','retrying'].includes(a.integrationStatus) ? 'Integrating' : status === 'open' && a.escalationTier ? 'Escalated' : (labels[status] || status);
     const displayedRoute=a.integrationRoute || a;
     const evidence = Array.isArray(a.reviewEvidence) ? a.reviewEvidence.filter(x => x && typeof x === 'object') : [];
@@ -1747,6 +1750,12 @@ function renderReqs(r) {
           finally {retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);button.textContent=label;}
         };retryControls.append(button);
       }
+      // too much work for what it is: drop it, the rest are combined without it
+      if(['blocked','open'].includes(status)) retryControls.append(el('button',{type:'button',className:'rq-retry',textContent:'Skip',title:'Leave this one out; the passed tasks are combined without it',onclick:async(event)=>{
+        retryControls.querySelectorAll('button').forEach(control=>control.disabled=true); message.textContent='';
+        try {await api.call('chat:requirement-skip',sid,a.id);}
+        catch(error) {message.textContent=error.message;retryControls.querySelectorAll('button').forEach(control=>control.disabled=false);}
+      }}));
       retryControls.append(message);
     }
     return [el('span', { className:`rq-assignment-state ${status}`, textContent:state }),
@@ -2171,7 +2180,7 @@ setInterval(async () => renderProcs(await api.call('procs:list')), 2000);
 // ---------- rules ----------
 async function loadRouting() {
   const [s, prices] = await Promise.all([api.call('settings:get'), api.call('prices:get')]);
-  RoutingUI.mount($('#routing'), { get: () => s.routes, save: (routes) => { s.routes = routes; api.call('settings:save', { routes }); }, prices, disabledProviders: s.disabledProviders || [] });
+  RoutingUI.mount($('#routing'), { get: () => s.routes, save: (routes) => { s.routes = routes; api.call('settings:save', { routes }); }, prices, disabledProviders: s.disabledProviders || [], limits: s.taskMaxModel || {}, saveLimits: (taskMaxModel) => { s.taskMaxModel = taskMaxModel; api.call('settings:save', { taskMaxModel }); } });
 }
 async function loadRules() {
   const r = await api.call('rules:get');

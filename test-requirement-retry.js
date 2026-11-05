@@ -43,13 +43,13 @@ console.log('requirement retry checks passed');
 const source=require('node:fs').readFileSync(require.resolve('./main'),'utf8');
 const handlerSource=source.slice(source.indexOf('async function retryRequirement('),source.indexOf("ipcMain.handle('chat:bypass'"));
 (async()=>{
-  let handler,started;
+  let handler,skip,started;
   const done={...failed,id:'done',status:'passed',blocker:null,patch:'passed patch',files:['done.js']};
   const target={...failed,id:'failed',owner:'codex',requirementIndex:1,workspace:{path:'owned-workspace'}};
   const session={lead:'codex',messages:[{from:'user',text:'Implement both',at:1}],reqs:{items:[{t:'First'},{t:'Second'}],assignments:[done,target]}};
   const retrying=new Set(), workflows=new Map();
   const context={
-    ipcMain:{handle:(_channel,fn)=>{handler=fn;}},supercodeOn:()=>true,chatBusy:()=>workflows.size>0,requirementCoordinators:workflows,reqsOf:()=>session.reqs,
+    ipcMain:{handle:(channel,fn)=>{if(channel==='chat:requirement-skip') skip=fn; else handler=fn;}},supercodeOn:()=>true,chatBusy:()=>workflows.size>0,requirementCoordinators:workflows,reqsOf:()=>session.reqs,
     store:{getSession:()=>session},AGENT_NAMES:['codex','claude'],down:{},isDown:()=>false,
     initialWorkerRoutes:require('./worker-routing').initialWorkerRoutes,settings:{routes},require,
     RT:()=>({epoch:0}),requirementRetries:retrying,validTaskWorkspace:()=>true,
@@ -70,5 +70,10 @@ const handlerSource=source.slice(source.indexOf('async function retryRequirement
   await handler(null,'session','failed',false);
   assert.equal(queued.id,'failed','A busy sibling does not block retry of this worker');
   assert.equal(started,null,'Live retry reuses the existing coordinator');
+  workflows.clear();started=null;
+  session.reqs={items:[{t:'First'},{t:'Second'}],assignments:[done,{...target,status:'blocked',blocker:'review-failed-exhausted'}]};
+  await skip(null,'session','failed');
+  assert.equal(session.reqs.items[1].skipped,true,'Skip marks the checklist item');
+  assert.equal(started[1].status,'skipped');assert.equal(started[1].actionable,false,'A skipped task no longer holds back the combine step');
   console.log('Requirement retry IPC preservation checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
