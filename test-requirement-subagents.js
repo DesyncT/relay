@@ -20,6 +20,7 @@ const marker='    reviewTask: ',start=source.indexOf(marker),end=source.indexOf(
   const review=require('node:vm').runInNewContext('('+source.slice(start+marker.length,end)+'\n})',{
     providerOrder:['claude','codex'],isDown:()=>false,epoch:0,rt:{epoch:0},judgeCount:()=>1,
     argsFor:()=>[],sid:'chat',checklist:[{t:'Fix header'}],isLimitError:()=>false,markDown:()=>{},
+    ...require('node:vm').runInNewContext(source.slice(source.indexOf('function readVerdict'),source.indexOf('async function reviewIntegratedResult'))+';({readVerdict,combineVerdicts})'),
     PROV:{claude:async()=>{calls++;return {text:'VERDICT: UNKNOWN\nEVIDENCE: Could not reach staging'};},codex:async()=>{calls++;return {text:allUnknown ? 'VERDICT: UNKNOWN\nEVIDENCE: Not accessible' : 'VERDICT: PASS\nEVIDENCE: Verified header in staging'};}},
   });
   const assignment={id:'a',provider:'antigravity',requirementIndex:0,workspace:{path:'.'}};

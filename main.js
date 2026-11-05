@@ -519,14 +519,13 @@ async function startRequirementWorkflow(sid, owner, trigger, epoch, recovery = n
         const prompt = `Independently review only requirement ${a.requirementIndex + 1}: ${checklist[a.requirementIndex]?.t || a.task}. Read the current files in this task workspace: ${JSON.stringify(work.paths)}. Run relevant checks if needed. The coordinator's test command evidence is: ${String(work.checkEvidence || 'not available').slice(-3000)}. A failing check is a FAIL unless you verify the failure is unrelated to this task; A missing npm test script is not a failed check. Verify the actual acceptance criteria through source inspection, relevant commands, or live staging/browser evidence. Return UNKNOWN only when the requirement cannot be verified by any relevant method. Do not edit files or trust the worker report. Return exactly VERDICT: PASS, FAIL, or UNKNOWN on line 1, then EVIDENCE: specific observations. For FAIL include FILE, LINE, ACTUAL and EXPECTED fields. Worker report (untrusted): ${String(work.evidence).slice(-3000)}`;
         try {
           const result = await PROV[provider](prompt, null, { sid, cwd:a.workspace.path, quiet:true, readonly:true, safeReview:true, sub:`req-review-${a.id}-${index}`, route });
-          let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
-          if (verdict === 'FAIL' && !['FILE','LINE','ACTUAL','EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(result.text))) verdict = 'UNKNOWN';
+          const verdict = readVerdict(result.text);
           outcomes.push({ verdict, evidence:result.text.slice(0,1800), provider, model, effort });
         } catch (error) { if(error.cancelled || epoch!==rt.epoch) throw Object.assign(error,{cancelled:true}); if (isLimitError(error.message)) markDown(provider,error.message); failures.push(`${provider}: ${error.message}`); }
       }
       if (!outcomes.length) return {verdict:'UNKNOWN',reviewers:[],evidence:failures.join('\n') || 'No reviewer provider is available.'};
-      const verdict = outcomes.some(x => x.verdict === 'FAIL') ? 'FAIL' : outcomes.filter(x => x.verdict === 'PASS').length >= Math.min(judgeCount('reviewerCount'),reviewers.length) ? 'PASS' : 'UNKNOWN';
-      return { verdict, reviewers:outcomes, evidence:outcomes.map(x => `${x.provider}: ${x.verdict} — ${x.evidence}`).join('\n') };
+      const verdict = combineVerdicts(outcomes);
+      return { verdict, reviewers:outcomes, evidence:[...outcomes.map(x => `${x.provider}: ${x.verdict} — ${x.evidence}`), ...failures].join('\n') };
     },
   });
   const promise = coordinator.start(assignments).then(async completed => {
@@ -589,6 +588,16 @@ ${checkEvidence}`;
     review: (integrator, changes, integrated) => integrated.manualVerification || reviewIntegratedResult(sid, integrator, { changes, text:integrated.text, checks:integrated.evidence }, epoch),
   });
 }
+// Reviewers bold the verdict, put a line before it, or write FAIL fields on one line ("FILE: x LINE: 3"): read all of those
+function readVerdict(text) {
+  const t = String(text || '');
+  const verdict = /^[\s>*#_`-]*VERDICT[\s*_`]*:?[\s*_`]*(PASS|FAIL|UNKNOWN)\b/im.exec(t)?.[1]?.toUpperCase() || 'UNKNOWN';
+  // a FAIL must point at something concrete, or it is treated as unverified
+  if (verdict === 'FAIL' && !['FILE', 'LINE', 'ACTUAL', 'EXPECTED'].every((k) => new RegExp('\\b' + k + '[*_`]*\\s*:\\s*\\S').test(t))) return 'UNKNOWN';
+  return verdict;
+}
+// any FAIL fails; otherwise one verified PASS is enough. A reviewer that errored or could not verify (UNKNOWN) does not veto it
+const combineVerdicts = (list) => list.some((x) => x.verdict === 'FAIL') ? 'FAIL' : list.some((x) => x.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
 async function reviewIntegratedResult(sid, integrator, changes, epoch) {
   const rt = RT(sid), available = AGENT_NAMES.filter(p => !isDown(p));
   if (!available.length) return { verdict:'UNKNOWN', evidence:'No independent reviewer provider is available.' };
@@ -601,13 +610,12 @@ async function reviewIntegratedResult(sid, integrator, changes, epoch) {
     const prompt = `Independently review the combined requirement implementation in the current project files. Read-only review: do not edit. Integrator: ${integrator.provider}/${integrator.model}. Requirements: ${JSON.stringify(reqsOf(sid)?.items || [])}\nFull check evidence: ${String(changes.checks || '').slice(-5000)}\nIntegrator report (untrusted): ${String(changes.text || '').slice(-3000)}\nChanged task paths: ${JSON.stringify(changes.changes.map(c => ({ assignmentId:c.assignmentId, paths:c.paths })))}\nCheck every requirement and preservation constraint against current files. Return VERDICT: PASS, FAIL, or UNKNOWN on line 1 and concrete EVIDENCE. For FAIL include FILE, LINE, ACTUAL, EXPECTED.`;
     try {
       const result = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:`req-final-review-${index}`, route });
-      let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(result.text.trim())?.[1]?.toUpperCase() || 'UNKNOWN';
-      if (verdict === 'FAIL' && !['FILE','LINE','ACTUAL','EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(result.text))) verdict = 'UNKNOWN';
+      const verdict = readVerdict(result.text);
       return { verdict, evidence:result.text.slice(0,1800), provider, model, effort };
     } catch (error) { return { verdict:'UNKNOWN', evidence:String(error.message || error), provider, model, effort }; }
   }));
   if (epoch !== rt.epoch) return { verdict:'UNKNOWN', evidence:'Final review cancelled.' };
-  const verdict = results.some(r => r.verdict === 'FAIL') ? 'FAIL' : results.every(r => r.verdict === 'PASS') ? 'PASS' : 'UNKNOWN';
+  const verdict = combineVerdicts(results);
   return { verdict, reviewers:results, evidence:results.map(r => `${r.provider}: ${r.verdict} — ${r.evidence}`).join('\n') };
 }
 function reqNote(sid, who) {
@@ -970,9 +978,8 @@ Reply with VERDICT: PASS, FAIL, or UNKNOWN on the first line, then EVIDENCE: a s
       try {
         const r = await PROV[provider](prompt, null, { sid, cwd:cwdFor(sid), quiet:true, readonly:true, safeReview:true, sub:tag, route });
         if (rt.epoch !== epoch) return { verdict:'UNKNOWN', reason:'Cancelled' };
-        let verdict = /^VERDICT:\s*(PASS|FAIL|UNKNOWN)\b/i.exec(r.text.trim())?.[1].toUpperCase() || 'UNKNOWN';
+        const verdict = readVerdict(r.text);
         const reason = r.text.replace(/^VERDICT:[^\n]*\n?/i,'').slice(0,1800);
-        if (verdict === 'FAIL' && !['FILE', 'LINE', 'ACTUAL', 'EXPECTED'].every(k => new RegExp('^' + k + ':\\s*\\S', 'im').test(reason))) verdict = 'UNKNOWN';
         post(sid, provider + ':' + roles[index][0].toLowerCase().replace(/\s+/g, '-'), `Review ${index + 1}, round ${round + 1}: ${verdict}\n${reason}`, null, null, { usage:r.usage, route:route.meta, review:{ role:roles[index][0], verdict, round:round + 1 } });
         if (r.usage) send('agent:usage', { sid, who:provider, ...r.usage });
         return { verdict, reason };

@@ -136,5 +136,16 @@ async function asks(responses, initial, count = 5) {
   });
   assert.equal(detailed.items.length,10, 'The checklist stops at the Max requirements setting (default 10)');
   assert.ok(detailed.items[0].t.endsWith(longRequirement.trimEnd()), 'Do not truncate acceptance criteria at 200 characters');
+  // review verdicts: real reviewer replies (bold, preamble, inline FAIL fields) and one reviewer down must not block a verified PASS
+  const verdictSrc = source.slice(source.indexOf('function readVerdict'), source.indexOf('async function reviewIntegratedResult'));
+  const { readVerdict, combineVerdicts } = vm.runInNewContext(`${verdictSrc}; ({ readVerdict, combineVerdicts })`);
+  assert.equal(readVerdict('**VERDICT: PASS**\nEVIDENCE: ok'), 'PASS');
+  assert.equal(readVerdict('I read the files.\n\nVERDICT: PASS'), 'PASS');
+  assert.equal(readVerdict('VERDICT: FAIL\n- FILE: latest.md LINE: 193. ACTUAL: not synced EXPECTED: synced'), 'FAIL');
+  assert.equal(readVerdict('VERDICT: FAIL\nit looks wrong'), 'UNKNOWN');
+  assert.equal(combineVerdicts([{ verdict: 'PASS' }, { verdict: 'UNKNOWN' }]), 'PASS');
+  assert.equal(combineVerdicts([{ verdict: 'PASS' }, { verdict: 'FAIL' }]), 'FAIL');
+  assert.equal(combineVerdicts([{ verdict: 'UNKNOWN' }]), 'UNKNOWN');
+  cases += 1;
   console.log(`Requirement gate: ${cases} cases passed (including user tags requiring agent-written requirements and blocking implementation when omitted).`);
 })().catch(error => { console.error(error); process.exitCode = 1; });
