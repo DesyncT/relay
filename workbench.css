@@ -41,6 +41,10 @@ h3 { font-weight:500; line-height:24px; }
 .b.primary { background:var(--text); color:var(--deep); border-color:transparent; }
 .b.primary:hover { background:#fff; }
 .b.ghost { background:transparent; }
+#quickBtn { height:32px; padding:0 8px; gap:8px; border-color:var(--line); border-radius:6px; color:var(--text-2); font-size:12px; }
+#quickBtn > svg { width:14px; height:14px; flex:none; }
+#quickBtn:hover { border-color:var(--line); color:var(--text); background:var(--raised); }
+#quickBtn kbd { margin-left:4px; padding:0; border:0; background:transparent; color:var(--muted); font:inherit; font-size:11px; white-space:nowrap; }
 .b:focus-visible, #updBtn:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
 .b.danger { color:var(--negative); }
 .num-in { width:96px; font-variant-numeric:tabular-nums; }
@@ -356,8 +360,10 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 :root { --negative:#f0787c; }
 *:focus, *:focus-visible, *:focus-within { outline:none !important; box-shadow:none !important; }
 #chat #log > .msg.grp { padding-top:20px; padding-bottom:12px; }
+#chat #log > .msg.grp > .av { top:20px; }
+#chat #log > .msg.grp.rp > .av { top:44px; }
 #chat #log > .msg .body { max-width:80ch; }
-#chat #log > .msg .hd { min-height:24px; margin-bottom:4px; flex-wrap:wrap; }
+#chat #log > .msg .hd { min-height:20px; margin-bottom:0; flex-wrap:wrap; }
 #chat #log > .msg.ask { margin:8px 0 16px; padding-top:20px; padding-bottom:20px; background:var(--card); box-shadow:none; border-block:1px solid var(--line); }
 #chat #log > .msg.ask .body { max-width:64ch; font-size:16px; line-height:24px; }
 #chat .msg.ask .opts { display:grid; grid-template-columns:minmax(0,1fr); width:100%; max-width:640px; gap:8px; margin-top:16px; }
