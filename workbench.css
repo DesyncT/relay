@@ -360,9 +360,9 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
    Unslop by Damir Sokolovsky (@heydamir), CC BY 4.0. */
 #chat.on .ch-head { height:auto; min-height:64px; padding:12px 16px; gap:12px; flex-wrap:wrap; }
 #chat.on .ch-head h2 { flex:1 1 120px; max-width:none; padding:0; font-size:15px; line-height:24px; font-weight:500; }
-html body #chat.on .ch-head #quota { gap:12px; order:0; }
+html body #chat.on .ch-head #quota { gap:28px; order:0; }
 #chat .ch-head #quota > span { padding:0; min-height:28px; gap:8px; font-size:12px; border:0; border-radius:4px; background:transparent; }
-#chat .ch-head #quota > span + span { padding-left:12px; border-left:1px solid var(--line-strong); }
+#chat .ch-head #quota > span + span { padding-left:0; border-left:0; }
 #chat .ch-head #quota > span:hover { background:transparent; }
 #chat .ch-head #quota > span svg { width:14px; height:14px; }
 #chat .ch-head #quota .q-v { font-weight:500; }

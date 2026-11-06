@@ -1,14 +1,15 @@
 'use strict';
 // Balance the five-hour allowance: run until 10 points below the other provider.
 // Unknown quota counts as half full but cannot establish a sticky target.
-const fiveHour = q => q?.windows?.find(w => w.minutes <= 360 && Number.isFinite(w.remaining));
+const reported = q => !q?.estimated && !q?.stale ? (q?.windows || []).filter(w=>!w.budget && !w.stale) : [];
+const fiveHour = q => reported(q).find(w => w.minutes <= 360 && Number.isFinite(w.remaining));
 function left(q) {
   const five = fiveHour(q);
   if (five) return Math.max(0, Math.min(100, five.remaining));
-  const w = q?.windows?.filter(x => Number.isFinite(x.remaining) && !(x.minutes > 360)) || []; // weekly never drives the spread
+  const w = reported(q).filter(x => Number.isFinite(x.remaining) && !(x.minutes > 360)); // weekly never drives the spread
   return w.length ? Math.min(...w.map(x => x.remaining)) : 50;
 }
-const usable = (quota, p) => !quota?.[p]?.windows?.some(w => Number.isFinite(w.remaining) && w.remaining <= 0);
+const usable = (quota, p) => !reported(quota?.[p]).some(w => Number.isFinite(w.remaining) && w.remaining <= 0);
 function balanceFor(quota, available, provider) {
   const own = fiveHour(quota?.[provider]);
   const others = available.filter(p => p !== provider && usable(quota,p)).map(p => fiveHour(quota?.[p])).filter(Boolean);

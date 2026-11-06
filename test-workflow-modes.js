@@ -14,9 +14,10 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'relay-mode-store-'));
 try {
  const {createSessions}=require('./sessions');let store=createSessions({dataDir:root});
  const project=store.addProject(root,'Fixture'),session=store.createSession(project.id,'Modes');
- store.updateSession(session.id,{easyMode:false,spreadLast:'codex',nativeCodeVersion:1,cli:{codex:'native-session'}});
+ store.updateSession(session.id,{easyMode:false,spreadLast:'codex',spreadBalance:{provider:'codex',target:14,start:80,reset:123},nativeCodeVersion:1,cli:{codex:'native-session'}});
  store=createSessions({dataDir:root});const saved=store.getSession(session.id);
  assert.equal(saved.easyMode,false);assert.equal(saved.spreadLast,'codex');assert.equal(saved.nativeCodeVersion,1);assert.equal(saved.cli.codex,'native-session');
+ assert.deepEqual(saved.spreadBalance,{provider:'codex',target:14,start:80,reset:123});
 } finally {assert.equal(path.dirname(root),os.tmpdir());fs.rmSync(root,{recursive:true,force:true});}
 
 const routing=require('./routing');assert.deepEqual(routing.mergeRoutes(routing.DEFAULT_ROUTES),routing.DEFAULT_ROUTES,'Default models must survive saving unchanged');

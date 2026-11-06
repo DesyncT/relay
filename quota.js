@@ -8,24 +8,24 @@ async function files(dir) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return files(p);
     if (!e.name.endsWith('.jsonl')) return [];
-    return [{ path: p, time: (await fs.stat(p)).mtimeMs }];
+    const stat=await fs.stat(p).catch(()=>null);
+    return stat ? [{ path: p, time:stat.mtimeMs }] : [];
   }));
   return nested.flat();
 }
 function snapshot(event, now = Date.now()) {
-  const q = event.payload?.rate_limits, at = Date.parse(event.timestamp);
+  const q = event?.payload?.rate_limits, at = Date.parse(event?.timestamp);
   if (!q || !Number.isFinite(at) || at > now + 60000) return null;
   if (q.limit_id && q.limit_id !== 'codex') return null;
   const windows = ['primary', 'secondary'].flatMap(key => {
     const w = q[key];
     if (!w || !Number.isFinite(w.used_percent) || !Number.isFinite(w.resets_at)) return [];
-    // Window reset with no newer log = nothing used since; keep it visible, next reset unknown.
-    if (w.resets_at * 1000 <= now) return [{ used: 0, remaining: 100, minutes: w.window_minutes, reset: null }];
-    return [{ used: w.used_percent, remaining: 100 - w.used_percent, minutes: w.window_minutes, reset: w.resets_at * 1000 }];
+    if (w.used_percent < 0 || w.used_percent > 100) return [];
+    return [{ used: w.used_percent, remaining: 100 - w.used_percent, minutes: w.window_minutes, reset: w.resets_at * 1000, at }];
   });
   return windows.length ? { at, windows } : null;
 }
-// ponytail: estimate rolling 5h quota from Antigravity session transcripts
+// Local token activity only; it cannot establish a subscription allowance.
 async function checkAntigravity(now = Date.now()) {
   try {
     const acctPath = path.join(os.homedir(), '.gemini', 'google_accounts.json');
@@ -40,7 +40,6 @@ async function checkAntigravity(now = Date.now()) {
 
     const WINDOW_MS = 5 * 60 * 60 * 1000;
     const cutoff = now - WINDOW_MS;
-    const AG_5H_BUDGET = 1000000; // 1M tokens per 5h window
     let totalTokens = 0, oldest = Infinity;
     try {
       const ents = await fs.readdir(brainDir, { withFileTypes: true }).catch(() => []);
@@ -71,18 +70,13 @@ async function checkAntigravity(now = Date.now()) {
       }
     } catch {}
 
-    const used = Math.round((totalTokens / AG_5H_BUDGET) * 100);
-    const reset = oldest < Infinity ? oldest + WINDOW_MS : now + WINDOW_MS;
     return {
       at: now,
+      estimated:true,
       account: account || 'local',
       windows: [{
-        used,
-        remaining: Math.max(0, 100 - used),
         minutes: 300,
-        reset,
         tokens: totalTokens,
-        budget: AG_5H_BUDGET
       }]
     };
   } catch {}
@@ -91,11 +85,12 @@ async function checkAntigravity(now = Date.now()) {
 
 // Same endpoint Claude Code's /usage reads, with the local OAuth token. Returns real provider percentages.
 // It rate-limits hard (429), so ask at most every 2 minutes, back off after a failure, and keep showing the last real answer meanwhile.
-let officialCache = null, officialUntil = 0;
-const lastOfficial = () => officialCache && { ...officialCache, stale: Date.now() - officialCache.at > 5 * 60000 };
+let officialCache = null, officialUntil = 0, officialFailed = false;
+const lastOfficial = () => officialCache && { ...officialCache, stale: officialFailed || Date.now() - officialCache.at > 5 * 60000 };
 async function checkClaudeOfficial(now = Date.now()) {
   if (now < officialUntil) return lastOfficial();
   officialUntil = now + 5 * 60000; // failure backoff; success shortens it below
+  officialFailed = true;
   try {
     const creds = JSON.parse(await fs.readFile(path.join(os.homedir(), '.claude', '.credentials.json'), 'utf8'));
     const token = (creds.claudeAiOauth || creds).accessToken;
@@ -108,23 +103,23 @@ async function checkClaudeOfficial(now = Date.now()) {
     const j = await res.json();
     const windows = [['five_hour', 300], ['seven_day', 10080]].flatMap(([key, minutes]) => {
       const w = j[key];
-      if (!w || !Number.isFinite(w.utilization)) return [];
+      if (!w || !Number.isFinite(w.utilization) || w.utilization < 0 || w.utilization > 100) return [];
       const reset = Date.parse(w.resets_at);
-      return [{ used: w.utilization, remaining: Math.max(0, 100 - w.utilization), minutes, reset: Number.isFinite(reset) ? reset : now }];
+      return [{ used: w.utilization, remaining: 100 - w.utilization, minutes, reset: Number.isFinite(reset) ? reset : null, at:now }];
     });
     if (!windows.length) return lastOfficial();
     officialCache = { at: now, account: 'claude', windows };
+    officialFailed = false;
     officialUntil = now + 2 * 60000;
     return officialCache;
   } catch {}
   return lastOfficial();
 }
 
-// ponytail: estimate rolling 5h quota from Claude session transcripts (fallback when the endpoint is unreachable)
+// Local token activity when the provider endpoint is unavailable, never a quota estimate.
 async function checkClaudeQuota(now = Date.now()) {
   const WINDOW_MS = 5 * 60 * 60 * 1000;
   const cutoff = now - WINDOW_MS;
-  const DEFAULT_5H_BUDGET = 250000; // estimated Claude 5h token budget
   try {
     const claudeDir = path.join(os.homedir(), '.claude', 'projects');
     const allFiles = await files(claudeDir);
@@ -159,26 +154,83 @@ async function checkClaudeQuota(now = Date.now()) {
         }
       } catch {} finally { await handle?.close(); }
     }
-    const used = Math.round((totalTokens / DEFAULT_5H_BUDGET) * 100);
-    const reset = oldest < Infinity ? oldest + WINDOW_MS : now + WINDOW_MS;
     return {
       at: now,
+      estimated:true,
       account: 'local',
       windows: [{
-        used,
-        remaining: Math.max(0, 100 - used),
         minutes: 300,
-        reset,
         tokens: totalTokens,
-        budget: DEFAULT_5H_BUDGET
       }]
     };
   } catch {}
   return null;
 }
 let pending, cached, until = 0;
-async function readQuota() {
-  if (cached && Date.now() < until) return cached;
+const live = {};
+let cacheFile = null, cacheLoaded = null, cacheWrite = Promise.resolve();
+function setCacheFile(file) { cacheFile=file; cacheLoaded=null; }
+async function loadCache() {
+  if (!cacheFile) return;
+  if (!cacheLoaded) cacheLoaded=(async()=>{
+    try {
+      const saved=JSON.parse(await fs.readFile(cacheFile,'utf8'));
+      for (const provider of ['claude','codex','antigravity']) {
+        const s=saved[provider];
+        if (!Number.isFinite(s?.at) || s.at>Date.now()+60000 || !Array.isArray(s.windows)) continue;
+        const windows=s.windows.filter(w=>Number.isFinite(w.used) && w.used>=0 && w.used<=100 && Number.isFinite(w.minutes) && Number.isFinite(w.at) && w.at<=Date.now()+60000)
+          .map(w=>({used:w.used,remaining:100-w.used,minutes:w.minutes,reset:Number.isFinite(w.reset)?w.reset:null,at:w.at}));
+        if (windows.length && (!live[provider] || live[provider].at<s.at)) live[provider]={at:s.at,windows,cached:true};
+      }
+    } catch {}
+  })();
+  await cacheLoaded;
+}
+function saveCache() {
+  if (!cacheFile) return Promise.resolve();
+  const data=JSON.stringify(Object.fromEntries(Object.entries(live).map(([p,s])=>[p,{at:s.at,windows:s.windows.map(w=>({used:w.used,minutes:w.minutes,reset:w.reset,at:w.at ?? s.at}))}])));
+  cacheWrite=cacheWrite.then(async()=>{
+    await fs.mkdir(path.dirname(cacheFile),{recursive:true});
+    await fs.writeFile(cacheFile+'.tmp',data,'utf8');
+    await fs.rename(cacheFile+'.tmp',cacheFile);
+  }).catch(()=>{});
+  return cacheWrite;
+}
+function current(s, now = Date.now()) {
+  if (!s) return null;
+  return {...s,windows:s.windows.map(w=>({...w,stale:!!s.stale || now-(w.at ?? s.at)>300000 || !!(w.reset && w.reset<=now)}))};
+}
+function recordEvent(provider, line, now = Date.now()) {
+  let event; try {event=typeof line==='string'?JSON.parse(line):line;} catch {return false;}
+  let s = null;
+  if (provider === 'codex') s = snapshot({...event,timestamp:event?.timestamp || new Date(now).toISOString()},now);
+  if (provider === 'claude' && event?.type === 'rate_limit_event') {
+    const info=event.rate_limit_info || {};
+    const buckets=info.unifiedWindows || {[info.rateLimitType]:info};
+    const windows=Object.entries(buckets).flatMap(([key,w])=>{
+      const minutes=key==='five_hour'?300:key==='seven_day'?10080:null;
+      if (!minutes || !Number.isFinite(w.utilization) || w.utilization<0 || w.utilization>1) return [];
+      const used=w.utilization*100, reset=Number.isFinite(w.resetsAt)?w.resetsAt*1000:null;
+      return [{minutes,used,remaining:100-used,reset,at:now}];
+    });
+    if (windows.length) s={at:now,windows};
+  }
+  if (!s) return false;
+  const previous=live[provider]?.windows || [];
+  live[provider]={...s,windows:[...previous.filter(w=>!s.windows.some(n=>n.minutes===w.minutes)),...s.windows]};
+  until=0;
+  saveCache();
+  return true;
+}
+function latest(provider, fallback) {
+  const streamed=live[provider];
+  if (streamed && fallback?.stale && fallback.at === streamed.at) return current({...streamed,cached:true,stale:true});
+  if (fallback && !fallback.estimated && (!streamed || fallback.at>streamed.at)) live[provider]={...fallback,windows:fallback.windows.map(w=>({...w,at:w.at ?? fallback.at}))};
+  return current(live[provider] || fallback);
+}
+async function readQuota({fresh=false} = {}) {
+  await loadCache();
+  if (!fresh && cached && Date.now() < until) return Object.fromEntries(Object.entries(cached).map(([p,s])=>[p,current(s)]));
   if (pending) return pending;
   pending = (async () => {
     let codex = null;
@@ -203,9 +255,10 @@ async function readQuota() {
       checkClaudeOfficial().then(s => s || checkClaudeQuota()),
       checkAntigravity(),
     ]);
-    cached = { codex, claude, antigravity }; until = Date.now() + 10000;
+    cached = { codex:latest('codex',codex), claude:latest('claude',claude), antigravity:current(antigravity) }; until = Date.now() + 10000;
+    await saveCache();
     return cached;
   })();
   try { return await pending; } finally { pending = null; }
 }
-module.exports = { readQuota, snapshot };
+module.exports = { readQuota, snapshot, recordEvent, current, setCacheFile, loadCache, saveCache };

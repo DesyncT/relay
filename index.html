@@ -862,7 +862,7 @@ async function refreshQuota() {
     if (hot && pctOf(hot) >= 50) parts.push(el('span', { className: 'q-l q-r', textContent: hot.reset > Date.now() ? 'resets in ' + (hot.reset - Date.now() >= 1728e5 ? Math.round((hot.reset - Date.now()) / 864e5) + 'd' : fmtLeft(hot.reset - Date.now())) : 'resetting' }));
     const when = (t) => new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
     const old = s && (s.stale || ws.some(w=>w.stale) || (!est && Date.now() - s.at > 300000));
-    if (s && !est && (old || s.cached)) parts.push(g(s.cached?'cached':'last report',fmtLeft(Date.now()-s.at)+' ago'));
+    if (s && !est && (old || s.cached)) parts.push(g(s.cached?'cached':name+' last report',fmtLeft(Date.now()-s.at)+' ago'));
     const tip = [name, ...(!s ? ['No usage data yet'] : est ? ['Provider quota unavailable. Local token activity is not an allowance percentage and is not used for Spreader balancing.'] : ws.map((w) => `${short(w) === 'week' ? 'Weekly' : short(w)} window: ${Math.max(0, 100 - pctOf(w))}% left (${pctOf(w)}% used)${w.reset ? ', resets ' + when(w.reset) : ''}`)),
       ...(s && old ? [`Last reported ${fmtLeft(Date.now() - s.at)} ago${provider === 'codex' ? ' (updates when Codex runs)' : ''}`] : [])].join('\n');
     const pill = el('span', { tabIndex: 0, title: tip, ariaLabel: tip, className: old ? 'stale' : '', innerHTML: icon }, ...parts);

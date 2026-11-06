@@ -23,6 +23,7 @@ app.setAppUserModelId('Relay.Desktop');
 
 const HOME = os.homedir();
 const DATA = app.getPath('userData');
+require('./quota').setCacheFile(path.join(DATA,'quota-cache.json'));
 const AGENTS_DIR = path.join(HOME, '.claude', 'agents');
 const RULE_FILES = {
   shared: path.join(DATA, 'shared-rules.md'),
@@ -121,7 +122,11 @@ function run(label, cmd, args, prompt, onLine, o = {}) {
     timeout?.unref?.();
     send('procs', procList());
     let out = '', err = '', buf = '';
-    const lines = (flush) => { const ls = buf.split('\n'); buf = flush ? '' : ls.pop(); ls.forEach((l) => l.trim() && onLine(l)); };
+    const lines = (flush) => { const ls = buf.split('\n'); buf = flush ? '' : ls.pop(); ls.forEach((l) => {
+      if (!l.trim()) return;
+      if ((l.includes('rate_limit_event') || l.includes('rate_limits')) && require('./quota').recordEvent(o.quotaProvider || label.split(' ')[0].toLowerCase(),l)) send('usage:quota-update',{});
+      onLine(l);
+    }); };
     child.stdout.on('data', (d) => { out += d; if (onLine) { buf += d; lines(); } });
     child.stderr.on('data', (d) => { err += d; if (o.onStderr) o.onStderr(d); });
     child.on('error', error=>{clearTimeout(timeout);procs.delete(id);reject(error);});
@@ -202,7 +207,7 @@ function claudeRun(label, who, prompt, c = {}) {
       const u = e.usage || {};
       usage = mkUsage(model || Object.keys(e.modelUsage || {})[0] || 'claude', (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), u.cache_read_input_tokens || 0, u.output_tokens || 0, e.total_cost_usd);
     }
-  }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env, timeoutMs: c.timeoutMs, onStderr: (d) => { stderrText += d; } }).then(() => {
+  }, { quotaProvider:!c.conn && !isAntigravity?'claude':'none', cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env, timeoutMs: c.timeoutMs, onStderr: (d) => { stderrText += d; } }).then(() => {
     if (failed || !result.trim()) throw new Error(cleanErrorMessage(errText || result.trim() || stderrText.trim() || 'No result returned from claude', who));
     progress.finish(result);
     return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] };
@@ -442,7 +447,7 @@ const alerts=createAlerts({
   playSound(kind) {
     if(process.platform!=='win32')return shell.beep();
     // .NET cannot read inside Electron's ASAR archive; stage the tiny WAV locally.
-    const name=kind==='question'?'question.wav':'complete.wav';
+    const name=kind==='question'?'question.wav':kind==='failure'?'failure.wav':'complete.wav';
     const soundDir=path.join(DATA,'sounds');fs.mkdirSync(soundDir,{recursive:true});
     const soundPath=path.join(soundDir,name);fs.copyFileSync(path.join(__dirname,'assets',name),soundPath);
     const wav=soundPath.replace(/'/g,"''");
@@ -461,6 +466,8 @@ function post(sid, from, text, replyTo, attachments, extra) {
   send('chat:msg', { ...m, sessionId: sid }); // the renderer shows it only if that session is open
   if (extra?.askUser) {
     notifyQuestion({ from, text, sid });
+  } else if (extra?.failure) {
+    alerts.notify('failure',{from:extra.failure.provider || from,text,sid});
   }
   return m;
 }
@@ -816,7 +823,7 @@ const SPREAD_ASK = 'Before changing anything, check the request is clear. If a m
 async function spreadTo(sid) {
   const sess = sessOf(sid), avail = AGENT_NAMES.filter((p) => !isDown(p));
   const prev = sess?.messages?.findLast((x) => AGENT_NAMES.includes(x.from));
-  const quota = await require('./quota').readQuota().catch(() => ({}));
+  const quota = await require('./quota').readQuota({fresh:true}).catch(() => ({}));
   // Keep question context unless that provider has exhausted a reported limit.
   if (prev?.askUser && avail.includes(prev.from) && pickProvider(quota,[prev.from])) return prev.from;
   const p = pickProvider(quota, avail, sess?.spreadLast, sess?.spreadBalance);
@@ -885,8 +892,8 @@ ipcMain.handle('chat:queue-interrupt-send', (_e, sid, id) => {
   return true;
 });
 ipcMain.handle('notify:test', (_e,kind) => {
-  if(!['question','complete'].includes(kind))throw new Error('Unknown alert');
-  alerts.notify(kind,{from:'Relay',text:kind==='question'?'This is the input-request chime.':'This is the completion chime.'});
+  if(!['question','complete','failure'].includes(kind))throw new Error('Unknown alert');
+  alerts.notify(kind,{from:'Relay',text:kind==='question'?'This is the input-request tone.':kind==='failure'?'This is the failure tone.':'This is the completion tone.'});
 });
 ipcMain.handle('notify:clearQuestion', () => {
   clearQuestionAlert();

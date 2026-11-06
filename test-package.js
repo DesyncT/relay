@@ -7,7 +7,7 @@ for(const name of fs.readdirSync(__dirname)) {
  assert.ok(asar.extractFile(archive,name).equals(fs.readFileSync(path.join(__dirname,name))),name+' must match the source bytes');count++;
 }
 assert.equal(JSON.parse(asar.extractFile(archive,'package.json')).version,require('./package.json').version);
-for(const name of ['backgrounds.js','notifications.js','assets/question-badge.png','assets/complete-badge.png','assets/question.wav','assets/complete.wav']) {
+for(const name of ['backgrounds.js','notifications.js','assets/question-badge.png','assets/complete-badge.png','assets/question.wav','assets/complete.wav','assets/failure.wav']) {
  assert.ok(entries.has('/'+name),name+' must ship');assert.ok(asar.extractFile(archive,name).equals(fs.readFileSync(path.join(__dirname,name))),name+' must match source');
 }
 assert.ok(!entries.has('/test-background.webm'),'Test media must not ship');
