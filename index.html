@@ -1036,7 +1036,7 @@ async function loadUsage(fresh) {
   const bar = (keys, o) => { const sum = keys.reduce((n, [k]) => n + o[k], 0) || 1; return `<div class="u-bar">${keys.map(([k, , c]) => `<i style="flex:${o[k] / sum};background:${c}"></i>`).join('')}</div><div class="u-leg">${keys.map(([k, n, c]) => `<span><i style="background:${c}"></i>${n}  <b>${usd(o[k])}</b></span>`).join('')}</div>`; };
   const models = Object.entries(filteredModels).sort((a, b) => b[1].cost - a[1].cost);
   const dayKeys = Object.keys(filteredDays).sort().reverse(), dayTot = (d) => Object.values(filteredDays[d] || {}).reduce((n, v) => n + v, 0);
-  const info = 'API-price estimate from retained local transcripts, not a subscription bill. Account-only tokens and recovered historical summaries do not provide cost records. Unknown prices and missing costs are excluded; chat CLI-reported cost can use a different calculation.';
+  const info = 'API-price estimate from retained local transcripts, not a subscription bill. Account-only tokens have no cost records; the lifetime line prices them at your average local Codex rate. Unknown prices and missing costs are excluded; chat CLI-reported cost can use a different calculation.';
   $('#navStats').textContent = `${t.sessions} sessions · ${usd(t.cost)}`;
   $('#usage').innerHTML = `
     <button class="rescan" id="rescan">Rescan</button>
@@ -1046,6 +1046,7 @@ async function loadUsage(fresh) {
         <p class="u-big">${usd(t.cost)}</p>
         <div class="u-sub">${t.sessions} local sessions · API estimate <svg viewBox="0 0 16 16" role="img" aria-label="${info}"><title>${info}</title><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.8v.1"/></svg></div>
         ${tools.map((k) => `<div class="u-tool"><div class="r1"><span class="dot" style="background:${ucol(k)}"></span>${toolIcon(k)}<span class="n">${k}</span><small>${filteredTools[k].sessions} sessions</small><span class="c">${usd(filteredTools[k].cost)}</span></div><div class="r2">${pct(filteredTools[k].cost, t.cost)} of estimated cost · ${sh(filteredTools[k].tokens)} tokens</div></div>`).join('')}
+        ${t.accountCostEstimate>0 ? `<p class="u-sub" title="Tokens that only your Codex account reports, priced at your average local Codex rate">Lifetime incl. account-only tokens ≈ <b>${usd(t.lifetimeCostEstimate)}</b> (+${usd(t.accountCostEstimate)} estimated)</p>` : ''}
         ${t.unpriced.length ? `<p class="warn">${t.unpriced.length} unpriced model${t.unpriced.length===1?'':'s'}: tokens are included; their estimated cost is unavailable.</p>` : ''}
       </div>
       <div><h3>Estimated daily API cost</h3><div class="u-chart" id="uchart"></div></div>

@@ -201,18 +201,20 @@ async function scan({home=HOME,env=process.env,ledgerFile,accountUsage=false,cod
   }
   const account=await accountPromise;
   const localTokens=tot.tokens,localDayTokens={...dayTok};
-  let accountTokenAdjustment=0;
+  let accountTokenAdjustment=0,accountCostEstimate=0;
   if(account){
     const codex=tools.Codex ||= {cost:0,tokens:0,sessions:new Set()};
     codex.localTokens=codex.tokens;accountTokenAdjustment=account.summary.lifetimeTokens-codex.tokens;
     codex.tokens=account.summary.lifetimeTokens;codex.tokenSource='codex-account';tot.tokens+=accountTokenAdjustment;
+    // The account reports only a token count, so price the tokens no local transcript covers at the average local Codex rate (an estimate, kept out of the breakdowns).
+    if(accountTokenAdjustment>0 && codex.localTokens>0 && codex.cost>0)accountCostEstimate=codex.cost/codex.localTokens*accountTokenAdjustment;
     if(account.dailyUsageBuckets)for(const b of account.dailyUsageBuckets){
       const localCodex=recs.filter(r=>r.tool==='Codex' && r.day===b.startDate).reduce((n,r)=>n+recordTokens(r),0);
       dayTok[b.startDate]=(dayTok[b.startDate] || 0)-localCodex+b.tokens;
     }
   }
   return {
-    total: { ...tot,localTokens,accountTokenAdjustment,costIsEstimate: true, scope: 'Codex account lifetime when available; Claude retained history plus recovered statistics; API costs from local transcripts only', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
+    total: { ...tot,localTokens,accountTokenAdjustment,accountCostEstimate,lifetimeCostEstimate:tot.cost+accountCostEstimate,costIsEstimate: true, scope: 'Codex account lifetime when available; Claude retained history plus recovered statistics; API costs from local transcripts only', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
     accountUsage:account?{codex:account}:{},localDayTokens,
     coverage,
     tools: Object.fromEntries(Object.entries(tools).map(([k, v]) => [k, { ...v, sessions: v.sessions.size }])),
