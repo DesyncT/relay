@@ -248,15 +248,15 @@ app.whenReady().then(async () => {
   const heatmap = await win.webContents.executeJavaScript(`(() => {
     const usage = document.querySelector('#usage');
     document.querySelector('#chat').classList.remove('on'); usage.classList.add('on');
-    usage.innerHTML = '<div class="u-hd u-heat-head"><h3>Token activity · all time</h3></div><p id="uheatRange"></p><div id="uheat"></div>';
-    renderHeat({'2020-01-01':500,[new Date().toISOString().slice(0,10)]:1200}, 'daily');
+    usage.innerHTML = '<div class="u-hd u-heat-head"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div><div id="uheat"></div>';
+    renderHeat({[new Date().toISOString().slice(0,10)]:1200}, 'daily');
     const grid = usage.querySelector('#uheat'), cell = [...grid.querySelectorAll('i[data-d]')].at(-1);
     grid.onmouseover({target:cell});
     const tip = document.querySelector('#heatTip'), tr = tip.getBoundingClientRect(), cr = cell.getBoundingClientRect();
-    return {modesRemoved:!usage.querySelector('#uheatseg'),allHistory:!!grid.querySelector('[data-d="2020-01-01"]') && usage.querySelector('#uheatRange').textContent.includes('All time'),
+    return {modes:usage.querySelectorAll('#uheatseg button').length,weeks:grid.querySelectorAll('.hm-grid:not(.hm-months) i').length/7,
       outsideScrollBox:tip.parentElement === document.body, fixed:getComputedStyle(tip).position === 'fixed', insideViewport:tr.left >= 0 && tr.right <= innerWidth && tr.top >= 0 && tr.bottom <= innerHeight, aboveCell:tr.bottom <= cr.top};
   })()`);
-  assert.equal(heatmap.modesRemoved,true);assert.equal(heatmap.allHistory,true);
+  assert.equal(heatmap.modes,3);assert.equal(heatmap.weeks,52,'Heatmap is the trailing 52-week grid');
   assert.equal(heatmap.outsideScrollBox, true, 'Heatmap tooltip must escape the scrolling grid');
   assert.equal(heatmap.fixed, true, 'Heatmap tooltip must use viewport positioning');
   assert.equal(heatmap.insideViewport, true, 'Heatmap tooltip must stay inside viewport edges');
@@ -265,13 +265,13 @@ app.whenReady().then(async () => {
   fs.writeFileSync(path.join(output, 'heatmap.png'), (await win.webContents.capturePage()).toPNG());
   const historyUi=await win.webContents.executeJavaScript(`(async()=>{
     window.historyCfg=cfg;cfg={...cfg,disabledProviders:['codex']};
-    await api.call('test:usage',{total:{cost:.2,tokens:1800,sessions:2,cached:200,uncached:1400,output:200,savings:0,unpriced:[]},tools:{Codex:{cost:.1,tokens:1000,sessions:1},'Claude Code':{cost:.1,tokens:800,sessions:1}},models:{},days:{'2020-01-01':{Codex:.1,'Claude Code':.1}},dayTokens:{'2020-01-01':1800},type:{input:.1,output:.1,cacheRead:0,cacheWrite:0},speed:{standard:.2,fast:0},coverage:{malformedLines:0,unreadableFiles:[]}});
+    await api.call('test:usage',{total:{cost:.2,tokens:1200000800,recoveredTokens:500,sessions:2,cached:200,uncached:1400,output:200,savings:0,unpriced:[]},tools:{Codex:{cost:.1,tokens:1200000000,localTokens:1000,tokenSource:"codex-account",sessions:1},'Claude Code':{cost:.1,tokens:800,sessions:1}},models:{},days:{'2020-01-01':{Codex:.1,'Claude Code':.1}},dayTokens:{'2020-01-01':1800},type:{input:.1,output:.1,cacheRead:0,cacheWrite:0},speed:{standard:.2,fast:0},accountUsage:{codex:{summary:{lifetimeTokens:1200000000},at:Date.now(),cached:false}},coverage:{malformedLines:0,unreadableFiles:[]}});
     await loadUsage(true);
     const panel=document.querySelector('#usage');
-    const result={allProviders:panel.textContent.includes('Codex') && panel.textContent.includes('Claude Code'),allHistory:!!panel.querySelector('[data-d="2020-01-01"]'),modesRemoved:!panel.querySelector('#uheatseg'),actualDailyBars:panel.querySelectorAll('#uchart svg rect').length===2};
+    const result={allProviders:panel.textContent.includes('Codex') && panel.textContent.includes('Claude Code'),modes:panel.querySelectorAll('#uheatseg button').length,dailyLines:panel.querySelectorAll('#uchart svg path').length>=2,accountSource:panel.textContent.includes('Codex account lifetime') && panel.textContent.includes('fetched from signed-in account'),recoveryDisclosure:panel.textContent.includes('older Claude tokens recovered')};
     cfg=window.historyCfg;delete window.historyCfg;return result;
   })()`);
-  assert.deepEqual(historyUi,{allProviders:true,allHistory:true,modesRemoved:true,actualDailyBars:true});
+  assert.deepEqual(historyUi,{allProviders:true,modes:3,dailyLines:true,accountSource:true,recoveryDisclosure:true});
   for(const width of [1280,860]){
     win.setSize(width,900);await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     fs.writeFileSync(path.join(output,'all-time-usage-'+width+'.png'),(await win.webContents.capturePage()).toPNG());

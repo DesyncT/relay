@@ -27,6 +27,15 @@ write(path.join(custom,'archived_sessions','custom.jsonl'),[{type:'session_meta'
   fs.unlinkSync(archive);
   write(path.join(home,'.codex','sessions','copy.jsonl'),[meta,model,last]);
   assert.equal((await scan(opts)).total.tokens,1876,'Removing old logs preserves totals and cumulative deltas');
+  const stats=path.join(home,'.claude','stats-cache.json');
+  fs.writeFileSync(stats,JSON.stringify({lastComputedDate:'2020-01-02',modelUsage:{'claude-opus-5':{inputTokens:1165}},dailyModelTokens:[{date:'2020-01-01',tokensByModel:{'claude-opus-5':1000}},{date:'2020-01-02',tokensByModel:{'claude-opus-5':165}}]}));
+  const recovered=await scan(opts);
+  assert.equal(recovered.total.tokens,2876);assert.equal(recovered.total.recoveredTokens,1000);
+  assert.equal(recovered.dayTokens['2020-01-01'],1000,'Older dated summary activity is recovered');
+  assert.equal((await scan(opts)).total.tokens,2876,'Summary overlap is not counted twice');
+  write(path.join(home,'.claude','projects','restored','older.jsonl'),[{timestamp:'2020-01-01T12:00:00Z',message:{id:'restored-old',model:'claude-opus-5',usage:{input_tokens:1000,output_tokens:0}}}]);
+  const restored=await scan(opts);assert.equal(restored.total.tokens,2876);assert.equal(restored.total.recoveredTokens,0,'Restored transcripts replace recovery rather than being added again');
+  fs.unlinkSync(stats);assert.equal((await scan(opts)).total.tokens,2876,'Recovered summaries survive source cleanup and restart');
   fs.writeFileSync(ledgerFile,'corrupt');
   await assert.rejects(()=>scan(opts),/left unchanged/);
   assert.equal(fs.readFileSync(ledgerFile,'utf8'),'corrupt');

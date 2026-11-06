@@ -1,7 +1,7 @@
 {
   "name": "relay",
   "productName": "Relay",
-  "version": "0.1.57",
+  "version": "0.1.58",
   "description": "AI coding agents (Claude Code, Codex and any model you connect) working together in one chat",
   "author": "DesyncT",
   "license": "MIT",
@@ -11,7 +11,7 @@
   "scripts": {
     "start": "electron .",
     "check": "node usage.js",
-    "test": "node test-code-mode.js && node test-mojibake.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-question-controls.js && node test-resume-queue.js && node test-workflow-modes.js && node spreader.js && node test-spreader-steps.js && node test-quota.js && node test-usage-history.js && node test-easycode-design.js && node test-cli-installation.js && node test-error-handling-and-alerts.js && node test-alerts.js",
+    "test": "node test-code-mode.js && node test-mojibake.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-question-controls.js && node test-resume-queue.js && node test-workflow-modes.js && node spreader.js && node test-spreader-steps.js && node test-quota.js && node test-usage-history.js && node test-account-usage.js && node test-easycode-design.js && node test-cli-installation.js && node test-error-handling-and-alerts.js && node test-alerts.js",
     "test:ui": "electron test-renderer.js",
     "test:electron": "electron test-electron-workspaces.js",
     "dist": "electron-builder --win --publish never",

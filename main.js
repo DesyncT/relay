@@ -704,7 +704,8 @@ ipcMain.handle('usage:scan', (_e, fresh) => {
   usageAt = 0;
   const { Worker } = require('worker_threads');
   usageRun = new Promise((res, rej) => {
-    const w = new Worker(`require(${JSON.stringify(path.join(__dirname, 'usage.js'))}).scan({ledgerFile:${JSON.stringify(path.join(DATA,'usage-history.json'))}}).then((r) => require('worker_threads').parentPort.postMessage(r))`, { eval: true });
+    const usageOptions={ledgerFile:path.join(DATA,'usage-history.json'),accountUsage:true,codexCommand:settings.codexCmd || 'codex',accountCacheFile:path.join(DATA,'codex-account-usage.json')};
+    const w = new Worker(`require(${JSON.stringify(path.join(__dirname, 'usage.js'))}).scan(${JSON.stringify(usageOptions)}).then((r) => require('worker_threads').parentPort.postMessage(r))`, { eval: true });
     w.once('message', (r) => { usageAt = Date.now(); res(r); w.terminate(); });
     w.once('error', (e) => { usageRun = null; rej(e); });
   });

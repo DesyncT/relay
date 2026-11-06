@@ -621,7 +621,7 @@
     <div id="rchip"></div>
     <div id="queueCount" role="status" hidden></div>
     <div class="cbar">
-      <div id="spend"></div>
+      <div id="spend" aria-label="Current chat session usage totals"></div>
       <div id="slash" role="listbox" aria-label="Commands" hidden></div>
       <div id="normalModelMenu" role="menu" hidden></div>
       <div id="normalEffortMenu" role="menu" hidden></div>
@@ -924,16 +924,18 @@ function chart(days, tools, box) {
   if (!keys.length) { box.innerHTML = '<p class="dim">No sessions found yet</p>'; return; }
   const all = []; // fill gaps so the x-axis is real time
   for (let t = Date.parse(keys[0]); t <= Date.parse(keys.at(-1)); t += 864e5) all.push(new Date(t).toISOString().slice(0, 10));
-  const peak = Math.max(.01, ...all.map((d) => Object.values(days[d] || {}).reduce((n,v)=>n+v,0)));
+  const peak = Math.max(1, ...all.map((d) => Math.max(0, ...Object.values(days[d] || {}))));
   const step = niceStep(peak), max = step * 4;
   const W = box.clientWidth || 900, H = ($('#usage').clientWidth <= 900 ? 300 : 260), L = 84, R = 8, T = 8, B = 32, pw = W - L - R, ph = H - T - B;
   const x = (i) => L + (all.length < 2 ? pw / 2 : i / (all.length - 1) * pw), y = (v) => T + ph - v / max * ph;
-  const fx = 'font-size="12" fill="var(--muted)" font-family="inherit"';
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Estimated daily API cost by tool, stacked by recorded day">`;
+  const fx = 'font-size="13" fill="#85858b" font-family="inherit"';
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily cost by tool">`;
   for (let t = 0; t <= 4; t++) svg += `<line x1="${L}" x2="${W - R}" y1="${y(step * t)}" y2="${y(step * t)}" stroke="#1f1f1f"/><text x="${L - 12}" y="${y(step * t) + 4}" ${fx} text-anchor="end">${t ? usd(step * t) : '0'}</text>`;
-  const barWidth=Math.max(.5,Math.min(18,pw/Math.max(all.length,1)*.75));
-  all.forEach((day,i)=>{let bottom=0;for(const tool of tools){const value=(days[day] || {})[tool] || 0;if(value>0)svg+=`<rect x="${Math.max(L,Math.min(W-R-barWidth,x(i)-barWidth/2))}" y="${y(bottom+value)}" width="${barWidth}" height="${Math.max(0,y(bottom)-y(bottom+value))}" fill="${ucol(tool)}"><title>${day} · ${tool}: ${usd(value)} API estimate</title></rect>`;bottom+=value;}});
-  const ticks = all.length < 3 ? [...new Set([0,all.length-1])] : [0, Math.floor(all.length / 2), all.length - 1];
+  for (const tool of [...tools].reverse()) { // cheapest tool first so the big one sits on top
+    const line = mono(all.map((d, i) => [x(i), y((days[d] || {})[tool] || 0)])), c = ucol(tool);
+    svg += `<path d="${line} L${x(all.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="${c}" opacity=".1"/><path d="${line}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`;
+  }
+  const ticks = all.length < 3 ? [0, all.length - 1] : [0, Math.floor(all.length / 2), all.length - 1];
   ticks.forEach((i) => svg += `<text x="${x(i)}" y="${H - 8}" ${fx} text-anchor="${i === 0 ? 'start' : i === all.length - 1 ? 'end' : 'middle'}">${dayLabel(all[i]).toUpperCase()}</text>`);
   svg += `<line id="uxh" y1="${T}" y2="${T + ph}" stroke="#444" style="display:none"/></svg><div class="u-tip"></div>`;
   box.innerHTML = svg;
@@ -963,39 +965,35 @@ const usageSkeleton = () => `
   <div class="u-split">${[0, 1].map(() => `<div>${sk('120px', '16px')}${sk('100%', '8px', 'margin:18px 0 14px')}${sk('70%', '14px')}</div>`).join('')}</div>
   ${sk('100px', '16px', 'margin-bottom:44px')}
   ${[0, 1, 2, 3].map(() => sk('100%', '40px', 'margin-bottom:48px')).join('')}`;
-// Full recorded history, grouped into calendar weeks. Dates match the scanner's UTC days.
+// Token heatmap: one cell per day, 7 rows (Sunday first). Trailing 52-week grid matching reference.
+// Weekly = trailing 7-day total, Cumulative = running total.
 function renderHeat(days = {}, mode = 'daily') {
   const grid = $('#uheat'), seg = $('#uheatseg');
   if (!grid) return;
   document.querySelector('#heatTip')?.remove();
-  const iso = (d) => d.toISOString().slice(0,10);
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const now = new Date();
-  now.setUTCHours(0, 0, 0, 0);
+  now.setHours(0, 0, 0, 0);
   const end = new Date(now);
-  end.setUTCDate(end.getUTCDate() + (6 - end.getUTCDay()));
+  end.setDate(end.getDate() + (6 - end.getDay())); // Saturday of current week
   const start = new Date(end);
-  const dates=Object.keys(days).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d)) && d<=iso(now)).sort();
-  if (dates.length) {start.setTime(Date.parse(dates[0]));start.setUTCDate(start.getUTCDate()-start.getUTCDay());}
-  else start.setUTCDate(start.getUTCDate() - (52 * 7 - 1));
+  start.setDate(start.getDate() - (52 * 7 - 1)); // Sunday 51 weeks before -> exactly 52 weeks (364 days)
   const raw = [];
-  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) raw.push({ date: iso(d), v: days[iso(d)] || 0 });
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) raw.push({ date: iso(d), v: days[iso(d)] || 0 });
   let vals = raw.map(x => x.v);
   if (mode === 'weekly') vals = raw.map((_, i) => raw.slice(Math.max(0, i - 6), i + 1).reduce((n, x) => n + x.v, 0));
   if (mode === 'cumulative') { let c = 0; vals = vals.map(v => c += v); }
   const max = Math.max(...vals, 1);
-  const cells = raw.map((x, i) => ({ date: x.date, v: x.date>iso(now)?0:vals[i] }));
+  const cells = raw.map((x, i) => ({ date: x.date, v: vals[i] }));
   const months = [];
   for (let w = 0; w * 7 < cells.length; w++) {
     const week = cells.slice(w * 7, w * 7 + 7);
     const hit = week.find(c => c.date.endsWith('-01'));
-    months.push(hit ? new Date(hit.date + 'T00:00:00Z').toLocaleString('en', { month: 'short',timeZone:'UTC',...(hit.date.slice(5,7)==='01'?{year:'numeric'}:{}) }).toLowerCase() : '');
+    months.push(hit ? new Date(hit.date + 'T00:00:00').toLocaleString('en', { month: 'short' }).toLowerCase() : '');
   }
-  const width=`width:max(100%,${months.length*17}px)`;
-  grid.innerHTML = `<div class="hm-grid" style="${width};grid-template-rows:repeat(7,auto)">${cells.map(c =>
-    `<i style="background:${c.v ? `color-mix(in srgb,var(--claude) ${(15+85*c.v/max).toFixed(1)}%,var(--raised))` : 'var(--raised)'}" ${c.date>iso(now)?'class="hm-future"':`data-d="${c.date}" data-t="${ftok(Math.round(days[c.date] || 0))}" data-m="${mode === 'daily' ? '' : ftok(Math.round(c.v))}"`}></i>`
-  ).join('')}</div><div class="hm-grid hm-months" style="${width}">${months.map(m => `<span>${m}</span>`).join('')}</div>`;
-  grid.scrollLeft=grid.scrollWidth;
-  const range=$('#uheatRange');if(range)range.textContent=dates.length?`All time · ${dates[0]} to ${iso(now)} · UTC · scroll for older activity`:'No recorded activity yet';
+  grid.innerHTML = `<div class="hm-grid" style="grid-template-rows:repeat(7,auto)">${cells.map(c =>
+    `<i style="background:${c.v ? `rgba(59,130,246,${(0.15 + 0.85 * c.v / max).toFixed(2)})` : 'rgba(128,128,128,.15)'}" data-d="${c.date}" data-t="${ftok(Math.round(days[c.date] || 0))}" data-m="${mode === 'daily' ? '' : ftok(Math.round(c.v))}"></i>`
+  ).join('')}</div><div class="hm-grid hm-months">${months.map(m => `<span>${m}</span>`).join('')}</div>`;
   const tip = document.createElement('div');
   tip.id = 'heatTip'; tip.className = 'u-tip';
   document.body.append(tip);
@@ -1038,7 +1036,7 @@ async function loadUsage(fresh) {
   const bar = (keys, o) => { const sum = keys.reduce((n, [k]) => n + o[k], 0) || 1; return `<div class="u-bar">${keys.map(([k, , c]) => `<i style="flex:${o[k] / sum};background:${c}"></i>`).join('')}</div><div class="u-leg">${keys.map(([k, n, c]) => `<span><i style="background:${c}"></i>${n}  <b>${usd(o[k])}</b></span>`).join('')}</div>`; };
   const models = Object.entries(filteredModels).sort((a, b) => b[1].cost - a[1].cost);
   const dayKeys = Object.keys(filteredDays).sort().reverse(), dayTot = (d) => Object.values(filteredDays[d] || {}).reduce((n, v) => n + v, 0);
-  const info = 'Current Standard API-equivalent estimate across all local CLI sessions, not your subscription bill. Unknown models are excluded from cost. Rates checked 3 Nov 2026; historical prices and unlogged service premiums may differ.';
+  const info = 'API-price estimate from retained local transcripts, not a subscription bill. Account-only tokens and recovered historical summaries do not provide cost records. Unknown prices and missing costs are excluded; chat CLI-reported cost can use a different calculation.';
   $('#navStats').textContent = `${t.sessions} sessions · ${usd(t.cost)}`;
   $('#usage').innerHTML = `
     <button class="rescan" id="rescan">Rescan</button>
@@ -1046,22 +1044,24 @@ async function loadUsage(fresh) {
     <div class="u-top">
       <div>
         <p class="u-big">${usd(t.cost)}</p>
-        <div class="u-sub">${t.sessions} sessions · API estimate <svg viewBox="0 0 16 16" role="img" aria-label="${info}"><title>${info}</title><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.8v.1"/></svg></div>
+        <div class="u-sub">${t.sessions} local sessions · API estimate <svg viewBox="0 0 16 16" role="img" aria-label="${info}"><title>${info}</title><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.8v.1"/></svg></div>
         ${tools.map((k) => `<div class="u-tool"><div class="r1"><span class="dot" style="background:${ucol(k)}"></span>${toolIcon(k)}<span class="n">${k}</span><small>${filteredTools[k].sessions} sessions</small><span class="c">${usd(filteredTools[k].cost)}</span></div><div class="r2">${pct(filteredTools[k].cost, t.cost)} of estimated cost · ${sh(filteredTools[k].tokens)} tokens</div></div>`).join('')}
         ${t.unpriced.length ? `<p class="warn">${t.unpriced.length} unpriced model${t.unpriced.length===1?'':'s'}: tokens are included; their estimated cost is unavailable.</p>` : ''}
       </div>
-      <div><h3>Daily cost</h3><div class="u-chart" id="uchart"></div></div>
+      <div><h3>Estimated daily API cost</h3><div class="u-chart" id="uchart"></div></div>
     </div>
     <h3>Totals</h3>
     <div class="u-totals">
-      <div>Processed tokens<span>${sh(t.tokens)}</span></div>
+      <div>Known lifetime tokens<span>${sh(t.tokens)}</span></div>
       <div>Cached input<span>${sh(t.cached)}</span></div>
       <div>Uncached input<span>${sh(t.uncached)}</span></div>
       <div>Output<span>${sh(t.output)}</span></div>
       <div>Cache savings<span>${usd(t.savings)}</span></div>
     </div>
-    <div class="u-hd u-heat-head"><h3>Token activity · all time</h3></div>
-    <p id="uheatRange" class="muted usage-coverage"></p><div id="uheat" tabindex="0" aria-label="All-time token activity; scroll horizontally for older dates"></div>
+    ${s.accountUsage?.codex?`<p class="muted usage-coverage">Codex account lifetime: <b>${sh(s.accountUsage.codex.summary.lifetimeTokens)} tokens</b> · ${s.accountUsage.codex.cached?'cached account report':'fetched from signed-in account'}. Cost and model breakdowns use local transcripts.</p>`:'<p class="muted usage-coverage">Codex account lifetime unavailable for this sign-in; showing retained local history.</p>'}
+    ${t.recoveredTokens?`<p class="muted usage-coverage">${sh(t.recoveredTokens)} older Claude tokens recovered from saved statistics. Their costs and token-type breakdown are unavailable.${t.undatedTokens?` ${sh(t.undatedTokens)} tokens have no recoverable day and appear only in totals.`:''}</p>`:''}
+    <div class="u-hd u-heat-head"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div>
+    <div id="uheat"></div>
     <p class="muted usage-coverage">All retained local CLI history, including archives and sessions outside Relay. Imported history stays saved locally.${s.coverage?.malformedLines || s.coverage?.unreadableFiles?.length ? ` ${s.coverage.malformedLines || 0} incomplete log lines and ${s.coverage.unreadableFiles?.length || 0} unreadable files were skipped; totals may be incomplete.` : ''}</p>
     <div class="u-split">
       <div><div class="u-hd"><h3>Cost by type</h3></div>${bar(typeKeys, s.type)}</div>
@@ -1072,7 +1072,7 @@ async function loadUsage(fresh) {
   renderHeat(s.dayTokens || {});
   const mx = (models[0] || [0, { cost: 1 }])[1].cost || 1, dmx = Math.max(1e-9, ...dayKeys.map(dayTot));
   const rows = {
-    model: () => `<table><tr><th>#</th><th>Model</th><th>Est. cost</th><th>Share</th><th>Tokens</th></tr>${models.map(([m, v], i) => `<tr><td>${i + 1}</td><td><div class="u-m">${modelIcon(m, ucol(v.tool))}${m}</div><div class="u-mb" style="width:${v.cost / mx * 360}px;background:${ucol(v.tool)}"></div></td><td>${v.rates ? usd(v.cost) : "Unpriced"}</td><td class="muted">${pct(v.cost, t.cost)}</td><td class="muted">${sh(v.tokens)}<details style="text-align:left;margin-top:8px"><summary>Token breakdown</summary>${Object.entries(v.breakdown || {}).map(([k,n]) => `<div>${k}: ${n.toLocaleString()} tokens${v.costs[k] != null ? ` · ${usd(v.costs[k])}` : " (included in cache write cost)"}</div>`).join("")}${v.rates ? `<div>Rates per 1M: input $${v.rates[0]} · cached $${v.rates[3]} · write $${v.rates[2]} · output $${v.rates[1]}</div>` : "No verified rate"}</details></td></tr>`).join('')}</table>`,
+    model: () => `<table><tr><th>#</th><th>Model</th><th>Est. cost</th><th>Share</th><th>Tokens</th></tr>${models.map(([m, v], i) => `<tr><td>${i + 1}</td><td><div class="u-m">${modelIcon(m, ucol(v.tool))}${m}</div><div class="u-mb" style="width:${v.cost / mx * 360}px;background:${ucol(v.tool)}"></div></td><td>${v.rates ? usd(v.cost) : "Unpriced"}</td><td class="muted">${pct(v.cost, t.cost)}</td><td class="muted">${sh(v.tokens)}<details style="text-align:left;margin-top:8px"><summary>Token breakdown</summary>${Object.entries(v.breakdown || {}).map(([k,n]) => `<div>${k}: ${n.toLocaleString()} tokens${v.costs[k] != null ? ` · ${usd(v.costs[k])}` : k === "unclassified" ? " (historical type and cost unavailable)" : " (included in cache write cost)"}</div>`).join("")}${v.rates ? `<div>Rates per 1M: input $${v.rates[0]} · cached $${v.rates[3]} · write $${v.rates[2]} · output $${v.rates[1]}</div>` : "No verified rate"}</details></td></tr>`).join('')}</table>`,
     day: () => `<table><tr><th>#</th><th>Day</th><th>Est. cost</th><th>Share</th></tr>${dayKeys.map((d, i) => { const c = dayTot(d); return `<tr><td>${i + 1}</td><td><div class="u-m">${dayLabel(d)}, ${d.slice(0, 4)}</div><div class="u-mb seg" style="width:${c / dmx * 360}px">${tools.filter((k) => (filteredDays[d] || {})[k]).map((k) => `<i style="flex:${filteredDays[d][k]};background:${ucol(k)}"></i>`).join('')}</div></td><td>${usd(c)}</td><td class="muted">${pct(c, t.cost)}</td></tr>`; }).join('')}</table>`,
   };
   const show = (v) => { $('#ubreak').innerHTML = rows[v](); document.querySelectorAll('.u-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); };
@@ -1250,11 +1250,12 @@ const fcost = (c) => '$' + (c < 0.1 ? c.toFixed(3) : c.toFixed(2));
     if (signature === spendSignature) return;
     spendSignature = signature;
     const cur = (k) => shown[k] || { tokens: 0, cost: 0 };
-    $('#spend').replaceChildren(...keys.flatMap((k, i) => {
+  $('#spend').replaceChildren(...(keys.length?[el('span',{className:'spend-caption',textContent:'This chat ·'})]:[]),...keys.flatMap((k, i) => {
       const a = sum[k] || { tokens: 0, cost: 0, input: 0, output: 0, cached: 0, model: '' }, c = cur(k);
       const n = el('span', { className: 'sn', textContent: spendTxt(c) });
       const e = el('span', { className: 'sp', title: `${a.model || k}\ninput ${ftok(a.input)} · output ${ftok(a.output)} · cached ${ftok(a.cached)}${a.cost > 0 ? `\nest. cost ${fcost(a.cost)}` : ''}` }, el('span', { innerHTML: k === 'auto' ? svgI('<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>') : logo(k === 'claude' ? 'claude' : k === 'antigravity' ? 'antigravity' : 'openai', 14, k === 'claude' ? '#D97757' : k === 'antigravity' ? '#4E88F5' : '#fff') }), el('b', { textContent: k }), n, ...(run(k) ? ['running'] : []));
       e.dataset.k = k;
+      e.title='This chat only, across all turns. '+(k==='claude'?'Cost reported by the CLI.':'Cost estimated from configured API rates.')+' Not lifetime account spend or a subscription bill.\n'+e.title;
       const from = cur(k), to = { tokens: a.tokens, cost: a.cost };
       shown[k] = to; n.textContent = spendTxt(to);
       return [...(i ? [el('span', { textContent: '·' })] : []), e];

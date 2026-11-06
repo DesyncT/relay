@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const readline = require('readline');
+const {normalizeClaudeStats,recoverClaude,total:recordTokens}=require('./usage-recovery');
 
 const HOME = os.homedir();
 const PRICES = JSON.parse(fs.readFileSync(path.join(__dirname, 'prices.json'), 'utf8'));
@@ -143,12 +144,15 @@ function cost(r) {
   return c;
 }
 
-async function scan({home=HOME,env=process.env,ledgerFile} = {}) {
+async function scan({home=HOME,env=process.env,ledgerFile,accountUsage=false,codexCommand='codex',accountCacheFile} = {}) {
   const coverage={files:0,malformedLines:0,unreadableFiles:[]};
   const retained=new Map();
+  let claudeStats=[];
+  const accountPromise=accountUsage?require('./account-usage').readAccountUsage({command:codexCommand,cacheFile:accountCacheFile}):Promise.resolve(null);
   if (ledgerFile) try {
     const saved=JSON.parse(await fs.promises.readFile(ledgerFile,'utf8'));
     if (saved.version!==1 || !Array.isArray(saved.records)) throw Error('Invalid usage history');
+    if(Array.isArray(saved.claudeStats))claudeStats=saved.claudeStats.filter(s=>s && typeof s.asOf==='string' && s.modelTotals && Array.isArray(s.daily));
     for (const r of saved.records) {
       if(!r || typeof r.id!=='string' || typeof r.model!=='string' || !['Claude Code','Codex','Antigravity'].includes(r.tool) || typeof r.day!=='string')throw Error('Invalid usage record');
       const fields=r.tool==='Codex'?['input_tokens','cached_input_tokens','output_tokens','cache_write_input_tokens']:['input','cacheRead','cacheWrite','cacheWrite1h','output'];
@@ -158,26 +162,34 @@ async function scan({home=HOME,env=process.env,ledgerFile} = {}) {
     }
   } catch(error) {if(error.code!=='ENOENT') throw Error('Could not read saved usage history; it was left unchanged.');}
   const imported=[...await claudeRecords(home,env,coverage),...await codexRecords(home,env,coverage),...await antigravityRecords(home,coverage)];
+  for(const base of roots(home,'.claude',env,'CLAUDE_CONFIG_DIR'))try{
+    const snapshot=normalizeClaudeStats(JSON.parse(await fs.promises.readFile(path.join(base,'stats-cache.json'),'utf8')));
+    if(snapshot && !claudeStats.some(s=>JSON.stringify(s)===JSON.stringify(snapshot)))claudeStats.push(snapshot);
+  }catch{}
   for (const r of imported) {
     const previous=retained.get(r.id);
     if(previous && r.tool==='Claude Code') for(const field of ['input','cacheRead','cacheWrite','cacheWrite1h','output'])r[field]=Math.max(previous[field] || 0,r[field]);
     retained.set(r.id,r);
   }
-  if(ledgerFile){await fs.promises.mkdir(path.dirname(ledgerFile),{recursive:true});await fs.promises.writeFile(ledgerFile+'.tmp',JSON.stringify({version:1,records:[...retained.values()]}),'utf8');await fs.promises.rename(ledgerFile+'.tmp',ledgerFile);}
+  if(ledgerFile){await fs.promises.mkdir(path.dirname(ledgerFile),{recursive:true});await fs.promises.writeFile(ledgerFile+'.tmp',JSON.stringify({version:1,records:[...retained.values()],claudeStats}),'utf8');await fs.promises.rename(ledgerFile+'.tmp',ledgerFile);}
   const recs=[...[...retained.values()].filter(r=>r.tool!=='Codex'),...codexDeltas([...retained.values()].filter(r=>r.tool==='Codex'))];
+  recs.push(...recoverClaude(recs,claudeStats));
   const tools = {}, models = {}, days = {}, dayTok = {};
   const type = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   const speed = { standard: 0, fast: 0 };
-  const tot = { cost: 0, tokens: 0, cached: 0, uncached: 0, output: 0, savings: 0, unpriced: new Set() };
+  const tot = { cost: 0, tokens: 0, cached: 0, uncached: 0, output: 0, savings: 0, recoveredTokens:0,undatedTokens:0,unpriced: new Set() };
   for (const r of recs) {
-    const c = cost(r);
+    const c = r.costUnknown?{input:0,output:0,cacheWrite:0,cacheRead:0,full:0}:cost(r);
     const usd = c.input + c.output + c.cacheWrite + c.cacheRead;
-    const tok = r.input + r.output + r.cacheWrite + r.cacheWrite1h + r.cacheRead;
+    const tok = recordTokens(r);
+    if(r.recovered)tot.recoveredTokens+=tok;
+    if(!r.day)tot.undatedTokens+=tok;
     if (!priceFor(r.model)) tot.unpriced.add(r.model);
     const t = tools[r.tool] ||= { cost: 0, tokens: 0, sessions: new Set() };
     t.cost += usd; t.tokens += tok; if (r.session) t.sessions.add(r.session);
-    const m = models[r.model] ||= { tool: r.tool, cost: 0, tokens: 0, rates: priceFor(r.model), breakdown: { input: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, output: 0 }, costs: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 } };
+    const m = models[r.model] ||= { tool: r.tool, cost: 0, tokens: 0, rates: priceFor(r.model), breakdown: { input: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, output: 0,unclassified:0 }, costs: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 } };
     for (const k of Object.keys(m.breakdown)) m.breakdown[k] += r[k] || 0;
+    m.breakdown.unclassified+=r.unclassifiedTokens || 0;
     for (const k of Object.keys(m.costs)) m.costs[k] += c[k];
     m.cost += usd; m.tokens += tok;
     if (r.day) (days[r.day] ||= {})[r.tool] = (days[r.day][r.tool] || 0) + usd;
@@ -187,8 +199,21 @@ async function scan({home=HOME,env=process.env,ledgerFile} = {}) {
     tot.cost += usd; tot.tokens += tok; tot.cached += r.cacheRead; tot.uncached += r.input;
     tot.output += r.output; tot.savings += c.full - c.cacheRead - c.cacheWrite;
   }
+  const account=await accountPromise;
+  const localTokens=tot.tokens,localDayTokens={...dayTok};
+  let accountTokenAdjustment=0;
+  if(account){
+    const codex=tools.Codex ||= {cost:0,tokens:0,sessions:new Set()};
+    codex.localTokens=codex.tokens;accountTokenAdjustment=account.summary.lifetimeTokens-codex.tokens;
+    codex.tokens=account.summary.lifetimeTokens;codex.tokenSource='codex-account';tot.tokens+=accountTokenAdjustment;
+    if(account.dailyUsageBuckets)for(const b of account.dailyUsageBuckets){
+      const localCodex=recs.filter(r=>r.tool==='Codex' && r.day===b.startDate).reduce((n,r)=>n+recordTokens(r),0);
+      dayTok[b.startDate]=(dayTok[b.startDate] || 0)-localCodex+b.tokens;
+    }
+  }
   return {
-    total: { ...tot, costIsEstimate: true, scope: 'All retained and imported local CLI history, including archived sessions and work outside Relay', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
+    total: { ...tot,localTokens,accountTokenAdjustment,costIsEstimate: true, scope: 'Codex account lifetime when available; Claude retained history plus recovered statistics; API costs from local transcripts only', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
+    accountUsage:account?{codex:account}:{},localDayTokens,
     coverage,
     tools: Object.fromEntries(Object.entries(tools).map(([k, v]) => [k, { ...v, sessions: v.sessions.size }])),
     models, days, dayTokens: dayTok, type, speed,

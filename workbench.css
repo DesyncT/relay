@@ -495,7 +495,7 @@ html body #chat.on .ch-head #quota { gap:28px; order:0; }
 @keyframes ccSpin { 0% { content:'·'; } 16% { content:'✢'; } 33% { content:'✳'; } 50% { content:'✶'; } 66% { content:'✻'; } 83% { content:'✽'; } }
 
 /* Spend strip follows the theme like the composer it sits on. */
-#chat.on #spend { background:var(--card); }
+#chat.on #spend { background:var(--card); border-bottom:1px solid var(--line-strong); }
 
 /* Status shine: a bright, narrow highlight that clearly travels across the text. */
 .ch-main > #busy:not(:empty) .rq-think { background-image:linear-gradient(100deg,var(--muted) 38%,#fff 50%,var(--muted) 62%); background-size:260% 100%; animation-duration:1.9s; }
@@ -541,7 +541,6 @@ body :is(button,input,textarea,select,[tabindex]):focus-visible { outline:2px so
 #chat #log > .msg .body pre { padding:16px; background:var(--deep); border:1px solid var(--line); }
 .msg:focus-within .acts { opacity:1; pointer-events:auto; }
 #chat.on .cbar { border-color:var(--line-strong); transition:border-color var(--motion-fast) var(--ease); }
-#chat.on .cbar:focus-within { border-color:var(--muted); }
 .composer-help { display:flex; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; padding:0 16px 10px; color:var(--muted); font-size:11px; line-height:16px; }
 #sendRecovery { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); color:var(--text-2); font-size:12px; }
 #sendRecovery[hidden] { display:none; }
