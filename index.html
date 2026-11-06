@@ -628,6 +628,7 @@
       <div id="leadMenu" role="menu" hidden></div>
       <div id="modeMenu" role="dialog" aria-label="Mode" hidden></div>
       <div id="queueEditBar" hidden><span>Editing queued message</span><button type="button" id="cancelQueueEdit">Cancel</button><button type="button" id="saveQueueEdit">Save changes</button></div>
+      <div id="sendRecovery" hidden role="status"><span></span><button type="button">Restore unsent message</button></div>
       <textarea id="input" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Message #global  ·  / for commands" aria-label="Message #global"></textarea>
       <div id="pend"></div>
       <div class="cb-tools">
@@ -642,6 +643,7 @@
       <button class="ib" id="imgBtn" aria-label="Attach an image"><svg class="i" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></svg></button>
       <button class="send" id="send" aria-label="Send" disabled><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
+      <div class="composer-help"><span>Enter to send · Shift+Enter for a new line</span><span>Paste or drop images</span></div>
       <input type="file" id="fAny" multiple><input type="file" id="fImg" accept="image/*" multiple>
     </div>
     </div>
@@ -730,6 +732,11 @@ const COLORS = { 'Claude Code': 'var(--claude)', Codex: 'var(--codex)', Antigrav
 const usd = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const short = (n) => n >= 1e9 ? (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
 const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, attrs); e.append(...kids); return e; };
+let noticeTimer;
+function notifyUI(text) {
+  let notice=$('#appNotice');if(!notice){notice=el('div',{id:'appNotice',role:'status'});document.body.append(notice);}
+  notice.textContent=text;notice.hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>{notice.hidden=true;},3000);
+}
 const dot = (color) => el('span', { className: 'dot', style: `background:${color}` });
 const speakerColor = (from) => from.startsWith('claude') ? 'var(--claude)' : from === 'codex' ? 'var(--codex)' : from.startsWith('antigravity') ? 'var(--antigravity)' : 'var(--system)';
 const flash = (node) => { node.textContent = 'Saved'; setTimeout(() => node.textContent = '', 1500); };
@@ -887,7 +894,7 @@ for (const node of [chatMain, composer, document.querySelector('#busy'), documen
 }
 // ---------- usage ----------
 function niceStep(max) { // 1, 2, 2.5 or 5 times a power of ten, so axis labels read as round numbers
-  const raw = max / 4, p = 10 ** Math.floor(Math.log10(raw));
+  const raw = Math.max(Number.MIN_VALUE,max / 4), p = 10 ** Math.floor(Math.log10(raw));
   return [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw);
 }
 // tool/model -> color and icon; add entries here for new tools
@@ -917,18 +924,16 @@ function chart(days, tools, box) {
   if (!keys.length) { box.innerHTML = '<p class="dim">No sessions found yet</p>'; return; }
   const all = []; // fill gaps so the x-axis is real time
   for (let t = Date.parse(keys[0]); t <= Date.parse(keys.at(-1)); t += 864e5) all.push(new Date(t).toISOString().slice(0, 10));
-  const peak = Math.max(1, ...all.map((d) => Math.max(0, ...Object.values(days[d] || {}))));
+  const peak = Math.max(.01, ...all.map((d) => Object.values(days[d] || {}).reduce((n,v)=>n+v,0)));
   const step = niceStep(peak), max = step * 4;
   const W = box.clientWidth || 900, H = ($('#usage').clientWidth <= 900 ? 300 : 260), L = 84, R = 8, T = 8, B = 32, pw = W - L - R, ph = H - T - B;
   const x = (i) => L + (all.length < 2 ? pw / 2 : i / (all.length - 1) * pw), y = (v) => T + ph - v / max * ph;
-  const fx = 'font-size="13" fill="#85858b" font-family="inherit"';
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily cost by tool">`;
+  const fx = 'font-size="12" fill="var(--muted)" font-family="inherit"';
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Estimated daily API cost by tool, stacked by recorded day">`;
   for (let t = 0; t <= 4; t++) svg += `<line x1="${L}" x2="${W - R}" y1="${y(step * t)}" y2="${y(step * t)}" stroke="#1f1f1f"/><text x="${L - 12}" y="${y(step * t) + 4}" ${fx} text-anchor="end">${t ? usd(step * t) : '0'}</text>`;
-  for (const tool of [...tools].reverse()) { // cheapest tool first so the big one sits on top
-    const line = mono(all.map((d, i) => [x(i), y((days[d] || {})[tool] || 0)])), c = ucol(tool);
-    svg += `<path d="${line} L${x(all.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="${c}" opacity=".1"/><path d="${line}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`;
-  }
-  const ticks = all.length < 3 ? [0, all.length - 1] : [0, Math.floor(all.length / 2), all.length - 1];
+  const barWidth=Math.max(.5,Math.min(18,pw/Math.max(all.length,1)*.75));
+  all.forEach((day,i)=>{let bottom=0;for(const tool of tools){const value=(days[day] || {})[tool] || 0;if(value>0)svg+=`<rect x="${Math.max(L,Math.min(W-R-barWidth,x(i)-barWidth/2))}" y="${y(bottom+value)}" width="${barWidth}" height="${Math.max(0,y(bottom)-y(bottom+value))}" fill="${ucol(tool)}"><title>${day} · ${tool}: ${usd(value)} API estimate</title></rect>`;bottom+=value;}});
+  const ticks = all.length < 3 ? [...new Set([0,all.length-1])] : [0, Math.floor(all.length / 2), all.length - 1];
   ticks.forEach((i) => svg += `<text x="${x(i)}" y="${H - 8}" ${fx} text-anchor="${i === 0 ? 'start' : i === all.length - 1 ? 'end' : 'middle'}">${dayLabel(all[i]).toUpperCase()}</text>`);
   svg += `<line id="uxh" y1="${T}" y2="${T + ph}" stroke="#444" style="display:none"/></svg><div class="u-tip"></div>`;
   box.innerHTML = svg;
@@ -958,35 +963,39 @@ const usageSkeleton = () => `
   <div class="u-split">${[0, 1].map(() => `<div>${sk('120px', '16px')}${sk('100%', '8px', 'margin:18px 0 14px')}${sk('70%', '14px')}</div>`).join('')}</div>
   ${sk('100px', '16px', 'margin-bottom:44px')}
   ${[0, 1, 2, 3].map(() => sk('100%', '40px', 'margin-bottom:48px')).join('')}`;
-// Token heatmap: one cell per day, 7 rows (Sunday first). Trailing 52-week grid matching reference.
-// Weekly = trailing 7-day total, Cumulative = running total.
+// Full recorded history, grouped into calendar weeks. Dates match the scanner's UTC days.
 function renderHeat(days = {}, mode = 'daily') {
   const grid = $('#uheat'), seg = $('#uheatseg');
   if (!grid) return;
   document.querySelector('#heatTip')?.remove();
-  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const iso = (d) => d.toISOString().slice(0,10);
   const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  now.setUTCHours(0, 0, 0, 0);
   const end = new Date(now);
-  end.setDate(end.getDate() + (6 - end.getDay())); // Saturday of current week
+  end.setUTCDate(end.getUTCDate() + (6 - end.getUTCDay()));
   const start = new Date(end);
-  start.setDate(start.getDate() - (52 * 7 - 1)); // Sunday 51 weeks before -> exactly 52 weeks (364 days)
+  const dates=Object.keys(days).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d)) && d<=iso(now)).sort();
+  if (dates.length) {start.setTime(Date.parse(dates[0]));start.setUTCDate(start.getUTCDate()-start.getUTCDay());}
+  else start.setUTCDate(start.getUTCDate() - (52 * 7 - 1));
   const raw = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) raw.push({ date: iso(d), v: days[iso(d)] || 0 });
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) raw.push({ date: iso(d), v: days[iso(d)] || 0 });
   let vals = raw.map(x => x.v);
   if (mode === 'weekly') vals = raw.map((_, i) => raw.slice(Math.max(0, i - 6), i + 1).reduce((n, x) => n + x.v, 0));
   if (mode === 'cumulative') { let c = 0; vals = vals.map(v => c += v); }
   const max = Math.max(...vals, 1);
-  const cells = raw.map((x, i) => ({ date: x.date, v: vals[i] }));
+  const cells = raw.map((x, i) => ({ date: x.date, v: x.date>iso(now)?0:vals[i] }));
   const months = [];
   for (let w = 0; w * 7 < cells.length; w++) {
     const week = cells.slice(w * 7, w * 7 + 7);
     const hit = week.find(c => c.date.endsWith('-01'));
-    months.push(hit ? new Date(hit.date + 'T00:00:00').toLocaleString('en', { month: 'short' }).toLowerCase() : '');
+    months.push(hit ? new Date(hit.date + 'T00:00:00Z').toLocaleString('en', { month: 'short',timeZone:'UTC',...(hit.date.slice(5,7)==='01'?{year:'numeric'}:{}) }).toLowerCase() : '');
   }
-  grid.innerHTML = `<div class="hm-grid" style="grid-template-rows:repeat(7,auto)">${cells.map(c =>
-    `<i style="background:${c.v ? `rgba(59,130,246,${(0.15 + 0.85 * c.v / max).toFixed(2)})` : 'rgba(128,128,128,.15)'}" data-d="${c.date}" data-t="${ftok(Math.round(days[c.date] || 0))}" data-m="${mode === 'daily' ? '' : ftok(Math.round(c.v))}"></i>`
-  ).join('')}</div><div class="hm-grid hm-months">${months.map(m => `<span>${m}</span>`).join('')}</div>`;
+  const width=`width:max(100%,${months.length*17}px)`;
+  grid.innerHTML = `<div class="hm-grid" style="${width};grid-template-rows:repeat(7,auto)">${cells.map(c =>
+    `<i style="background:${c.v ? `color-mix(in srgb,var(--claude) ${(15+85*c.v/max).toFixed(1)}%,var(--raised))` : 'var(--raised)'}" ${c.date>iso(now)?'class="hm-future"':`data-d="${c.date}" data-t="${ftok(Math.round(days[c.date] || 0))}" data-m="${mode === 'daily' ? '' : ftok(Math.round(c.v))}"`}></i>`
+  ).join('')}</div><div class="hm-grid hm-months" style="${width}">${months.map(m => `<span>${m}</span>`).join('')}</div>`;
+  grid.scrollLeft=grid.scrollWidth;
+  const range=$('#uheatRange');if(range)range.textContent=dates.length?`All time · ${dates[0]} to ${iso(now)} · UTC · scroll for older activity`:'No recorded activity yet';
   const tip = document.createElement('div');
   tip.id = 'heatTip'; tip.className = 'u-tip';
   document.body.append(tip);
@@ -1008,54 +1017,20 @@ function renderHeat(days = {}, mode = 'daily') {
 
 async function loadUsage(fresh) {
   $('#usage').innerHTML = usageSkeleton();
-  const [s, settings] = await Promise.all([
+  let s,settings;
+  try { [s, settings] = await Promise.all([
     api.call('usage:scan', fresh === true),
     cfg?.disabledProviders ? Promise.resolve(cfg) : api.call('settings:get').catch(() => ({}))
-  ]);
+  ]); } catch(error) {
+    const message=el('p',{className:'muted',textContent:error.message || 'Usage history could not be loaded.'});
+    const retry=el('button',{className:'b',type:'button',textContent:'Retry usage scan',onclick:()=>loadUsage(true)});
+    $('#usage').replaceChildren(el('h2',{textContent:'Usage history'}),message,retry);return;
+  }
   if (settings) cfg = { ...cfg, ...settings };
-  const disabled = (cfg?.disabledProviders || []).map(p => p.toLowerCase());
-  const toolToProv = (k) => {
-    const l = String(k || '').toLowerCase();
-    if (l.includes('antigravity') || l.includes('gemini')) return 'antigravity';
-    if (l.includes('claude')) return 'claude';
-    if (l.includes('codex') || l.includes('openai') || l.includes('gpt')) return 'codex';
-    return l;
-  };
-  const isEnabled = (toolOrModel) => !disabled.includes(toolToProv(toolOrModel));
-
-  const filteredTools = {};
-  for (const [k, v] of Object.entries(s.tools || {})) {
-    if (isEnabled(k)) filteredTools[k] = v;
-  }
-  if (isEnabled('antigravity') && !filteredTools['Antigravity']) {
-    filteredTools['Antigravity'] = { cost: 0, tokens: 0, sessions: 0 };
-  }
-
-  const filteredModels = {};
-  for (const [m, v] of Object.entries(s.models || {})) {
-    if (isEnabled(v.tool || m)) filteredModels[m] = v;
-  }
-
-  const filteredDays = {};
-  for (const [d, toolMap] of Object.entries(s.days || {})) {
-    const m = {};
-    for (const [tool, cost] of Object.entries(toolMap)) {
-      if (isEnabled(tool)) m[tool] = cost;
-    }
-    if (Object.keys(m).length) filteredDays[d] = m;
-  }
-
+  // Disabling future provider calls must never hide historical usage.
+  const filteredTools=s.tools || {},filteredModels=s.models || {},filteredDays=s.days || {};
   const tools = Object.keys(filteredTools).sort((a, b) => (filteredTools[b]?.cost || 0) - (filteredTools[a]?.cost || 0));
-  const totCost = Object.values(filteredTools).reduce((acc, v) => acc + (v.cost || 0), 0);
-  const totTokens = Object.values(filteredTools).reduce((acc, v) => acc + (v.tokens || 0), 0);
-  const totSessions = Object.values(filteredTools).reduce((acc, v) => acc + (v.sessions || 0), 0);
-
-  const t = {
-    ...s.total,
-    cost: disabled.length ? totCost : s.total.cost,
-    tokens: disabled.length ? totTokens : s.total.tokens,
-    sessions: disabled.length ? totSessions : s.total.sessions,
-  };
+  const t=s.total;
   const pct = (v, of) => of ? (v / of * 100).toFixed(1) + '%' : '0%';
   const sh = (n) => short(n).replace(/\.0(?=[BMK])/, '');
   const typeKeys = [['input', 'Input', '#6b6b6b'], ['cacheRead', 'Cache read', '#3a3a3a'], ['cacheWrite', 'Cache write', '#bdbdbd'], ['output', 'Output', '#ffffff']];
@@ -1073,7 +1048,7 @@ async function loadUsage(fresh) {
         <p class="u-big">${usd(t.cost)}</p>
         <div class="u-sub">${t.sessions} sessions · API estimate <svg viewBox="0 0 16 16" role="img" aria-label="${info}"><title>${info}</title><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.8v.1"/></svg></div>
         ${tools.map((k) => `<div class="u-tool"><div class="r1"><span class="dot" style="background:${ucol(k)}"></span>${toolIcon(k)}<span class="n">${k}</span><small>${filteredTools[k].sessions} sessions</small><span class="c">${usd(filteredTools[k].cost)}</span></div><div class="r2">${pct(filteredTools[k].cost, t.cost)} of estimated cost · ${sh(filteredTools[k].tokens)} tokens</div></div>`).join('')}
-        ${t.unpriced.length ? `<p class="warn">No price for ${t.unpriced.join(', ')}. Add it to prices.json</p>` : ''}
+        ${t.unpriced.length ? `<p class="warn">${t.unpriced.length} unpriced model${t.unpriced.length===1?'':'s'}: tokens are included; their estimated cost is unavailable.</p>` : ''}
       </div>
       <div><h3>Daily cost</h3><div class="u-chart" id="uchart"></div></div>
     </div>
@@ -1085,8 +1060,9 @@ async function loadUsage(fresh) {
       <div>Output<span>${sh(t.output)}</span></div>
       <div>Cache savings<span>${usd(t.savings)}</span></div>
     </div>
-    <div class="u-hd u-heat-head"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div>
-    <div id="uheat"></div>
+    <div class="u-hd u-heat-head"><h3>Token activity · all time</h3></div>
+    <p id="uheatRange" class="muted usage-coverage"></p><div id="uheat" tabindex="0" aria-label="All-time token activity; scroll horizontally for older dates"></div>
+    <p class="muted usage-coverage">All retained local CLI history, including archives and sessions outside Relay. Imported history stays saved locally.${s.coverage?.malformedLines || s.coverage?.unreadableFiles?.length ? ` ${s.coverage.malformedLines || 0} incomplete log lines and ${s.coverage.unreadableFiles?.length || 0} unreadable files were skipped; totals may be incomplete.` : ''}</p>
     <div class="u-split">
       <div><div class="u-hd"><h3>Cost by type</h3></div>${bar(typeKeys, s.type)}</div>
       <div><div class="u-hd"><h3>Cost by speed</h3><span>Premium ${usd(s.speed.fast / 2)}</span></div>${bar(spKeys, s.speed)}</div>
@@ -1288,7 +1264,7 @@ const fcost = (c) => '$' + (c < 0.1 ? c.toFixed(3) : c.toFixed(2));
     const mk = (title, d, fn) => { const b = el('button', { className: 'act', innerHTML: svgI(d), title }); b.setAttribute('aria-label', title); b.onclick = fn; return b; };
     return el('div', { className: 'acts' }, ...(m.usage ? [el('span', { className: 'u', textContent: `${m.usage.cost ? fcost(m.usage.cost) + ' · ' : ''}${ftok(m.usage.tokens)} tok` })] : []),
       mk('Reply', '<path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>', () => replyTo(m)),
-      mk('Copy text', '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>', () => navigator.clipboard?.writeText(m.text || '').catch(() => {})));
+      mk('Copy text', '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>', async () => {try{await navigator.clipboard.writeText(m.text || '');notifyUI('Message copied');}catch{notifyUI('Could not copy. Select the message text to copy it.');}}));
   }
 function jump(r) { // scroll to the message a reply line points at and flash it in the speaker color
   const t = [...$('#log').children].reverse().find((x) => x._m && x._m.from === r.from && (r.at ? x._m.at === r.at : (x._m.text || '').slice(0, 120) === r.text));
@@ -1516,6 +1492,21 @@ function addMsg(m, live, batch = false) {
 // pending uploads: saved by main right away, sent with the next message
 let pend = [];
 let queueEdit = null;
+let pendingUploads=0;
+const recoveryKey=sid=>'relay.unsent.'+sid;
+function failedDrafts(sid) {try {const rows=JSON.parse(localStorage.getItem(recoveryKey(sid)) || '[]');return Array.isArray(rows)?rows:[];}catch{return [];}}
+function renderRecovery() {
+  const box=$('#sendRecovery'),rows=openSid?failedDrafts(openSid):[];box.hidden=!rows.length;
+  box.querySelector('span').textContent=rows.length>1?`${rows.length} messages were not sent`:'A message was not sent';
+}
+$('#sendRecovery button').onclick=()=>{
+  if(queueEdit)return notifyUI('Finish editing the queued message first.');
+  const rows=failedDrafts(openSid),draft=rows.shift();if(!draft)return;
+  $('#input').value=[$('#input').value,draft.text].filter(Boolean).join('\n\n');
+  pend.push(...(draft.files || []).filter(file=>!pend.some(p=>p.path===file.path)));
+  try {rows.length?localStorage.setItem(recoveryKey(openSid),JSON.stringify(rows)):localStorage.removeItem(recoveryKey(openSid));}catch{}
+  renderPend();grow();saveDraft();renderRecovery();$('#input').focus();
+};
 function finishQueueEdit() {
   if (!queueEdit || queueEdit.saving) return;
   const edit = queueEdit; queueEdit = null;
@@ -1533,7 +1524,7 @@ function beginQueueEdit(item) {
   grow(); $('#input').focus(); $('#input').setSelectionRange($('#input').value.length, $('#input').value.length);
 }
 async function saveQueueEdit() {
-  const edit = queueEdit; if (!edit || edit.saving || (!$('#input').value.trim() && !pend.length)) return;
+  const edit = queueEdit; if (!edit || edit.saving || pendingUploads || (!$('#input').value.trim() && !pend.length)) return;
   edit.saving = true; $('#saveQueueEdit').disabled = $('#cancelQueueEdit').disabled = true;
   try {
     const saved = await api.call('chat:queue-edit', edit.sid, edit.id, $('#input').value, pend);
@@ -1557,7 +1548,7 @@ function lightbox(src, name) {
 }
 function renderPend() {
   if (queueEdit) grow();
-  $('#send').disabled = !$('#input').value.trim() && !pend.length;
+  $('#send').disabled = !!pendingUploads || (!$('#input').value.trim() && !pend.length);
   $('#pend').replaceChildren(...pend.map((a, i) => {
     const x = el('button', { className: 'x', innerHTML: svgI('<path d="M18 6 6 18M6 6l12 12"/>'), title: 'Remove' });
     x.setAttribute('aria-label', 'Remove ' + a.name);
@@ -1565,25 +1556,37 @@ function renderPend() {
     return isImg(a) ? el('div', { className: 'tile img' }, el('img', { src: fileUrl(a.path), alt: a.name, onclick: (e) => lightbox(e.target.src, a.name) }), x)
       : el('div', { className: 'tile' }, el('span', { innerHTML: FILE }), el('div', {}, el('div', { className: 'fn', textContent: a.name }), el('div', { className: 'fs', textContent: fsize(a.size) })), x);
   }));
+  saveDraft();
 }
 const b64 = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result.split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
 async function addFiles(files) {
   if (queueEdit?.saving) return;
+  const sid=openSid,edit=queueEdit;
+  pendingUploads++;grow();
+  try {
   for (const f of files) {
     try {
       if (f.size > 25e6) throw new Error(`${f.name} is over the 25 MB limit`);
-      pend.push(await api.call('chat:attach', f.name, await b64(f))); renderPend();
+      const attached=await api.call('chat:attach', f.name, await b64(f));
+      if(openSid!==sid || queueEdit!==edit){
+        const stored=openSid===sid && queueEdit ? queueEdit.files : loadDraftFiles(sid);stored.push(attached);try{localStorage.setItem(draftFilesKey(sid),JSON.stringify(stored));}catch{}
+        notifyUI('Attachment saved with its original chat draft.');continue;
+      }
+      pend.push(attached); renderPend();
     } catch (e) { alert(e.message); }
   }
+  } finally {pendingUploads--;grow();}
 }
 async function sendChat(pick, interrupt = false) { // pick: an option button's label, sent as-is without touching the draft
   if (queueEdit && pick == null) return saveQueueEdit();
+  if(pendingUploads)return notifyUI('Wait for your attachments to finish uploading.');
   let text = pick ?? $('#input').value.trim();
   const skillMsg = pick == null ? skillOf(text) : null; if (skillMsg) text = skillMsg; // /skill-name <task> goes to the agent
   if (!text && !pend.length) return;
   if (!skillMsg && pick == null && !pend.length && /^\/[a-z]+(\s|$)/i.test(text)) { $('#input').value = ''; grow(); $('#slash').hidden = true; saveDraft(); return runSlash(text); }
   if (!openSid) return;
   const sid = openSid, reply = pick ? null : replying;
+  const originalText=pick ?? $('#input').value;
   const files = pick ? [] : pend;
   if (!pick) { $('#input').value = ''; grow(); pend = []; renderPend(); clearTimeout(draftTimer); saveDraft(sid); }
   // A sent message is the user's latest action: follow it even if they had
@@ -1591,11 +1594,15 @@ async function sendChat(pick, interrupt = false) { // pick: an option button's l
   const log = $('#log'); log.scrollTop = log.scrollHeight; updateScrollButton();
   replying = null; renderChip(); waitFor = null; placeholder();
   if (!openSid) return;
-  try { await api.call(interrupt ? 'chat:interrupt-send' : 'chat:send', sid, text, files, { reply: reply && { from: reply.from, at: reply.at }, queue: $('#queueBusy').checked }); } catch (e) { addMsg({ from: 'system', text: String(e.message).replace(/^.*Error: /, ''), at: Date.now() }, 1); }
+  try { await api.call(interrupt ? 'chat:interrupt-send' : 'chat:send', sid, text, files, { reply: reply && { from: reply.from, at: reply.at }, queue: $('#queueBusy').checked }); } catch (e) {
+    try {localStorage.setItem(recoveryKey(sid),JSON.stringify([...failedDrafts(sid),{text:originalText,files}]));}catch{}
+    if(openSid===sid){renderRecovery();addMsg({ from: 'system', text: 'Message was not sent. Your text and attachments are saved. '+String(e.message).replace(/^.*Error: /, ''), at: Date.now() }, 1);}
+    else notifyUI('A message could not be sent. It is saved in its original chat.');
+  }
 }
 // Chromium sizes the field natively; reading scrollHeight after resetting its
 // height forced synchronous layout on every keystroke in long conversations.
-const grow = () => { if (queueEdit) $('#saveQueueEdit').disabled = queueEdit.saving || (!$('#input').value.trim() && !pend.length); const disabled = !$('#input').value.trim() && !pend.length; if ($('#send').disabled !== disabled) $('#send').disabled = disabled; };
+const grow = () => { if (queueEdit) $('#saveQueueEdit').disabled = queueEdit.saving || !!pendingUploads || (!$('#input').value.trim() && !pend.length); const disabled = !!pendingUploads || (!$('#input').value.trim() && !pend.length); if ($('#send').disabled !== disabled) $('#send').disabled = disabled; };
 $('#send').onclick = () => sendChat();
 function renderQueue(items = []) {
   if (queueEdit && !queueEdit.saving && !items.some(item => item.id === queueEdit.id)) finishQueueEdit();
@@ -1724,11 +1731,14 @@ function pickSlash(i, run) { // Enter runs a no-argument command; Tab / click / 
 }
 // Unsent composer text stays with its chat (localStorage, keyed by session id).
 const draftKey = (sid) => 'relay.draft.' + sid;
-function saveDraft(sid = openSid) { if (!sid || queueEdit) return; try { const v = $('#input').value; v.trim() ? localStorage.setItem(draftKey(sid), v) : localStorage.removeItem(draftKey(sid)); } catch {} }
+const draftFilesKey=sid=>'relay.draftFiles.'+sid;
+const loadDraftFiles=sid=>{try{const files=JSON.parse(localStorage.getItem(draftFilesKey(sid)) || '[]');return Array.isArray(files)?files.filter(f=>f && typeof f.path==='string'):[];}catch{return [];}};
+function saveDraft(sid = openSid) { if (!sid || queueEdit) return; try { const v = $('#input').value; v.trim() ? localStorage.setItem(draftKey(sid), v) : localStorage.removeItem(draftKey(sid));pend.length?localStorage.setItem(draftFilesKey(sid),JSON.stringify(pend)):localStorage.removeItem(draftFilesKey(sid)); } catch {} }
 const loadDraft = (sid) => { try { return (sid && localStorage.getItem(draftKey(sid))) || ''; } catch { return ''; } };
 let draftTimer; window.addEventListener('beforeunload', () => saveDraft());
 $('#input').oninput = () => { if (queueEdit) { grow(); return; } grow(); slashSel = 0; renderSlash(); clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 750); };
 $('#input').onkeydown = (e) => {
+  if(e.isComposing)return;
   if (queueEdit && e.key === 'Escape') { e.preventDefault(); finishQueueEdit(); return; }
   if (!$('#slash').hidden) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); slashSel = (slashSel + (e.key === 'ArrowDown' ? 1 : -1) + slashList.length) % slashList.length; renderSlash(); return; }
@@ -2136,8 +2146,8 @@ async function openSession(id, show = true) {
   renderQueue([]);
   if (id) api.call('chat:queue', id).then((items) => { if (openSid === id) renderQueue(items); });
   act = actBy[openSid] ||= {};
-  replying = null; renderChip(); pend = []; renderPend();
-  $('#input').value = loadDraft(openSid); grow();
+  replying = null; renderChip(); pend = loadDraftFiles(openSid);
+  $('#input').value = loadDraft(openSid);renderPend(); grow();renderRecovery();
   $('#log').innerHTML = ''; spendLedger = !!info?.spend; spendTotals = spendLedger ? JSON.parse(JSON.stringify(info.spend)) : {}; spendSignature = null; for (const k in shown) delete shown[k]; prev = null; waitFor = null;
   const lg = $('#log'); lg.classList.remove('sw-in'); void lg.offsetWidth; lg.classList.add('sw-in'); // replay the open animation
   $('#chat').classList.toggle('ro', !openSid);

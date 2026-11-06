@@ -19,6 +19,9 @@
   let working = new Set(); // chats with an agent running
   const expanded = new Set(); // group keys showing more than LIMIT rows
   let timer, searchTimer;
+  const groupMotion=new Map();
+  let pinned=new Set();try{const saved=JSON.parse(localStorage.getItem('relay.pinnedSessions') || '[]');if(Array.isArray(saved))pinned=new Set(saved.filter(id=>typeof id==='string'));}catch{}
+  function pin(id){pinned.has(id)?pinned.delete(id):pinned.add(id);try{localStorage.setItem('relay.pinnedSessions',JSON.stringify([...pinned]));}catch{}render();}
 
   const open = (id) => { setActive(id); opts.onOpen?.(id); };
   let mine = null; // the session this window shows; the stored "active" is shared by all windows
@@ -28,11 +31,12 @@
     render();
   }
 
-  async function refresh() { tree = await api.call('sessions:tree'); if (mine) tree.active = mine; render(); }
+  let refreshToken=0;
+  async function refresh() {const token=++refreshToken,next=await api.call('sessions:tree');if(token!==refreshToken)return;tree=next;if(mine)tree.active=mine;render();}
   const refreshSoon = () => { clearTimeout(timer); timer = setTimeout(refresh, 40); };
 
   // ---- grouping: one group per project; projects and sessions keep the order the user gave them (main process owns it) ----
-  const groups = () => tree.projects.map((p) => ({ ...p, rows: tree.sessions.filter((x) => x.projectId === p.id) }));
+  const groups = () => tree.projects.map((p) => ({ ...p, rows: tree.sessions.filter((x) => x.projectId === p.id).sort((a,b)=>Number(pinned.has(b.id))-Number(pinned.has(a.id))) }));
 
   // ---- manual order: native drag and drop + Alt+Up/Down; kind is 'project' or 'session', pid scopes sessions to their project ----
   let drag = null;
@@ -115,12 +119,15 @@
     const title = el('span', { className: 'sb-title', textContent: s.title });
     const r = el('div', { className: 'sb-row' + (s.id === tree.active ? ' on' : ''), tabIndex: 0, role: 'button', title: s.title + '\nF2 to rename · Alt+↑/↓ to reorder' });
     r.dataset.id = s.id;
+    r.classList.toggle('sb-pinned',pinned.has(s.id));
+    if(pinned.has(s.id))r.title='Pinned · '+r.title;
     r.setAttribute('aria-pressed', String(s.id === tree.active));
     r.append(title);
     if (working.has(s.id)) r.append(el('span', { className: 'sb-spin', title: 'Working' }));
     else if (s.waitingQuestion) r.append(el('span', { className: 'sb-qdot', title: 'Waiting for your answer' }));
     else if (s.unread) r.append(el('span', { className: 'sb-dot', title: 'Done, not read yet' }));
     const items = [['Rename', () => inlineRename(title, s.title, (v) => api.call('sessions:rename', s.id, v))], ['Delete', () => delSession(s), true]];
+    items.push([pinned.has(s.id)?'Unpin session':'Pin session',()=>pin(s.id)]);
     r.append(btn('sb-more', 'Session actions', 'more', (e) => { e.stopPropagation(); showMenu(e.currentTarget, items); }));
     r.onclick = () => open(s.id);
     r.oncontextmenu = (e) => { e.preventDefault(); showMenu(r, items, { x: e.clientX, y: e.clientY }); };
@@ -143,6 +150,7 @@
     const caret = icon('caret'); caret.classList.add('sb-caret');
     h.append(caret, name);
     const toggle = () => {
+      if(!matchMedia('(prefers-reduced-motion:reduce)').matches)groupMotion.set(p.id,{height:g.getBoundingClientRect().height,until:performance.now()+220});
       p.collapsed = !p.collapsed;
       const t = tree.projects.find((x) => x.id === p.id); if (t) t.collapsed = p.collapsed;
       api.call('projects:toggle', p.id);
@@ -185,11 +193,19 @@
   }
 
   function render() {
+    const scroll=list.scrollTop;
+    for(const h of list.querySelectorAll('.sb-group-h')){const motion=groupMotion.get(h.dataset.pid);if(motion)motion.height=h.parentElement.getBoundingClientRect().height;}
     const fo = document.activeElement?.closest?.('.sb-row,.sb-group-h'), keep = fo?.classList.contains('sb-row') ? fo.dataset.id : null, keepP = fo?.dataset.pid;
     const gs = groups();
     list.replaceChildren(...(gs.length ? gs.map(group) : [el('div', { className: 'sb-none sb-empty', textContent: 'Add a project folder to start a session' })]));
-    if (keep) list.querySelector(`.sb-row[data-id="${CSS.escape(keep)}"]`)?.focus();
-    else if (keepP) list.querySelector(`.sb-group-h[data-pid="${CSS.escape(keepP)}"]`)?.focus();
+    for(const h of list.querySelectorAll('.sb-group-h')){
+      const motion=groupMotion.get(h.dataset.pid),duration=motion && motion.until-performance.now();
+      if(duration>0){const g=h.parentElement;g.animate([{height:motion.height+'px',overflow:'hidden'},{height:g.getBoundingClientRect().height+'px',overflow:'hidden'}],{duration,easing:'cubic-bezier(.22,1,.36,1)'});}
+      else groupMotion.delete(h.dataset.pid);
+    }
+    if (keep) list.querySelector(`.sb-row[data-id="${CSS.escape(keep)}"]`)?.focus({preventScroll:true});
+    else if (keepP) list.querySelector(`.sb-group-h[data-pid="${CSS.escape(keepP)}"]`)?.focus({preventScroll:true});
+    list.scrollTop=scroll;
   }
 
   // ---- search ----

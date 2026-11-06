@@ -15,6 +15,9 @@ window.QuickActions = (() => {
       {label:'New session in this project', hint:'Ctrl+N', run:ctx.newSession, disabled:!ctx.sid()},
       {label:'Export chat as Markdown', hint:'Save a copy', run:exportChat, disabled:!ctx.sid()},
       {label:'Focus message composer', hint:'Ctrl+L', run:()=>document.querySelector('#input').focus(), disabled:!chatOpen()},
+      {label:'Attach files',hint:'Paste or drop files',run:()=>document.querySelector('#fAny').click(),disabled:!chatOpen()},
+      {label:'Jump to newest message',hint:'End of conversation',run:()=>{const log=document.querySelector('#log');log.scrollTop=log.scrollHeight;},disabled:!chatOpen()},
+      {label:'Stop active response',hint:'Ctrl+.',run:()=>document.querySelector('#stop').click(),disabled:!chatOpen() || document.querySelector('#stop').hidden},
       ...['chat','usage','rules','agents','settings','themes'].map(tab=>({label:tab === 'agents' ? 'Open subagents' : 'Open '+tab, run:()=>ctx.tab(tab)})),
     ].filter(x=>!x.disabled);
   }
@@ -100,6 +103,7 @@ window.QuickActions = (() => {
       if ((key==='p' && event.shiftKey) || (key==='k' && !event.shiftKey)) {event.preventDefault(); open(key==='k' ? 'sessions' : 'commands');}
       else if (key==='f' && chatOpen() && !event.shiftKey) {event.preventDefault(); open('find');}
       else if (!event.shiftKey && key==='l' && chatOpen()) {event.preventDefault(); if (dialog.open) dialog.close(); document.querySelector('#input').focus();}
+      else if (!event.shiftKey && key==='.' && chatOpen() && !document.querySelector('#stop').hidden) {event.preventDefault();document.querySelector('#stop').click();}
       else if (!dialog.open && !event.shiftKey && key==='n' && ctx.sid()) {event.preventDefault(); Promise.resolve(ctx.newSession()).catch(error=>window.alert(error.message));}
     });
   }

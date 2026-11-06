@@ -77,6 +77,29 @@ app.whenReady().then(async () => {
     return {main,restored,saved,draft};
   })()`);
   assert.deepEqual(queueEditing,{main:true,restored:true,saved:true,draft:true});
+  const recovery = await win.webContents.executeJavaScript(`(async()=>{
+    const saved={sid:openSid,text:document.querySelector('#input').value,files:pend},log=document.querySelector('#log'),count=log.children.length;
+    openSid='qol-recovery';localStorage.removeItem(recoveryKey(openSid));
+    document.querySelector('#input').value='Keep this message';pend=[{name:'notes.txt',path:'notes.txt',size:4}];
+    await api.call('test:send-error',true);await sendChat();await api.call('test:send-error',false);
+    const offered=!document.querySelector('#sendRecovery').hidden;
+    document.querySelector('#input').value='New draft';document.querySelector('#sendRecovery button').click();
+    const restored=document.querySelector('#input').value==='New draft\\n\\nKeep this message' && pend.length===1;
+    const attachmentsPersist=loadDraftFiles(openSid).length===1;
+    await api.call('test:delay-attach',true);
+    const upload=addFiles([new File(['image'],'late-upload.png',{type:'image/png'})]);
+    for(let n=0;n<20;n++){if((await api.call('test:calls')).some(c=>c[0]==='chat:attach' && c[1]==='late-upload.png'))break;await new Promise(r=>setTimeout(r,5));}
+    renderQueue([{id:'upload-race',text:'Queued text',files:[]}]);document.querySelector('.q-edit').click();
+    const saveWaits=document.querySelector('#saveQueueEdit').disabled;
+    await api.call('test:resolve-attach');await upload;document.querySelector('#cancelQueueEdit').click();renderQueue([]);
+    const lateUploadPreserved=pend.some(f=>f.name==='late-upload.png');
+    localStorage.removeItem(draftKey(openSid));localStorage.removeItem(draftFilesKey(openSid));localStorage.removeItem(recoveryKey(openSid));
+    openSid=saved.sid;document.querySelector('#input').value=saved.text;pend=saved.files;renderPend();renderRecovery();
+    while(log.children.length>count)log.lastElementChild.remove();
+    return {offered,restored,attachmentsPersist,lateUploadPreserved,saveWaits};
+  })()`);
+  assert.deepEqual(recovery,{offered:true,restored:true,attachmentsPersist:true,lateUploadPreserved:true,saveWaits:true});
+  console.log('Failed sends preserve text, attachments and newer drafts');
   const motion = await win.webContents.executeJavaScript(`(() => {
     window.motionPrevious = {act,reqsNow,spendTotals,spendLedger};
     reqsNow = null;
@@ -225,23 +248,34 @@ app.whenReady().then(async () => {
   const heatmap = await win.webContents.executeJavaScript(`(() => {
     const usage = document.querySelector('#usage');
     document.querySelector('#chat').classList.remove('on'); usage.classList.add('on');
-    usage.innerHTML = '<div class="u-hd u-heat-head"><h3>Token activity</h3><div class="u-seg" id="uheatseg"><button class="on" data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="cumulative">Cumulative</button></div></div><div id="uheat"></div>';
-    renderHeat({[new Date().toISOString().slice(0,10)]:1200}, 'daily');
-    const head = usage.querySelector('.u-heat-head').getBoundingClientRect(), controls = usage.querySelector('#uheatseg').getBoundingClientRect();
-    const grid = usage.querySelector('#uheat'), cell = grid.querySelector('i[data-d]:last-of-type');
+    usage.innerHTML = '<div class="u-hd u-heat-head"><h3>Token activity · all time</h3></div><p id="uheatRange"></p><div id="uheat"></div>';
+    renderHeat({'2020-01-01':500,[new Date().toISOString().slice(0,10)]:1200}, 'daily');
+    const grid = usage.querySelector('#uheat'), cell = [...grid.querySelectorAll('i[data-d]')].at(-1);
     grid.onmouseover({target:cell});
     const tip = document.querySelector('#heatTip'), tr = tip.getBoundingClientRect(), cr = cell.getBoundingClientRect();
-    return {insideHeading:controls.top >= head.top && controls.bottom <= head.bottom, fits:controls.right <= usage.getBoundingClientRect().right,
+    return {modesRemoved:!usage.querySelector('#uheatseg'),allHistory:!!grid.querySelector('[data-d="2020-01-01"]') && usage.querySelector('#uheatRange').textContent.includes('All time'),
       outsideScrollBox:tip.parentElement === document.body, fixed:getComputedStyle(tip).position === 'fixed', insideViewport:tr.left >= 0 && tr.right <= innerWidth && tr.top >= 0 && tr.bottom <= innerHeight, aboveCell:tr.bottom <= cr.top};
   })()`);
-  assert.equal(heatmap.insideHeading, true, 'Heatmap modes must align with their heading');
-  assert.equal(heatmap.fits, true, 'Heatmap mode controls must fit within the usage panel');
+  assert.equal(heatmap.modesRemoved,true);assert.equal(heatmap.allHistory,true);
   assert.equal(heatmap.outsideScrollBox, true, 'Heatmap tooltip must escape the scrolling grid');
   assert.equal(heatmap.fixed, true, 'Heatmap tooltip must use viewport positioning');
   assert.equal(heatmap.insideViewport, true, 'Heatmap tooltip must stay inside viewport edges');
   assert.equal(heatmap.aboveCell, true, 'Heatmap tooltip must open above its hovered day');
   await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   fs.writeFileSync(path.join(output, 'heatmap.png'), (await win.webContents.capturePage()).toPNG());
+  const historyUi=await win.webContents.executeJavaScript(`(async()=>{
+    window.historyCfg=cfg;cfg={...cfg,disabledProviders:['codex']};
+    await api.call('test:usage',{total:{cost:.2,tokens:1800,sessions:2,cached:200,uncached:1400,output:200,savings:0,unpriced:[]},tools:{Codex:{cost:.1,tokens:1000,sessions:1},'Claude Code':{cost:.1,tokens:800,sessions:1}},models:{},days:{'2020-01-01':{Codex:.1,'Claude Code':.1}},dayTokens:{'2020-01-01':1800},type:{input:.1,output:.1,cacheRead:0,cacheWrite:0},speed:{standard:.2,fast:0},coverage:{malformedLines:0,unreadableFiles:[]}});
+    await loadUsage(true);
+    const panel=document.querySelector('#usage');
+    const result={allProviders:panel.textContent.includes('Codex') && panel.textContent.includes('Claude Code'),allHistory:!!panel.querySelector('[data-d="2020-01-01"]'),modesRemoved:!panel.querySelector('#uheatseg'),actualDailyBars:panel.querySelectorAll('#uchart svg rect').length===2};
+    cfg=window.historyCfg;delete window.historyCfg;return result;
+  })()`);
+  assert.deepEqual(historyUi,{allProviders:true,allHistory:true,modesRemoved:true,actualDailyBars:true});
+  for(const width of [1280,860]){
+    win.setSize(width,900);await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    fs.writeFileSync(path.join(output,'all-time-usage-'+width+'.png'),(await win.webContents.capturePage()).toPNG());
+  }
   await win.webContents.executeJavaScript(`document.querySelector('#usage').classList.remove('on'); document.querySelector('#chat').classList.add('on')`);
   const observation = await win.webContents.executeJavaScript(`(async () => {
     const root = document.createElement('div'); root.style.cssText = 'height:100px;overflow:auto';
@@ -337,6 +371,20 @@ app.whenReady().then(async () => {
   console.log('Native input-to-frame with background updates:',JSON.stringify(latency));
   assert.ok(latency.maxMs < 250,'Native typing should paint without long stalls while status updates are active');
   assert.deepEqual(errors, []);
+  const sidebarQol=await win.webContents.executeJavaScript(`(async()=>{
+    localStorage.removeItem('relay.pinnedSessions');
+    await api.call('test:appearance-tree',{projects:[{id:'qol-project',name:'Pinned project',path:'C:/qol'}],sessions:[{id:'qol-one',projectId:'qol-project',title:'First session'},{id:'qol-two',projectId:'qol-project',title:'Second session'}]});
+    await Sidebar.mount(document.querySelector('#sidebar'),{onOpen:()=>{}});
+    document.querySelector('[data-id="qol-two"] .sb-more').click();
+    [...document.querySelectorAll('.sb-mi')].find(b=>b.textContent==='Pin session').click();
+    const pinned=document.querySelector('.sb-row').dataset.id==='qol-two' && document.querySelector('.sb-row').classList.contains('sb-pinned');
+    const stored=JSON.parse(localStorage.getItem('relay.pinnedSessions')).includes('qol-two');
+    let header=document.querySelector('.sb-group-h');header.focus();header.click();header=document.querySelector('.sb-group-h');
+    const focus=document.activeElement===header,collapsed=header.getAttribute('aria-expanded')==='false';header.click();
+    localStorage.removeItem('relay.pinnedSessions');
+    return {pinned,stored,focus,collapsed};
+  })()`);
+  assert.deepEqual(sidebarQol,{pinned:true,stored:true,focus:true,collapsed:true});
   const appearance = await win.webContents.executeJavaScript(`(async()=>{
     await api.call('test:appearance-tree',{projects:[{id:'project',name:'Relay',path:'C:/relay'}],sessions:[{id:'appearance',projectId:'project',title:'Balance workers across Claude and Codex and recover from provider limits',supercode:true},{id:'native',projectId:'project',title:'Code directly with the selected model',supercode:false}],active:'appearance'});
     await Sidebar.mount(document.querySelector('#sidebar'),{onOpen:openSession});
@@ -510,6 +558,19 @@ app.whenReady().then(async () => {
     return {missing,signedIn,installCalls:calls.filter(c=>c[0]==='auth:install' && c[1]==='codex').length};
   })()`);
   assert.match(cli.missing,/Codex CLI not installed/);assert.doesNotMatch(cli.missing,/Signed in/);assert.match(cli.signedIn,/Signed in/);assert.ok(cli.installCalls>=2);
+  const imageDrafts=await win.webContents.executeJavaScript(`(async()=>{
+    const previous=openSid;
+    await api.call('test:save-session','image-draft-a',{title:'Image draft A'});await api.call('test:save-session','image-draft-b',{title:'Image draft B'});
+    await openSession('image-draft-a',false);document.querySelector('#input').value='Keep the pasted image';pend=[{name:'pasted.png',path:'pasted.png',size:10}];renderPend();
+    showTab('settings');showTab('chat');const tabs=pend.length===1;
+    await openSession('image-draft-b',false);const separate=pend.length===0;
+    await openSession('image-draft-a',false);const restored=pend.length===1 && pend[0].name==='pasted.png' && document.querySelector('#input').value==='Keep the pasted image';
+    await openSession(previous,false);
+    for(const id of ['image-draft-a','image-draft-b']){localStorage.removeItem(draftKey(id));localStorage.removeItem(draftFilesKey(id));}
+    return {tabs,separate,restored};
+  })()`);
+  assert.deepEqual(imageDrafts,{tabs:true,separate:true,restored:true});
+  console.log('Pasted image drafts survive tabs and session switches');
   console.log('Renderer layout, progress, question controls and theme checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();
 }).catch(error => { console.error(error); app.exit(1); });

@@ -2,7 +2,8 @@
 const { contextBridge } = require('electron');
 const calls = [];
 const savedSessions = new Map();
-let appearanceTree=null,themeFails=false,quotaFixture={};
+let appearanceTree=null,themeFails=false,quotaFixture={},sendError=false,usageFixture=null;
+let delayAttach=false,attachWaiters=[];
 const listeners=new Map();
 contextBridge.exposeInMainWorld('api', {
   on(channel,fn) {const list=listeners.get(channel) || [];list.push(fn);listeners.set(channel,list);},
@@ -11,6 +12,11 @@ contextBridge.exposeInMainWorld('api', {
     if (channel === 'test:calls') return Promise.resolve(calls);
     if (channel === 'test:quota') {quotaFixture=args[0];return Promise.resolve();}
     if (channel === 'usage:quota') return Promise.resolve(quotaFixture);
+    if(channel==='test:send-error'){sendError=args[0];return Promise.resolve();}
+    if(channel==='test:usage'){usageFixture=args[0];return Promise.resolve();}
+    if(channel==='test:delay-attach'){delayAttach=args[0];return Promise.resolve();}
+    if(channel==='test:resolve-attach'){delayAttach=false;for(const resolve of attachWaiters)resolve();attachWaiters=[];return Promise.resolve();}
+    if(channel==='usage:scan' && usageFixture)return Promise.resolve(usageFixture);
     if(channel==='test:emit'){for(const listener of listeners.get(args[0]) || [])listener(args[1]);return Promise.resolve();}
     if(channel==='subagents:retry' || channel==='subagents:stop')return Promise.resolve(true);
     if (channel === 'test:appearance-tree') {appearanceTree=args[0];return Promise.resolve();}
@@ -26,8 +32,8 @@ contextBridge.exposeInMainWorld('api', {
     if (channel === 'chat:info') return Promise.resolve(savedSessions.get(args[0]) || null);
     if (channel === 'chat:history' || channel === 'subagents:list' || channel === 'chat:queue') return Promise.resolve([]);
     if (channel === 'chat:queue-edit') return Promise.resolve(true);
-    if (channel === 'chat:attach') return Promise.resolve({name:args[0],path:'added.png',size:10});
-    if (channel === 'chat:send') return Promise.resolve({});
+    if (channel === 'chat:attach') {const file={name:args[0],path:'added.png',size:10};return delayAttach?new Promise(resolve=>attachWaiters.push(()=>resolve(file))):Promise.resolve(file);}
+    if (channel === 'chat:send') return sendError?Promise.reject(new Error('Fixture send failure')):Promise.resolve({});
     return new Promise(() => {}); // Hold unrelated startup work outside this fixture.
   },
 });

@@ -30,6 +30,7 @@ function codexSkills(ours) {
 let last = 0, dir = null;
 // Returns the Relay plugin folder for Claude's --plugin-dir. Cheap; re-links at most every 30s.
 function sync(dataDir) {
+  const builtIn=require('./easycode-design').ensureDesignSkill(dataDir);
   if (dir && Date.now() - last < 30000) return dir;
   last = Date.now();
   const stateFile = path.join(dataDir, 'shared-skills.json'), state = json(stateFile, { codex: [] });
@@ -43,6 +44,7 @@ function sync(dataDir) {
   fs.writeFileSync(path.join(plug, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'relay-shared', version: '1.0.0', description: 'Codex skills and plugin skills, shared by Relay' }));
   try { for (const e of fs.readdirSync(sk)) unlink(path.join(sk, e)); } catch {}
   for (const [n, src] of codexSkills(new Set(made))) if (!claudeHas.has(n)) { claudeHas.add(n); link(src, path.join(sk, n)); }
+  if(!claudeHas.has('relay-design'))link(path.dirname(builtIn),path.join(sk,'relay-design'));
   try { fs.writeFileSync(stateFile, JSON.stringify({ codex: made })); } catch {}
   return (dir = plug);
 }

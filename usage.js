@@ -24,73 +24,84 @@ function* walk(dir) {
   }
 }
 
-async function eachLine(file, fn) {
+async function eachLine(file, fn, coverage) {
+  coverage.files++;
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
-  for await (const line of rl) {
-    try { fn(JSON.parse(line)); } catch {}
-  }
+  try { for await (const line of rl) {
+    if (!line.trim()) continue;
+    let value; try {value=JSON.parse(line);} catch {coverage.malformedLines++;continue;}
+    fn(value);
+  }} catch {coverage.unreadableFiles.push(file);}
 }
+const roots = (home, name, env, key) => [...new Set([path.join(home,name),env[key]].filter(Boolean).map(p=>path.resolve(p)))];
+const dayOf = value => Number.isFinite(Date.parse(value)) ? new Date(value).toISOString().slice(0,10) : '';
+const tokens = value => Number.isFinite(value) && value>0 ? value : 0;
 
 // One record per API call: { tool, session, model, day, input, cacheWrite, cacheWrite1h, cacheRead, output, fast }
-async function claudeRecords() {
-  const out = [];
+async function claudeRecords(home, env, coverage) {
   const byId = new Map(); // Deduplicate API messages across resumed/copied session files too.
-  for (const file of walk(path.join(HOME, '.claude', 'projects'))) {
+  for (const base of roots(home,'.claude',env,'CLAUDE_CONFIG_DIR')) for (const file of walk(path.join(base,'projects'))) {
     const session = path.basename(file, '.jsonl');
     await eachLine(file, (o) => {
       const msg = o.message;
       const u = msg && msg.usage;
-      if (!u || !msg.model || msg.model === '<synthetic>') return;
+      if (!u || msg.model === '<synthetic>') return;
       const cc = u.cache_creation || {};
       const w1h = cc.ephemeral_1h_input_tokens || 0;
-      const key = msg.id || o.uuid;
-      if (!key) return;
+      const key = msg.id || o.uuid || session+':'+o.timestamp+':'+JSON.stringify(u);
       const previous = byId.get(key);
-      if (previous && previous.output > (u.output_tokens || 0)) return;
-      byId.set(key, {
+      const record = {
+        id:'claude:'+key,
         tool: 'Claude Code', session: file.includes(`${path.sep}subagents${path.sep}`) ? null : session,
-        model: msg.model, day: (o.timestamp || '').slice(0, 10),
-        input: u.input_tokens || 0, cacheWrite: (u.cache_creation_input_tokens || 0) - w1h, cacheWrite1h: w1h,
-        cacheRead: u.cache_read_input_tokens || 0, output: u.output_tokens || 0, fast: u.speed === 'fast',
-      });
-    });
+        model: typeof msg.model==='string'?msg.model:'claude-unknown', day: dayOf(o.timestamp),
+        input: tokens(u.input_tokens), cacheWrite: Math.max(0,tokens(u.cache_creation_input_tokens)-w1h), cacheWrite1h:tokens(w1h),
+        cacheRead: tokens(u.cache_read_input_tokens), output:tokens(u.output_tokens), fast: u.speed === 'fast',
+      };
+      if (previous) for (const field of ['input','cacheWrite','cacheWrite1h','cacheRead','output']) record[field]=Math.max(previous[field],record[field]);
+      byId.set(key,record);
+    },coverage);
   }
   return [...byId.values()];
 }
 
-async function codexRecords() {
-  const out = [];
-  const seen = new Set();
-  for (const file of walk(path.join(HOME, '.codex', 'sessions'))) {
+async function codexRecords(home, env, coverage) {
+  const events = new Map();
+  for (const base of roots(home,'.codex',env,'CODEX_HOME')) for (const dir of ['sessions','archived_sessions']) for (const file of walk(path.join(base,dir))) {
     let session = path.basename(file, '.jsonl');
-    let model = 'gpt-unknown', prev = null;
+    let model = 'gpt-unknown',owner=null,inheritedSession=session,started=0;
     await eachLine(file, (o) => {
       const p = o.payload || {};
-      if (o.type === 'session_meta' && p.id) session = p.id;
+      if (o.type === 'session_meta' && p.id) {
+        if(!owner){owner=session=p.id;started=Date.parse(p.timestamp || o.timestamp) || 0;}
+        inheritedSession=p.id;
+      }
       if (o.type === 'turn_context' && p.model) model = p.model;
       if (p.type !== 'token_count' || !p.info || !p.info.total_token_usage) return;
-      const t = p.info.total_token_usage; // cumulative -> take deltas so repeated events don't double count
-      const reset = prev && (t.input_tokens < prev.input_tokens || t.output_tokens < prev.output_tokens);
-      const last = reset ? {} : (prev || {});
-      const d = (k) => (t[k] || 0) - (last[k] || 0);
-      prev = t;
-      const input = d('input_tokens'), cached = d('cached_input_tokens'), output = d('output_tokens');
-      const key = session + ':' + JSON.stringify(t);
-      if (seen.has(key) || (input <= 0 && output <= 0)) return;
-      seen.add(key);
-      out.push({
-        tool: 'Codex', session, model, day: (o.timestamp || '').slice(0, 10),
-        input: Math.max(0, input - cached), cacheWrite: Math.max(0, d('cache_write_input_tokens')), cacheWrite1h: 0,
-        cacheRead: Math.max(0, cached), output: Math.max(0, output), fast: false,
-      });
-    });
+      const t = p.info.total_token_usage;
+      const cumulative=Object.fromEntries(['input_tokens','cached_input_tokens','output_tokens','cache_write_input_tokens'].map(k=>[k,tokens(t[k])]));
+      const stamp=Number.isFinite(Date.parse(o.timestamp))?o.timestamp:'';
+      // Forked subagent logs embed their parent's metadata and history. New
+      // counters belong to the file's first session, not the last embedded one.
+      const actualSession=started && Date.parse(stamp)<started ? inheritedSession : session;
+      const id='codex:'+actualSession+':'+stamp+':'+JSON.stringify(cumulative);
+      events.set(id,{id,tool:'Codex',session:actualSession,model,day:dayOf(stamp),stamp,cumulative});
+    },coverage);
   }
-  return out;
+  return [...events.values()];
+}
+function codexDeltas(records) {
+  const previous=new Map();
+  return records.sort((a,b)=>(Date.parse(a.stamp)||0)-(Date.parse(b.stamp)||0)).map(r=>{
+    const t=r.cumulative,prev=previous.get(r.session);
+    const last=prev && (t.input_tokens<prev.input_tokens || t.output_tokens<prev.output_tokens) ? {} : prev || {};
+    const d=k=>Math.max(0,tokens(t[k])-tokens(last[k]));previous.set(r.session,t);
+    return {...r,input:Math.max(0,d('input_tokens')-d('cached_input_tokens')),cacheRead:d('cached_input_tokens'),cacheWrite:d('cache_write_input_tokens'),cacheWrite1h:0,output:d('output_tokens'),fast:false};
+  });
 }
 
-async function antigravityRecords() {
+async function antigravityRecords(home, coverage) {
   const out = [];
-  const brainDir = path.join(HOME, '.gemini', 'antigravity', 'brain');
+  const brainDir = path.join(home, '.gemini', 'antigravity', 'brain');
   let ents;
   try { ents = fs.readdirSync(brainDir, { withFileTypes: true }); } catch { return []; }
   for (const ent of ents) {
@@ -98,20 +109,21 @@ async function antigravityRecords() {
     const session = ent.name;
     const transcriptFile = path.join(brainDir, session, '.system_generated', 'logs', 'transcript.jsonl');
     if (!fs.existsSync(transcriptFile)) continue;
-    let model = 'gemini-3.8-flash';
+    let model = 'gemini-unknown';
     await eachLine(transcriptFile, (o) => {
       if (o.type !== 'PLANNER_RESPONSE') return;
-      if (o.model) model = o.model;
+      if (typeof o.model==='string') model = o.model;
       const inp = o.input_tokens || 0;
       const cached = o.cache_read_tokens || 0;
       const outTok = o.output_tokens || 0;
       if (inp <= 0 && cached <= 0 && outTok <= 0) return;
       out.push({
-        tool: 'Antigravity', session, model, day: (o.created_at || '').slice(0, 10),
+        id:'antigravity:'+session+':'+(o.id || o.uuid || o.created_at+':'+JSON.stringify([inp,cached,outTok])),
+        tool: 'Antigravity', session, model, day: dayOf(o.created_at),
         input: Math.max(0, inp), cacheWrite: 0, cacheWrite1h: 0,
         cacheRead: Math.max(0, cached), output: Math.max(0, outTok), fast: false,
       });
-    });
+    },coverage);
   }
   return out;
 }
@@ -131,8 +143,28 @@ function cost(r) {
   return c;
 }
 
-async function scan() {
-  const recs = [...await claudeRecords(), ...await codexRecords(), ...await antigravityRecords()];
+async function scan({home=HOME,env=process.env,ledgerFile} = {}) {
+  const coverage={files:0,malformedLines:0,unreadableFiles:[]};
+  const retained=new Map();
+  if (ledgerFile) try {
+    const saved=JSON.parse(await fs.promises.readFile(ledgerFile,'utf8'));
+    if (saved.version!==1 || !Array.isArray(saved.records)) throw Error('Invalid usage history');
+    for (const r of saved.records) {
+      if(!r || typeof r.id!=='string' || typeof r.model!=='string' || !['Claude Code','Codex','Antigravity'].includes(r.tool) || typeof r.day!=='string')throw Error('Invalid usage record');
+      const fields=r.tool==='Codex'?['input_tokens','cached_input_tokens','output_tokens','cache_write_input_tokens']:['input','cacheRead','cacheWrite','cacheWrite1h','output'];
+      const values=r.tool==='Codex'?r.cumulative:r;
+      if(!values || fields.some(k=>!Number.isFinite(values[k]) || values[k]<0))throw Error('Invalid token record');
+      retained.set(r.id,r);
+    }
+  } catch(error) {if(error.code!=='ENOENT') throw Error('Could not read saved usage history; it was left unchanged.');}
+  const imported=[...await claudeRecords(home,env,coverage),...await codexRecords(home,env,coverage),...await antigravityRecords(home,coverage)];
+  for (const r of imported) {
+    const previous=retained.get(r.id);
+    if(previous && r.tool==='Claude Code') for(const field of ['input','cacheRead','cacheWrite','cacheWrite1h','output'])r[field]=Math.max(previous[field] || 0,r[field]);
+    retained.set(r.id,r);
+  }
+  if(ledgerFile){await fs.promises.mkdir(path.dirname(ledgerFile),{recursive:true});await fs.promises.writeFile(ledgerFile+'.tmp',JSON.stringify({version:1,records:[...retained.values()]}),'utf8');await fs.promises.rename(ledgerFile+'.tmp',ledgerFile);}
+  const recs=[...[...retained.values()].filter(r=>r.tool!=='Codex'),...codexDeltas([...retained.values()].filter(r=>r.tool==='Codex'))];
   const tools = {}, models = {}, days = {}, dayTok = {};
   const type = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   const speed = { standard: 0, fast: 0 };
@@ -156,7 +188,8 @@ async function scan() {
     tot.output += r.output; tot.savings += c.full - c.cacheRead - c.cacheWrite;
   }
   return {
-    total: { ...tot, costIsEstimate: true, scope: 'All local CLI sessions, including work outside this app', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0) },
+    total: { ...tot, costIsEstimate: true, scope: 'All retained and imported local CLI history, including archived sessions and work outside Relay', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
+    coverage,
     tools: Object.fromEntries(Object.entries(tools).map(([k, v]) => [k, { ...v, sessions: v.sessions.size }])),
     models, days, dayTokens: dayTok, type, speed,
   };

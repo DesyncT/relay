@@ -195,7 +195,7 @@ function claudeRun(label, who, prompt, c = {}) {
   const bare = (!c.conn && (isAntigravity || (!c.nativeCode && process.env.ANTHROPIC_API_KEY) || c.bare)) ? ['--bare'] : [];
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
   const chrome = !c.nativeCode && !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Code uses the CLI's own browser configuration.
-  let shared = []; if (!c.nativeCode && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // Shared Relay skills belong to EasyCode; Code uses the CLI's own environment.
+  let shared = []; if ((c.easyCode || !c.nativeCode) && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // EasyCode gets design skills; Code keeps its own environment.
   return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
@@ -217,7 +217,7 @@ function claudeRun(label, who, prompt, c = {}) {
 // Codex: exec --json. The final text is the last agent_message.
 const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
 function codexRun(prompt, images, c = {}) {
-  if (!c.nativeCode) try { require('./shareskills').sync(DATA); } catch {} // Direct CLI sessions keep the user's own environment.
+  if (c.easyCode || !c.nativeCode) try { require('./shareskills').sync(DATA); } catch {} // Direct Code sessions keep the user's own environment.
   let text = '', inp = 0, cac = 0, out = 0, errText = '', stderrText = '';
   const progress = createProgressStream(c.onProgress);
   const said = []; // every agent message, not just the last
@@ -500,7 +500,7 @@ async function ask(sid, who, trigger, isLead) {
       const result = await seatRun(sid,who,'coding',(_stand,state)=>{
         const session=store.getSession(sid);
         return (easyModeOn(sid)?SPREAD_ASK+'\n\n':'')+normalPrompt(session,who,state.resumed);
-      },trigger,{spread,onTodos: list => {
+      },trigger,{spread,easyCode:easyModeOn(sid),onTodos: list => {
         // the agent's todo list drives the progress bar
         if (ep === rt.epoch) setReqs(sid,{items:list.map(x=>({t:x.t,done:x.done,...(x.now && {by:who,pct:50})})),requestAt:trigger?.at});
       },onProgress: text => {
@@ -704,7 +704,7 @@ ipcMain.handle('usage:scan', (_e, fresh) => {
   usageAt = 0;
   const { Worker } = require('worker_threads');
   usageRun = new Promise((res, rej) => {
-    const w = new Worker(`require(${JSON.stringify(path.join(__dirname, 'usage.js'))}).scan().then((r) => require('worker_threads').parentPort.postMessage(r))`, { eval: true });
+    const w = new Worker(`require(${JSON.stringify(path.join(__dirname, 'usage.js'))}).scan({ledgerFile:${JSON.stringify(path.join(DATA,'usage-history.json'))}}).then((r) => require('worker_threads').parentPort.postMessage(r))`, { eval: true });
     w.once('message', (r) => { usageAt = Date.now(); res(r); w.terminate(); });
     w.once('error', (e) => { usageRun = null; rej(e); });
   });
@@ -819,7 +819,7 @@ const WRAP = /\b(wrap(?:\s*it)?[\s-]*up|finish up|let'?s see (?:it|the changes))
 // Spreader: one normal agent run per message, on the subscription with the most quota left.
 const easyModeOn = sid => sessOf(sid)?.easyMode ?? !!sessOf(sid)?.supercode;
 const isSpreader = (sid) => easyModeOn(sid) && ['spreader', 'random'].includes(sessOf(sid)?.lead || settings.lead);
-const SPREAD_ASK = 'Before changing anything, check the request is clear. If a missing product decision would change what you build, ask ONE short plain-language question and stop, ending your message with [ask-user: Option A | Option B | Option C] (2-4 concrete outcomes, the one you recommend first). Never ask about details you can settle by reading the project. At most 3 questions per task; once the request is clear, just do the work.';
+const SPREAD_ASK = require('./easycode-design').easyCodePrompt(require('./easycode-design').ensureDesignSkill(DATA));
 async function spreadTo(sid) {
   const sess = sessOf(sid), avail = AGENT_NAMES.filter((p) => !isDown(p));
   const prev = sess?.messages?.findLast((x) => AGENT_NAMES.includes(x.from));
