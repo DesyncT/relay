@@ -1516,16 +1516,16 @@ function beginQueueEdit(item) {
   if (queueEdit?.saving) return;
   finishQueueEdit(); clearTimeout(draftTimer); saveDraft();
   queueEdit = { sid:openSid, id:item.id, draft:$('#input').value, files:pend, saving:false };
-  pend = []; renderPend(); $('#input').value = item.text || '';
+  pend = [...(item.files || [])]; renderPend(); $('#input').value = item.text || '';
   $('#slash').hidden = true; $('#queueEditBar').hidden = false; composer.classList.add('editing-queue');
   $('#input').setAttribute('aria-label', 'Edit queued message');
   grow(); $('#input').focus(); $('#input').setSelectionRange($('#input').value.length, $('#input').value.length);
 }
 async function saveQueueEdit() {
-  const edit = queueEdit; if (!edit || edit.saving || !$('#input').value.trim()) return;
+  const edit = queueEdit; if (!edit || edit.saving || (!$('#input').value.trim() && !pend.length)) return;
   edit.saving = true; $('#saveQueueEdit').disabled = $('#cancelQueueEdit').disabled = true;
   try {
-    const saved = await api.call('chat:queue-edit', edit.sid, edit.id, $('#input').value);
+    const saved = await api.call('chat:queue-edit', edit.sid, edit.id, $('#input').value, pend);
     if (!saved) throw new Error('This message is no longer queued.');
     edit.saving = false;
     if (queueEdit === edit) finishQueueEdit();
@@ -1545,6 +1545,7 @@ function lightbox(src, name) {
   requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
 }
 function renderPend() {
+  if (queueEdit) grow();
   $('#send').disabled = !$('#input').value.trim() && !pend.length;
   $('#pend').replaceChildren(...pend.map((a, i) => {
     const x = el('button', { className: 'x', innerHTML: svgI('<path d="M18 6 6 18M6 6l12 12"/>'), title: 'Remove' });
@@ -1556,7 +1557,7 @@ function renderPend() {
 }
 const b64 = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result.split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
 async function addFiles(files) {
-  if (queueEdit) return;
+  if (queueEdit?.saving) return;
   for (const f of files) {
     try {
       if (f.size > 25e6) throw new Error(`${f.name} is over the 25 MB limit`);
@@ -1582,7 +1583,7 @@ async function sendChat(pick, interrupt = false) { // pick: an option button's l
 }
 // Chromium sizes the field natively; reading scrollHeight after resetting its
 // height forced synchronous layout on every keystroke in long conversations.
-const grow = () => { if (queueEdit) $('#saveQueueEdit').disabled = queueEdit.saving || !$('#input').value.trim(); const disabled = !$('#input').value.trim() && !pend.length; if ($('#send').disabled !== disabled) $('#send').disabled = disabled; };
+const grow = () => { if (queueEdit) $('#saveQueueEdit').disabled = queueEdit.saving || (!$('#input').value.trim() && !pend.length); const disabled = !$('#input').value.trim() && !pend.length; if ($('#send').disabled !== disabled) $('#send').disabled = disabled; };
 $('#send').onclick = () => sendChat();
 function renderQueue(items = []) {
   if (queueEdit && !queueEdit.saving && !items.some(item => item.id === queueEdit.id)) finishQueueEdit();

@@ -3,6 +3,18 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(require.resolve('./main.js'), 'utf8');
+// Queue edits persist changed attachments and allow image-only messages.
+let editHandler, editedQueue = [{id:'edit',text:'old',files:[{name:'old.png'}]}];
+vm.runInNewContext(source.slice(source.indexOf("ipcMain.handle('chat:queue-edit'"), source.indexOf("ipcMain.handle('chat:queue-delete'")), {
+  ipcMain:{handle:(_name,handler)=>{editHandler=handler;}},
+  userQueues:{get:()=>editedQueue,set:(_sid,items)=>{editedQueue=items;}},queueUpdate(){}
+});
+assert.equal(editHandler(null,'session','edit','',[{name:'new.png'}]),true);
+assert.equal(editedQueue[0].files[0].name,'new.png');
+assert.equal(editedQueue[0].text,'');
+assert.throws(()=>editHandler(null,'session','edit','',[]),/Enter a message/);
+assert.equal(editHandler(null,'session','edit','text',[]),true);
+assert.equal(editedQueue[0].files.length,0);
 const enqueue = source.slice(source.indexOf('function enqueue('), source.indexOf('// Crash/close safety'));
 const drain = source.slice(source.indexOf('const drainingUserQueue ='), source.indexOf('const WRAP ='));
 

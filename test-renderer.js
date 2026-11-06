@@ -61,6 +61,24 @@ app.whenReady().then(async () => {
     return {main,restored,saved,draft};
   })()`);
   assert.deepEqual(queueEditing,{main:true,restored:true,saved:true,draft:true});
+  const queueImages = await win.webContents.executeJavaScript(`(async () => {
+    const original = {name:'existing.png',path:'existing.png',size:10};
+    renderQueue([{id:'queue-images',text:'',files:[original]}]);
+    document.querySelector('.q-edit').click();
+    const visible = getComputedStyle(document.querySelector('#imgBtn')).display !== 'none';
+    const existing = pend.length === 1 && !document.querySelector('#saveQueueEdit').disabled;
+    await addFiles([new File(['image'], 'added.png', {type:'image/png'})]);
+    await saveQueueEdit();
+    const call = (await api.call('test:calls')).filter(c=>c[0]==='chat:queue-edit').at(-1);
+    const saved = call[3] === '' && call[4].length === 2 && call[4][1].name === 'added.png';
+    const root = document.documentElement, previous = root.getAttribute('data-relay-theme');
+    root.setAttribute('data-relay-theme','test');
+    const square = [...document.querySelectorAll('#queueCount .q-send,#queueEditBar button')].every(b=>getComputedStyle(b).borderRadius === '0px');
+    if (previous === null) root.removeAttribute('data-relay-theme'); else root.setAttribute('data-relay-theme',previous);
+    renderQueue([]);
+    return {visible,existing,saved,square};
+  })()`);
+  assert.deepEqual(queueImages,{visible:true,existing:true,saved:true,square:true});
   await win.webContents.executeJavaScript(`renderQueue([{id:'preview',text:'Make editing use the main message box',files:[]}]); document.querySelector('.q-edit').click();`);
   fs.writeFileSync(path.join(output,'queue-composer-edit.png'),(await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`document.querySelector('#cancelQueueEdit').click(); renderQueue([]);`);

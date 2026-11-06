@@ -847,11 +847,14 @@ function dispatchUser(sid, { text, files, reply }) {
   }
 }
 ipcMain.handle('chat:queue', (_e, sid) => { drainUserQueue(sid); return userQueues.get(sid); });
-ipcMain.handle('chat:queue-edit', (_e, sid, id, text) => {
+ipcMain.handle('chat:queue-edit', (_e, sid, id, text, files) => {
   const q = userQueues.get(sid), item = q.find((x) => x.id === id);
   if (!item) return false;
-  if (typeof text !== 'string' || (!text.trim() && !item.files?.length)) throw new Error('Enter a message or keep an attachment.');
+  const attachments = files === undefined ? item.files : files;
+  if (attachments !== undefined && !Array.isArray(attachments)) throw new Error('Invalid attachments.');
+  if (typeof text !== 'string' || (!text.trim() && !attachments?.length)) throw new Error('Enter a message or keep an attachment.');
   item.text = text;
+  item.files = attachments || [];
   userQueues.set(sid, q); queueUpdate(sid);
   return true;
 });

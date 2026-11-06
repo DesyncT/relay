@@ -442,7 +442,7 @@ html body #chat.on .ch-head #quota { gap:12px; order:0; }
 #tb .workflow-toggle button svg { width:12px; height:12px; }
 
 /* Square message action toolbar, including generated themes. */
-#chat .msg .acts, #chat .msg .acts .act { border-radius:0 !important; }
+#chat .msg .acts, #chat .msg .acts .act, #chat #queueCount .q-send, #chat #queueEditBar button { border-radius:0 !important; }
 
 /* Queued messages share the main composer instead of opening a second editor. */
 #queueEditBar { display:flex; align-items:center; gap:8px; padding:12px 16px 0; color:var(--text-2); font-size:12px; }
@@ -450,4 +450,4 @@ html body #chat.on .ch-head #quota { gap:12px; order:0; }
 #queueEditBar span { flex:1; }
 #queueEditBar button { padding:4px 8px; min-height:32px; background:var(--raised); color:var(--text); border:1px solid var(--line-strong); border-radius:0; }
 #queueEditBar button:focus-visible { outline:2px solid var(--text-2); outline-offset:2px; }
-.editing-queue :is(#send,#plus,#imgBtn,.queue-toggle) { display:none; }
+.editing-queue :is(#send,#plus,.queue-toggle) { display:none; }

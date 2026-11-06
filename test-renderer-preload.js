@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('api', {
     if (channel === 'chat:info') return Promise.resolve(savedSessions.get(args[0]) || null);
     if (channel === 'chat:history' || channel === 'subagents:list' || channel === 'chat:queue') return Promise.resolve([]);
     if (channel === 'chat:queue-edit') return Promise.resolve(true);
+    if (channel === 'chat:attach') return Promise.resolve({name:args[0],path:'added.png',size:10});
     if (channel === 'chat:send') return Promise.resolve({});
     return new Promise(() => {}); // Hold unrelated startup work outside this fixture.
   },
