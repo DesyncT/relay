@@ -102,7 +102,7 @@ function cleanErrorMessage(errText, provider = 'agent') {
   const prov = String(provider || 'agent').toLowerCase();
 
   // 2. Check connection / proxy error early
-  if (/ECONNREFUSED|fetch failed|localhost:8080|127\.0\.0\.1:8080/i.test(text)) {
+  if (/localhost:8080|127\.0\.0\.1:8080/i.test(text) || (prov.includes('antigravity') && /ECONNREFUSED|fetch failed/i.test(text))) {
     return 'Cannot connect to Antigravity proxy on port 8080. Ensure the proxy is running.';
   }
 
@@ -157,7 +157,7 @@ function cleanErrorMessage(errText, provider = 'agent') {
       /(?:unsupported|invalid|unknown)\s+model/i.test(text)) {
     return `Invalid model for ${provider}. Please select a supported model.`;
   }
-  if (/ECONNREFUSED|fetch failed|localhost:8080|127\.0\.0\.1:8080/i.test(text)) {
+  if (/localhost:8080|127\.0\.0\.1:8080/i.test(text) || (prov.includes('antigravity') && /ECONNREFUSED|fetch failed/i.test(text))) {
     return 'Cannot connect to Antigravity proxy on port 8080. Ensure the proxy is running.';
   }
 
@@ -234,6 +234,10 @@ function formatFailureInfo(errText, provider = 'claude') {
     title = 'Proxy connection error';
     badge = 'red';
     action = 'retry';
+  } else if (/fetch failed|econnrefused|econnreset|etimedout|enotfound|connection timed out|network error|error sending request|stream disconnected/i.test(lower)) {
+    title = 'Connection error';
+    badge = 'amber';
+    action = 'retry';
   } else if (/invalid model|unrecognized_model/i.test(lower)) {
     title = 'Invalid model';
     badge = 'amber';
@@ -246,16 +250,29 @@ function formatFailureInfo(errText, provider = 'claude') {
     title = 'Context limit reached';
     badge = 'amber';
     action = 'retry';
-  } else if (/no response received|returned no (?:message|result)|no message returned/i.test(lower)) {
+  } else if (/no (?:response|message) received|returned no (?:message|result)|no message returned|didn.t respond|did not respond/i.test(lower)) {
     title = 'No response';
     badge = 'amber';
     action = 'retry';
+  }
+
+  let fix = '';
+  if (prov === 'codex') {
+    if (title === 'No response') fix = 'If the CLI is using the wrong account, click Sign in again and choose the intended ChatGPT account, then retry. Also check the chat model picker: choose a model available to that account, or try another available Codex model if Luna is rejected. Sign-in does not guarantee access to the selected model. On the affected PC, open PowerShell and run codex --version, then codex login status. If signed out, run codex login. Next run: codex exec --skip-git-repo-check "Reply with OK". If that works, restart Relay, check the Codex command in Settings points to the same CLI, and retry in a new chat. If it fails, its error identifies what needs fixing.';
+    else if (title === 'Authentication error') fix = 'On this PC, run codex login status in PowerShell. If signed out or the credentials are rejected, run codex login, then restart Relay and retry.';
+    else if (title === 'Connection error') fix = 'Check the connection on this PC and whether a VPN, proxy, or firewall is blocking Codex. Run codex exec --skip-git-repo-check "Reply with OK" in PowerShell to check outside Relay, then retry once the connection works.';
+    else if (action === 'install') fix = 'Run codex --version in PowerShell on this PC. Relay needs the Codex CLI. If it already works, set the Codex command in Settings to that CLI and restart Relay to refresh PATH. Otherwise use Install Codex CLI.';
+    else if (title === 'Invalid model') fix = 'Choose a Codex model available to your account in the chat model picker, then retry. If the CLI is signed into the wrong account, click Sign in again and choose the intended ChatGPT account. Signing in again does not guarantee model access.';
+    else if (title === 'Context limit reached') fix = 'Start a new chat with a shorter task and only the files needed for it.';
+    else if (action === 'switch') fix = 'Wait until the limit resets or choose another available provider, then retry.';
   }
 
   return {
     provider: prov,
     title,
     message: cleanMsg,
+    fix,
+    canSignInAgain: prov === 'codex' && ['No response', 'Authentication error', 'Invalid model'].includes(title),
     badge,
     action,
     raw: String(errText || '').slice(0, 500),

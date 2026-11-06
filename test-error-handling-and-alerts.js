@@ -53,6 +53,23 @@ assert.equal(noMsgFailure.title, 'No response');
 assert.equal(noMsgFailure.badge, 'amber');
 assert.equal(noMsgFailure.action, 'retry');
 
+// Codex errors include recovery steps without assuming installation or login failed.
+assert.match(noMsgFailure.fix, /codex --version/);
+assert.match(noMsgFailure.fix, /codex login status/);
+assert.match(noMsgFailure.fix, /codex exec --skip-git-repo-check/);
+assert.match(formatFailureInfo('unauthorized: not logged in', 'codex').fix, /codex login/);
+const networkFailure = formatFailureInfo('fetch failed: connection timed out', 'codex');
+assert.equal(networkFailure.title, 'Connection error');
+assert.doesNotMatch(networkFailure.message, /Antigravity/);
+assert.match(networkFailure.fix, /VPN|firewall/);
+assert.equal(formatFailureInfo("Codex didn't respond", 'codex').title, 'No response');
+
+assert.equal(formatFailureInfo('No message received from codex', 'codex').canSignInAgain, true);
+assert.equal(formatFailureInfo('not logged in', 'codex').canSignInAgain, true);
+assert.equal(formatFailureInfo('model_not_found: model is not supported when using Codex with a ChatGPT account', 'codex').canSignInAgain, true);
+assert.equal(formatFailureInfo('rate limit reached', 'codex').canSignInAgain, false);
+assert.equal(formatFailureInfo('No response received', 'claude').canSignInAgain, false);
+
 // 7. Error categorization: Proxy connection error
 const proxyErr = 'Cannot connect to Antigravity proxy on port 8080. Ensure the proxy is running.';
 const proxyFailure = formatFailureInfo(proxyErr, 'antigravity');

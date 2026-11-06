@@ -241,7 +241,12 @@ function codexRun(prompt, images, c = {}) {
     else if (it.type === 'web_search') setStatus('codex', 'searching');
     else if (it.type === 'mcp_tool_call') setStatus('codex', 'using ' + (it.tool || 'tool'));
   }, { cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env, timeoutMs: c.timeoutMs, onStderr: (d) => { stderrText += d; } }).then(() => {
-    if (!text.trim()) throw new Error(cleanErrorMessage(errText || stderrText.trim() || 'No message returned from codex', 'codex'));
+    if (!text.trim()) {
+      const raw = errText || stderrText.trim() || 'No message returned from codex';
+      const error = new Error(cleanErrorMessage(raw, 'codex'));
+      error.raw = raw;
+      throw error;
+    }
     progress.finish(text);
     return { text: text.trim(), said, usage: mkUsage(runModel, inp, cac, out), activity: act };
   }).finally(() => setStatus('codex', null));
@@ -260,7 +265,7 @@ function findProxyScript() {
   return null;
 }
 
-async function ensureAntigravityProxy() {
+async function ensureAntigravityProxy(allowInstall = false) {
   const isAlive = async (timeoutMs) => {
     try {
       const res = await fetch('http://localhost:8080', { signal: AbortSignal.timeout(timeoutMs) });
@@ -284,6 +289,7 @@ async function ensureAntigravityProxy() {
       console.error('Failed to spawn proxy script:', err);
     }
   } else {
+    if (!allowInstall) throw new Error('Select Antigravity manually to install its proxy.');
     try {
       const cp = spawn('npx antigravity-claude-proxy start', {
         shell: true,
@@ -339,7 +345,7 @@ const PROV = {
   claude: (p, _t, c) => c.sub ? claudeRun('claude (sub)', 'claude:sub', p, c) : claudeRun('claude (chat)', c.seat || 'claude', p, c),
   codex: (p, trigger, c) => codexRun(p, (trigger?.attachments || []).filter((a) => IMG_EXT.test(a.name)), c),
   antigravity: async (p, _t, c) => {
-    await ensureAntigravityProxy();
+    await ensureAntigravityProxy(c.seat === 'antigravity' && !c.spread);
     return c.sub ? claudeRun('antigravity (sub)', 'antigravity:sub', p, { ...c, cmd: settings.antigravityCmd || 'antigravity', extraArgs: settings.antigravityArgs }) : claudeRun('antigravity (chat)', c.seat || 'antigravity', p, { ...c, cmd: settings.antigravityCmd || 'antigravity', extraArgs: settings.antigravityArgs });
   },
 };
@@ -1058,7 +1064,6 @@ app.whenReady().then(() => {
   if (!hasSingleInstanceLock) return;
   require('./updater').init({ ipcMain, send, prepareInstall: () => saveAllResume('you') });
   models.detect({ claude: settings.claudeCmd, codex: settings.codexCmd, antigravity: settings.antigravityCmd }).then((d) => { for (const [k, ok] of Object.entries(d.cli)) if (!ok) missing.add(k); }).catch(() => {});
-  ensureAntigravityProxy();
   createWindow().webContents.once('did-finish-load', () => setTimeout(resumeSessions, 1500)); // let the renderer settle, then restart interrupted work
 });
 app.on('before-quit', () => { if (!quitting) for (const meta of store.listSessions()) if (rts.has(meta.id)) saveResume(meta.id); quitting = true; panels.killAll(); if (proxyProcess) { try { proxyProcess.kill(); } catch {} } });

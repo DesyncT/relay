@@ -1360,6 +1360,8 @@ function renderFailureCard(m) {
   const time = el('span', { className: 'fcard-time', textContent: hm(m.at || Date.now()) });
   const head = el('div', { className: 'fcard-head' }, badge, title, time);
   const body = el('div', { className: 'fcard-body', textContent: f.message });
+  const fix = f.fix || (typeof formatFailureInfo === 'function' ? formatFailureInfo(f.raw || f.message, prov).fix : '');
+  if (fix) body.append(el('p', { textContent: 'Suggested fix: ' + fix }));
 
   const actions = el('div', { className: 'fcard-actions' });
   
@@ -1380,6 +1382,22 @@ function renderFailureCard(m) {
     }
   };
   if (f.action === 'install') actions.append(el('button', {className:'b failure-btn',type:'button',textContent:`Install ${provLabel} CLI`,onclick:()=>authInstall(prov)}));
+  const recovery = typeof formatFailureInfo === 'function' ? formatFailureInfo(f.raw || f.message, prov) : f;
+  if (f.canSignInAgain || recovery.canSignInAgain) {
+    const signIn = el('button', { className: 'b failure-btn', type: 'button', textContent: 'Sign in again', title: 'Sign out of the Codex CLI on this PC and open sign-in to choose your account' });
+    signIn.onclick = async () => {
+      signIn.disabled = true;
+      signIn.textContent = 'Opening sign-in...';
+      try {
+        await api.call('auth:logout', 'codex');
+        await api.call('auth:login', 'codex');
+        pollAuth('codex');
+      } catch (e) { alert(e.message); }
+      finally { signIn.disabled = false; signIn.textContent = 'Sign in again'; }
+    };
+    actions.append(signIn);
+  }
+
   actions.append(retryBtn);
 
   const disabled = (typeof cfg !== 'undefined' && cfg.disabledProviders) || [];
