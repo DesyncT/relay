@@ -44,6 +44,22 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(output, label + '.png'), (await win.webContents.capturePage()).toPNG());
     console.log(label, JSON.stringify(metrics));
   }
+  const quotaDisplay = await win.webContents.executeJavaScript(`(async () => {
+    const at=Date.now()-600000;
+    await api.call('test:quota',{codex:{at,cached:true,windows:[{minutes:300,used:87,remaining:13,reset:Date.now()-1000,stale:true}]},claude:{at:Date.now(),estimated:true,windows:[{minutes:300,tokens:4800000}]}});
+    await refreshQuota();
+    const text=document.querySelector('#quota').textContent, detail=limitsHtml();
+    const cached=text.includes('13%') && text.includes('cached') && text.includes('10m ago');
+    const unknown=text.includes('quota unknown') && !detail.includes('NaN') && detail.includes('quota unavailable');
+    await api.call('test:quota',{claude:{at:Date.now(),windows:[{minutes:300,used:25,remaining:75,reset:Date.now()+3600000}]}});
+    await api.call('test:emit','usage:quota-update',{});
+    await refreshQuota();
+    const live=document.querySelector('#quota').textContent.includes('75%');
+    await api.call('test:quota',{}); await refreshQuota();
+    return {cached,unknown,live};
+  })()`);
+  assert.deepEqual(quotaDisplay,{cached:true,unknown:true,live:true});
+  console.log('Cached quota age, unknown allowance and live update display passed');
   const queueEditing = await win.webContents.executeJavaScript(`(async () => {
     const input = document.querySelector('#input'); input.value = 'Unsent draft';
     renderQueue([{id:'queued-edit-test',text:'Original queued message',files:[]}]);
@@ -107,7 +123,9 @@ app.whenReady().then(async () => {
     return {visible,existing,saved,square};
   })()`);
   assert.deepEqual(queueImages,{visible:true,existing:true,saved:true,square:true});
-  await win.webContents.executeJavaScript(`renderQueue([{id:'preview',text:'Make editing use the main message box',files:[]}]); document.querySelector('.q-edit').click();`);
+  await win.webContents.executeJavaScript(`renderQueue([{id:'preview',text:'Make editing use the main message box',files:[]},{id:'preview2',text:'yo',files:[]}]);new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
+  fs.writeFileSync(path.join(output,'queue-list.png'),(await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`document.querySelector('.q-edit').click();`);
   fs.writeFileSync(path.join(output,'queue-composer-edit.png'),(await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`document.querySelector('#cancelQueueEdit').click(); renderQueue([]);`);
 

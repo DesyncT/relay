@@ -512,3 +512,17 @@ html body #chat.on .ch-head #quota { gap:12px; order:0; }
 .tile .x { top:-8px; right:-8px; width:22px; height:22px; background:var(--raised); box-shadow:0 1px 4px rgba(0,0,0,.4); }
 .tile .x:hover { background:var(--deep); }
 .tile .x:focus-visible { outline:2px solid var(--claude); outline-offset:1px; }
+
+/* Queued messages: a chat bubble with quiet text actions underneath (Send now · Edit · Delete). */
+#queueCount { margin:0; padding:0 16px 8px; border:0; background:none; }
+#queueCount .q-item { display:flex; flex-direction:column; align-items:flex-end; gap:4px; padding:0; border:0; border-radius:0; background:none; overflow:visible; }
+#queueCount .q-item + .q-item { margin-top:8px; }
+#queueCount .q-item > .q-content { align-self:flex-end; display:flex; align-items:center; gap:8px; max-width:min(70%,560px); margin:0; padding:8px 14px; border-radius:16px; background:var(--raised); color:var(--text); font-size:14px; line-height:20px; opacity:.85; }
+#queueCount .q-preview { white-space:pre-wrap; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; text-overflow:ellipsis; overflow-wrap:anywhere; }
+#queueCount .q-acts { display:flex; align-items:center; gap:4px; padding-right:4px; font-size:12px; line-height:16px; }
+#queueCount .q-state { margin-right:6px; color:var(--muted); }
+#queueCount .q-acts > .q-send { display:inline-flex; border:0; border-left:0; padding:2px 6px; background:none; color:var(--text-2); font-size:12px; line-height:16px; }
+#queueCount .q-acts > .q-send:hover { background:none; color:var(--text); text-decoration:underline; }
+#queueCount .q-acts > .q-send { color:var(--text-2); }
+#queueCount .q-acts > .q-send.q-delete:hover { color:var(--negative,#d9534f); }
+#queueCount .q-send:focus-visible { outline:2px solid var(--claude); outline-offset:1px; }
