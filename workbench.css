@@ -6,6 +6,7 @@
   --text:#ededee; --text-2:#b5b5bc; --muted:#96969e;
   --line:rgba(237,237,238,.08); --line-strong:rgba(237,237,238,.15);
   --claude:#e5997c; --codex:#dedee3; --ease:cubic-bezier(.22,1,.36,1);
+  --motion-fast:140ms; --motion-normal:220ms;
 }
 body { font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; font-size:14px; line-height:20px; }
 ::selection { background:#55555c; color:#fff; }
@@ -451,3 +452,47 @@ html body #chat.on .ch-head #quota { gap:12px; order:0; }
 #queueEditBar button { padding:4px 8px; min-height:32px; background:var(--raised); color:var(--text); border:1px solid var(--line-strong); border-radius:0; }
 #queueEditBar button:focus-visible { outline:2px solid var(--text-2); outline-offset:2px; }
 .editing-queue :is(#send,#plus,.queue-toggle) { display:none; }
+
+/* Keep provider artwork on a shared optical center rather than the text baseline. */
+#spend .sp { align-items:center; gap:6px; line-height:20px; }
+#spend .sp > span:first-child { display:inline-flex; align-items:center; justify-content:center; width:16px; height:20px; flex:none; }
+#spend .sp > span:first-child svg { display:block; width:14px; height:14px; }
+#quota > span > svg, #busy > .av { display:block; flex:none; align-self:center; }
+#busy .status-loader { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; flex:none; color:var(--text-2); }
+#busy .status-loader svg { display:block; width:22px; height:22px; }
+#busy .status-loader circle { fill:currentColor; opacity:.18; animation:status-dot 1.2s linear infinite; }
+#busy .rq-think, #reqbar .rq-think {
+  background-image:linear-gradient(100deg,var(--muted) 35%,var(--text) 49%,var(--muted) 63%);
+  background-size:250% 100%; animation:rqThink 2.8s linear infinite;
+}
+@keyframes status-dot { 0%,100% { opacity:.18; } 40% { opacity:1; } }
+@keyframes surface-enter { from { opacity:.65; transform:translateY(4px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion:no-preference) {
+  button, .sb .sb-row, .sb .sb-group-h, input, textarea, select {
+    transition:background-color var(--motion-fast) var(--ease),color var(--motion-fast) var(--ease),border-color var(--motion-fast) var(--ease),opacity var(--motion-fast) var(--ease),transform var(--motion-fast) var(--ease);
+  }
+  .sb .sb-caret { transition:transform var(--motion-normal) var(--ease); }
+  .sb .sb-in, .sb .sb-new { animation:surface-enter var(--motion-normal) var(--ease) both; }
+  .sb .sb-menu, dialog[open], .modal { animation:surface-enter var(--motion-fast) var(--ease) both; }
+  main > section.on { animation:cx-fade var(--motion-normal) var(--ease); }
+  #chat .msg.new { animation-duration:var(--motion-normal); }
+  #pend > *, #rchip > * { animation:surface-enter var(--motion-normal) var(--ease) both; }
+}
+@media (prefers-reduced-motion:reduce) {
+  #busy .rq-think, #reqbar .rq-think { background:none; color:var(--text-2); -webkit-text-fill-color:var(--text-2); }
+  #busy .status-loader circle { animation:none; opacity:.6; }
+}
+
+/* Agent activity line: a prominent card under the latest message, with a shine sweep and a soft pulse. */
+.ch-main > #busy:not(:empty) { position:relative; overflow:hidden; margin:8px 16px 4px; padding:10px 16px; min-height:44px; gap:10px; font-size:15px; line-height:24px; color:var(--text-2); background:color-mix(in srgb,var(--claude) 8%,var(--card)); border:1px solid color-mix(in srgb,var(--claude) 45%,var(--line)); border-radius:12px; box-shadow:0 0 0 0 color-mix(in srgb,var(--claude) 30%,transparent); }
+.ch-main > #busy:not(:empty) b { font-size:16px; }
+.ch-main > #busy:not(:empty) .status-loader, .ch-main > #busy:not(:empty) .status-loader svg { width:28px; height:28px; color:var(--claude); }
+.ch-main > #busy:not(:empty) .rq-think { font-weight:500; }
+.ch-main > #busy:not(:empty) .busy-time { margin-left:auto; color:var(--text-2); font-size:13px; }
+.ch-main > #busy:not(:empty)::after { content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(100deg,transparent 30%,color-mix(in srgb,var(--claude) 22%,transparent) 50%,transparent 70%); transform:translateX(-100%); }
+@media (prefers-reduced-motion:no-preference) {
+  .ch-main > #busy:not(:empty) { animation:busyPulse 2.4s ease-in-out infinite; }
+  .ch-main > #busy:not(:empty)::after { animation:busyShine 2.8s ease-in-out infinite; }
+}
+@keyframes busyShine { to { transform:translateX(100%); } }
+@keyframes busyPulse { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb,var(--claude) 28%,transparent); } 50% { box-shadow:0 0 14px 2px color-mix(in srgb,var(--claude) 28%,transparent); } }
