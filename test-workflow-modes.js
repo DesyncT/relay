@@ -24,7 +24,7 @@ const routing=require('./routing');assert.deepEqual(routing.mergeRoutes(routing.
 (async()=>{
  const helper=source.slice(source.indexOf('function enqueueSpreader('),source.indexOf('function dispatchUser('));
  let resolve;const pending=new Promise(r=>resolve=r),state={epoch:1},queued=[];
- const enqueueSpread=vm.runInNewContext(helper+';enqueueSpreader',{RT:()=>state,spreadTo:()=>pending,enqueue:(...a)=>queued.push(a),sendWorking(){},drainUserQueue(){},post(){},formatFailureInfo(){}});
+ const enqueueSpread=vm.runInNewContext(helper+';enqueueSpreader',{quitting:false,saveResume(){},RT:()=>state,spreadTo:()=>pending,enqueue:(...a)=>queued.push(a),sendWorking(){},drainUserQueue(){},post(){},formatFailureInfo(){}});
  const work=enqueueSpread('s',{});assert.equal(state.selecting,true,'Selecting quota locks the chat');
  state.epoch++;state.selecting=false;resolve('codex');await work;assert.equal(queued.length,0,'Stop cancels pending selection');
  await enqueueSpread('s',{});assert.equal(queued.length,1);assert.equal(state.selecting,false);

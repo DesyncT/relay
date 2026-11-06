@@ -355,11 +355,25 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
   #reqbar .rq-assignment { gap:3px 8px; }
   #reqbar .rq-assignment-route { flex-basis:130px; }
 }
-#chat .ch-head #quota { justify-content:flex-end; padding-right:16px; gap:8px; }
-#chat .ch-head #quota > span { padding:4px 8px; min-height:28px; font-size:12px; border:0; background:transparent; }
-#chat .ch-head #quota > span:hover { background:var(--raised); }
+/* Header polish: quiet provider groups, readable windows, a separate action.
+   Unslop by Damir Sokolovsky (@heydamir), CC BY 4.0. */
+#chat.on .ch-head { height:auto; min-height:64px; padding:12px 16px; gap:12px; flex-wrap:wrap; }
+#chat.on .ch-head h2 { flex:1 1 120px; max-width:none; padding:0; font-size:15px; line-height:24px; font-weight:500; }
+html body #chat.on .ch-head #quota { gap:12px; order:0; }
+#chat .ch-head #quota > span { padding:0; min-height:28px; gap:8px; font-size:12px; border:0; border-radius:4px; background:transparent; }
+#chat .ch-head #quota > span + span { padding-left:12px; border-left:1px solid var(--line-strong); }
+#chat .ch-head #quota > span:hover { background:transparent; }
+#chat .ch-head #quota > span svg { width:14px; height:14px; }
+#chat .ch-head #quota .q-v { font-weight:500; }
+#chat .ch-head #quota .q-g + .q-g { margin-left:4px; }
+#chat .ch-head #quickBtn { flex:none; height:32px; margin:0; padding:0 12px; background:var(--card); border:1px solid var(--line-strong); border-radius:6px; }
+#chat .ch-head #quickBtn kbd { padding-left:8px; border-left:1px solid var(--line-strong); }
+#chat .ch-head #quickBtn:focus-visible { outline:2px solid var(--text-2); outline-offset:2px; }
+#chat.on .ch-head #stop { margin:0; }
+@container(max-width:900px) { #quickBtn kbd { display:none; } }
 @container(max-width:640px) {
-  #chat .ch-head #quota > span { font-size:11px; padding:4px; }
+  html body #chat.on .ch-head #quota { flex:1 1 100%; order:4; flex-wrap:wrap; margin-left:0; gap:8px 12px; }
+  #chat .ch-head #quota > span { font-size:12px; }
   #chat #log > .msg.ask { padding-right:16px; }
   #chat .msg.ask .opts .opt { padding:12px; }
 }
@@ -371,19 +385,27 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 .rq-retry:hover { color:var(--text); background:var(--raised); }
 .rq-retry:focus-visible { outline:2px solid var(--claude) !important; outline-offset:2px; }
 .rq-retry-error { color:var(--negative); font-size:12px; }
-#quickActions { width:min(560px, calc(100vw - 32px)); padding:16px; color:var(--text); background:var(--card); border:1px solid var(--line-strong); border-radius:12px; }
-#quickActions::backdrop { background:var(--deep); opacity:.75; }
-#quickActions header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }
-#quickActions h2 { margin:0; font-size:16px; }
-#quickActions button { color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:8px 12px; cursor:pointer; }
-#quickActions input { width:100%; padding:12px; }
-#quickResults { max-height:50vh; overflow:auto; margin-top:12px; }
-#quickActions .quick-result { display:flex; justify-content:space-between; align-items:center; gap:16px; width:100%; text-align:left; margin:4px 0; min-height:44px; }
+/* Quiet command surface. Unslop by @heydamir, CC BY 4.0. */
+#quickActions { width:min(560px, calc(100vw - 32px)); max-height:calc(100vh - 64px); padding:0; color:var(--text); background:var(--card); border:1px solid var(--line-strong); border-radius:8px; overflow:hidden; }
+#quickActions::backdrop { background:var(--deep); opacity:.72; }
+#quickActions header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0; padding:16px 20px 8px; }
+#quickActions h2 { margin:0; font-size:13px; line-height:20px; font-weight:500; color:var(--text-2); }
+#quickActions button { color:var(--text); cursor:pointer; }
+#quickActions header button { padding:4px 8px; min-height:28px; background:transparent; border:0; color:var(--muted); font-size:12px; }
+#quickActions input { display:block; width:calc(100% - 40px); margin:0 20px 12px; padding:8px 0; min-height:40px; background:transparent; border:0; border-bottom:1px solid var(--line-strong); border-radius:0 !important; font-size:16px; line-height:24px; }
+#quickResults { max-height:min(384px,50vh); overflow:auto; padding:4px 8px; margin:0; scrollbar-width:thin; }
+#quickActions .quick-result { display:flex; justify-content:space-between; align-items:center; gap:16px; width:100%; text-align:left; margin:0; padding:12px; min-height:44px; background:transparent; border:0; border-radius:4px !important; font-size:13px; line-height:20px; transition:background-color .12s var(--ease),color .12s var(--ease); }
 #quickActions .quick-result span { overflow-wrap:anywhere; white-space:pre-wrap; min-width:0; }
-#quickActions small, #quickActions p { color:var(--muted); font-size:12px; }
+#quickActions small, #quickActions p { color:var(--muted); font-size:11px; line-height:16px; }
 #quickActions small { flex:none; }
-#quickActions .quick-result.selected, #quickActions button:hover { background:var(--raised); border-color:var(--muted); }
-#quickActions input:focus-visible, #quickActions button:focus-visible { outline:2px solid var(--text) !important; outline-offset:2px; }
+#quickActions p { padding:12px 20px; margin:4px 0 0; border-top:1px solid var(--line); }
+#quickActions .quick-result.selected, #quickActions button:hover { background:var(--raised); }
+#quickActions input:focus-visible { outline:none !important; border-bottom-color:var(--claude) !important; }
+#quickActions button:focus-visible { outline:2px solid var(--claude) !important; outline-offset:-2px; }
+@media(prefers-reduced-motion:no-preference) {
+  #quickActions[open] { animation:palette-enter .14s var(--ease); }
+  @keyframes palette-enter { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+}
 #log .msg.search-hit { background:var(--raised); border-left:3px solid var(--claude); }
 #reqbar ol { list-style:none; margin:8px 0 4px; padding:4px; max-height:320px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
 #reqbar li { display:grid; grid-template-columns:20px 16px minmax(0,1fr); column-gap:8px; align-items:start; padding:8px; border-top:1px solid var(--line); }
@@ -418,3 +440,14 @@ select.normal-model { min-height:32px; height:32px; padding:4px 8px; border:1px 
 #tb .workflow-toggle { height:28px; box-sizing:border-box; padding:2px; margin:0 12px 0 8px; border-radius:7px; }
 #tb .tb-actions .workflow-toggle #tbSupercode,#tb .tb-actions .workflow-toggle #tbNormal { height:22px; padding:0 8px; font-size:11px; border-radius:4px; }
 #tb .workflow-toggle button svg { width:12px; height:12px; }
+
+/* Square message action toolbar, including generated themes. */
+#chat .msg .acts, #chat .msg .acts .act { border-radius:0 !important; }
+
+/* Queued messages share the main composer instead of opening a second editor. */
+#queueEditBar { display:flex; align-items:center; gap:8px; padding:12px 16px 0; color:var(--text-2); font-size:12px; }
+#queueEditBar[hidden] { display:none; }
+#queueEditBar span { flex:1; }
+#queueEditBar button { padding:4px 8px; min-height:32px; background:var(--raised); color:var(--text); border:1px solid var(--line-strong); border-radius:0; }
+#queueEditBar button:focus-visible { outline:2px solid var(--text-2); outline-offset:2px; }
+.editing-queue :is(#send,#plus,#imgBtn,.queue-toggle) { display:none; }

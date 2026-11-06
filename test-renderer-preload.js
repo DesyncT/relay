@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
     if (channel === 'test:save-session') { savedSessions.set(args[0], args[1]); return Promise.resolve(); }
     if (channel === 'chat:info') return Promise.resolve(savedSessions.get(args[0]) || null);
     if (channel === 'chat:history' || channel === 'subagents:list' || channel === 'chat:queue') return Promise.resolve([]);
+    if (channel === 'chat:queue-edit') return Promise.resolve(true);
     if (channel === 'chat:send') return Promise.resolve({});
     return new Promise(() => {}); // Hold unrelated startup work outside this fixture.
   },

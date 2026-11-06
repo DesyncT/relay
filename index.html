@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; script-src 'self' 'unsafe-inline'; frame-src http: https: file:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; media-src 'self' blob: file:; script-src 'self' 'unsafe-inline'; frame-src http: https: file:">
 <title>Relay</title>
 <link rel="icon" type="image/svg+xml" href="assets/relay.svg">
 <link rel="alternate icon" href="assets/relay.ico">
@@ -312,8 +312,6 @@
   .q-content { flex:1; min-width:0; display:flex; align-items:center; gap:8px; overflow:hidden; }
   .q-thumb { width:42px; height:32px; flex:none; border-radius:5px; object-fit:cover; background:var(--raised); cursor:pointer; }
   .q-image-missing { flex:none; color:var(--text-2); font-size:12px; }
-  .q-editor { flex:1; min-width:80px; min-height:64px; resize:vertical; background:var(--raised); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
-  .q-editor:focus-visible { outline:2px solid var(--claude); }
   .q-send { flex:none; border:0; background:transparent; color:var(--claude); cursor:pointer; font:inherit; font-size:12px; padding:5px 8px; border-radius:6px; }
   .q-send:hover { background:var(--raised); }
   .q-send:disabled { opacity:.5; cursor:wait; }
@@ -385,11 +383,11 @@
   #quota .q-l { color:var(--muted); }
   #quota .stale .q-v { color:var(--text-2); }
   /* one line, never wrapped: an older workbench.css rule capped this at 60% and let it wrap; detail text drops out as the header narrows */
-  html body #chat.on .ch-head #quota { flex:0 1 auto; flex-wrap:nowrap; max-width:none; min-width:0; margin-left:auto; padding-right:0; overflow:hidden; }
+  html body #chat.on .ch-head #quota { flex:0 1 auto; flex-wrap:nowrap; max-width:none; min-width:0; margin-left:auto; padding-right:0; overflow:visible; }
   html body #chat.on .ch-head #quota > span { flex:none; height:28px; }
   #chat .ch-head { container-type:inline-size; }
   @container (max-width:1100px) { #quota .q-r { display:none; } }
-  @container (max-width:860px) { #quota .q-l { display:none; } }
+  @container (max-width:640px) { #quota .q-r { display:none; } }
 
   #quota > span:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
   .queue-toggle { flex:none; display:inline-flex; align-items:center; gap:6px; height:32px; margin:0; padding:0 8px; color:var(--muted); font-size:13px; line-height:20px; white-space:nowrap; }
@@ -612,7 +610,7 @@
       <h2 id="chName">global</h2>
       <div class="skchips" id="skChips" aria-label="Skills in use"></div>
       <div id="quota" aria-label="Provider usage"></div>
-      <button class="b ghost" id="quickBtn" type="button" title="Command palette (Ctrl+Shift+P)" aria-haspopup="dialog" aria-keyshortcuts="Control+Shift+P"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 9 3 3-3 3m6 0h3"/></svg><span>Actions</span><kbd>Ctrl ⇧ P</kbd></button>
+      <button class="b ghost" id="quickBtn" type="button" title="Command palette (Ctrl+Shift+P)" aria-haspopup="dialog" aria-keyshortcuts="Control+Shift+P"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 9 3 3-3 3m6 0h3"/></svg><span>Actions</span></button>
       <button class="b ghost" id="subsBtn" type="button" hidden title="Show subagents"><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span id="subsBtnN"></span></button>
       <button class="b ghost danger" id="stop" hidden>Stop</button>
     </div>
@@ -631,6 +629,7 @@
       <div id="normalEffortMenu" role="menu" hidden></div>
       <div id="leadMenu" role="menu" hidden></div>
       <div id="modeMenu" role="dialog" aria-label="Mode" hidden></div>
+      <div id="queueEditBar" hidden><span>Editing queued message</span><button type="button" id="cancelQueueEdit">Cancel</button><button type="button" id="saveQueueEdit">Save changes</button></div>
       <textarea id="input" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Message #global  ·  / for commands" aria-label="Message #global"></textarea>
       <div id="pend"></div>
       <div class="cb-tools">
@@ -707,6 +706,7 @@
 <script src="panels.js"></script>
 <script src="skills-ui.js"></script>
 <script src="quick-actions.js"></script>
+<script src="backgrounds.js"></script>
 <script>
 const finishBoot = () => { const b = document.getElementById('boot'); if (!b) return; b.classList.add('off'); setTimeout(() => b.remove(), 300); };
 const bootTimer = setTimeout(finishBoot, 8000);
@@ -1486,6 +1486,37 @@ function addMsg(m, live, batch = false) {
 }
 // pending uploads: saved by main right away, sent with the next message
 let pend = [];
+let queueEdit = null;
+function finishQueueEdit() {
+  if (!queueEdit || queueEdit.saving) return;
+  const edit = queueEdit; queueEdit = null;
+  $('#input').value = edit.draft; pend = edit.files;
+  $('#queueEditBar').hidden = true; composer.classList.remove('editing-queue');
+  placeholder(); renderPend(); grow(); $('#input').focus();
+}
+function beginQueueEdit(item) {
+  if (queueEdit?.saving) return;
+  finishQueueEdit(); clearTimeout(draftTimer); saveDraft();
+  queueEdit = { sid:openSid, id:item.id, draft:$('#input').value, files:pend, saving:false };
+  pend = []; renderPend(); $('#input').value = item.text || '';
+  $('#slash').hidden = true; $('#queueEditBar').hidden = false; composer.classList.add('editing-queue');
+  $('#input').setAttribute('aria-label', 'Edit queued message');
+  grow(); $('#input').focus(); $('#input').setSelectionRange($('#input').value.length, $('#input').value.length);
+}
+async function saveQueueEdit() {
+  const edit = queueEdit; if (!edit || edit.saving || !$('#input').value.trim()) return;
+  edit.saving = true; $('#saveQueueEdit').disabled = $('#cancelQueueEdit').disabled = true;
+  try {
+    const saved = await api.call('chat:queue-edit', edit.sid, edit.id, $('#input').value);
+    if (!saved) throw new Error('This message is no longer queued.');
+    edit.saving = false;
+    if (queueEdit === edit) finishQueueEdit();
+  } catch (e) {
+    if (openSid === edit.sid) addMsg({from:'system',text:`Could not edit queued message: ${e.message}`,at:Date.now()},1);
+  } finally { edit.saving = false; $('#saveQueueEdit').disabled = $('#cancelQueueEdit').disabled = false; }
+}
+$('#cancelQueueEdit').onclick = finishQueueEdit;
+$('#saveQueueEdit').onclick = saveQueueEdit;
 // Full-size image view: click or Esc closes
 function lightbox(src, name) {
   const box = el('div', { className: 'lb', role: 'dialog', ariaLabel: name || 'Image' }, el('img', { src, alt: name || '' }));
@@ -1507,6 +1538,7 @@ function renderPend() {
 }
 const b64 = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result.split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
 async function addFiles(files) {
+  if (queueEdit) return;
   for (const f of files) {
     try {
       if (f.size > 25e6) throw new Error(`${f.name} is over the 25 MB limit`);
@@ -1515,6 +1547,7 @@ async function addFiles(files) {
   }
 }
 async function sendChat(pick, interrupt = false) { // pick: an option button's label, sent as-is without touching the draft
+  if (queueEdit && pick == null) return saveQueueEdit();
   const text = pick ?? $('#input').value.trim();
   if (!text && !pend.length) return;
   if (pick == null && !pend.length && /^\/[a-z]+(\s|$)/i.test(text)) { $('#input').value = ''; grow(); $('#slash').hidden = true; saveDraft(); return runSlash(text); }
@@ -1531,9 +1564,10 @@ async function sendChat(pick, interrupt = false) { // pick: an option button's l
 }
 // Chromium sizes the field natively; reading scrollHeight after resetting its
 // height forced synchronous layout on every keystroke in long conversations.
-const grow = () => { const disabled = !$('#input').value.trim() && !pend.length; if ($('#send').disabled !== disabled) $('#send').disabled = disabled; };
+const grow = () => { if (queueEdit) $('#saveQueueEdit').disabled = queueEdit.saving || !$('#input').value.trim(); const disabled = !$('#input').value.trim() && !pend.length; if ($('#send').disabled !== disabled) $('#send').disabled = disabled; };
 $('#send').onclick = () => sendChat();
 function renderQueue(items = []) {
+  if (queueEdit && !queueEdit.saving && !items.some(item => item.id === queueEdit.id)) finishQueueEdit();
   const box = $('#queueCount'); box.replaceChildren(); box.hidden = !items.length;
   if (!items.length) return;
   box.append(el('div', { className: 'q-head', textContent: `${items.length} queued message${items.length === 1 ? '' : 's'}` }));
@@ -1578,28 +1612,7 @@ function renderQueue(items = []) {
     }
     if ((item.text || '').trim() || !images.length) content.append(el('div', { className: 'q-preview', textContent: preview, title: preview }));
     const show = () => row.replaceChildren(content, edit, sendNow, remove);
-    edit.onclick = () => {
-      const sid = openSid;
-      const input = el('textarea', { className: 'q-editor', value: item.text || '' });
-      input.setAttribute('aria-label', 'Queued message text');
-      const save = iconButton('Save', 'Save changes', '<path d="m5 12 4 4L19 6"/>', 'q-go');
-      const cancel = iconButton('Cancel', 'Cancel editing', '<path d="M18 6 6 18M6 6l12 12"/>', 'q-delete');
-      cancel.onclick = show;
-      save.onclick = async () => {
-        save.disabled = cancel.disabled = true;
-        try {
-          const saved = await api.call('chat:queue-edit', sid, item.id, input.value);
-          if (!saved) throw new Error('This message is no longer queued.');
-        } catch (e) {
-          if (openSid === sid) addMsg({ from: 'system', text: `Could not edit queued message: ${e.message}`, at: Date.now() }, 1);
-        } finally { save.disabled = cancel.disabled = false; }
-      };
-      input.onkeydown = (e) => {
-        if (e.key === 'Escape') { e.preventDefault(); show(); edit.focus(); }
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (!save.disabled) save.click(); }
-      };
-      row.replaceChildren(input, save, cancel); input.focus();
-    };
+    edit.onclick = () => beginQueueEdit(item);
     show(); box.append(row);
   }
 }
@@ -1678,11 +1691,12 @@ function pickSlash(i, run) { // Enter runs a no-argument command; Tab / click / 
 }
 // Unsent composer text stays with its chat (localStorage, keyed by session id).
 const draftKey = (sid) => 'relay.draft.' + sid;
-function saveDraft(sid = openSid) { if (!sid) return; try { const v = $('#input').value; v.trim() ? localStorage.setItem(draftKey(sid), v) : localStorage.removeItem(draftKey(sid)); } catch {} }
+function saveDraft(sid = openSid) { if (!sid || queueEdit) return; try { const v = $('#input').value; v.trim() ? localStorage.setItem(draftKey(sid), v) : localStorage.removeItem(draftKey(sid)); } catch {} }
 const loadDraft = (sid) => { try { return (sid && localStorage.getItem(draftKey(sid))) || ''; } catch { return ''; } };
 let draftTimer; window.addEventListener('beforeunload', () => saveDraft());
-$('#input').oninput = () => { grow(); slashSel = 0; renderSlash(); clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 750); };
+$('#input').oninput = () => { if (queueEdit) { grow(); return; } grow(); slashSel = 0; renderSlash(); clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 750); };
 $('#input').onkeydown = (e) => {
+  if (queueEdit && e.key === 'Escape') { e.preventDefault(); finishQueueEdit(); return; }
   if (!$('#slash').hidden) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); slashSel = (slashSel + (e.key === 'ArrowDown' ? 1 : -1) + slashList.length) % slashList.length; renderSlash(); return; }
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashSel, e.key === 'Enter'); return; }
@@ -1765,6 +1779,7 @@ function renderLimits() {
 }
 const setLimits = (s) => { if (s?.down) { lim = s.down; renderLimits(); } };
 api.on('limits:state', setLimits); api.call('limits:get').then(setLimits).catch(() => {}); setInterval(renderLimits, 30000);
+api.on('notify:openSession', ({sid}) => { if(sid) openSession(sid).catch(e=>console.error(e)); });
 api.on('chat:msg', (m) => { if (m.sessionId === openSid) addMsg(m, 1); });
 api.on('sessions:changed', (d) => {
   if (d?.id !== openSid) return;
@@ -2069,6 +2084,7 @@ renderLead('claude'); renderMode(); refreshCfg();
 let openSid = null, openTok = 0;
 async function openSession(id, show = true) {
   const tok = ++openTok;
+  if (queueEdit) { queueEdit.saving = false; finishQueueEdit(); }
   clearTimeout(draftTimer); saveDraft(); // park the outgoing chat's draft
   let msgs = [], info = null;
   let sl = [];
@@ -2169,7 +2185,7 @@ async function loadRules() {
 // Settings page. Text fields live in their sections; numeric limits come from main.js LIMITS (settings:limits), so a new limit shows up here on its own.
 const FIELDS = [['claudeCmd'], ['claudeArgs'], ['codexCmd'], ['codexArgs'], ['antigravityCmd'], ['antigravityArgs'], ['cwd']];
 const SET_MODES = [['edits', 'Full access', 'Agents edit and run commands; you answer their questions'], ['auto', 'Auto', 'Voters answer routine questions; important ones still come to you'], ['super', 'Super Auto', 'Voters answer every question, so a run can finish overnight']];
-const SET_SECS = [['profile', 'Profile'], ['providers', 'Providers'], ['agents', 'Agents'], ['limits', 'Limits'], ['updates', 'Updates']];
+const SET_SECS = [['profile', 'Profile'], ['providers', 'Providers'], ['agents', 'Agents'], ['limits', 'Limits'], ['notifications', 'Notifications'], ['updates', 'Updates']];
 let SET_LIMITS = {}, setSnap = '';
 const collectSettings = () => ({
   ...Object.fromEntries(FIELDS.map(([k]) => [k, $('#s-' + k)?.value ?? ''])),
@@ -2371,6 +2387,8 @@ async function loadSettings() {
       row('s-cwd', 'Working directory', 'Used by chats outside a project', el('div', { className: 'set-inline' }, cwd, browse))),
     sec('limits', 'Limits', 'How much the team may do per task. A dot marks a value you changed', resetAll,
       ...Object.entries(groups).map(([g, items]) => el('div', { className: 'lim-group' }, el('h4', { textContent: g }), el('div', { className: 'lim-grid' }, ...items.map(limTile))))),
+    sec('notifications', 'Notifications', 'Distinct chimes for finished responses and input requests. Background alerts also show a taskbar badge and desktop notification.', null,
+      row('', 'Try the sounds', 'Preview an alert without running an agent', ...['complete','question'].map(kind => el('button', {className:'b',type:'button',textContent:kind==='complete'?'Test finished sound':'Test input sound',onclick:()=>api.call('notify:test',kind).catch(e=>alert(e.message))})))),
     sec('updates', 'Updates', 'Relay downloads new versions in the background and installs them when you restart', null, upd));
   renderSetNav(); filterSettings();
   setSnap = JSON.stringify(collectSettings()); $('#setBar').hidden = true;
@@ -2438,6 +2456,7 @@ document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.
 
 QuickActions.mount({sid:()=>openSid, tab:showTab, session:openSession, newSession:()=>CMDS.find(c=>c.n==='new').run()});
 Themes.mount({api});
+ChatBackgrounds.mount();
 (async () => {
   window._initialLogScrollPending = true;
   Panels.mount($('#chat .ch-body'), () => ({ sid: openSid }));

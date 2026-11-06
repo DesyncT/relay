@@ -44,6 +44,27 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(output, label + '.png'), (await win.webContents.capturePage()).toPNG());
     console.log(label, JSON.stringify(metrics));
   }
+  const queueEditing = await win.webContents.executeJavaScript(`(async () => {
+    const input = document.querySelector('#input'); input.value = 'Unsent draft';
+    renderQueue([{id:'queued-edit-test',text:'Original queued message',files:[]}]);
+    document.querySelector('.q-edit').click();
+    const main = input.value === 'Original queued message' && document.activeElement === input && !document.querySelector('.q-editor');
+    input.value = 'Changed queued message';
+    document.querySelector('#cancelQueueEdit')?.click();
+    const restored = input.value === 'Unsent draft' && localStorage.getItem(draftKey(openSid)) === 'Unsent draft';
+    document.querySelector('.q-edit').click(); input.value = '/this stays text';
+    await sendChat();
+    const calls = await api.call('test:calls');
+    const saved = calls.some(c=>c[0]==='chat:queue-edit' && c[2]==='queued-edit-test' && c[3]==='/this stays text');
+    const draft = input.value === 'Unsent draft';
+    renderQueue([]); input.value = ''; grow();
+    return {main,restored,saved,draft};
+  })()`);
+  assert.deepEqual(queueEditing,{main:true,restored:true,saved:true,draft:true});
+  await win.webContents.executeJavaScript(`renderQueue([{id:'preview',text:'Make editing use the main message box',files:[]}]); document.querySelector('.q-edit').click();`);
+  fs.writeFileSync(path.join(output,'queue-composer-edit.png'),(await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`document.querySelector('#cancelQueueEdit').click(); renderQueue([]);`);
+
   await win.webContents.executeJavaScript(`document.querySelector('.msg.ask .opt').click()`);
   let calls = await win.webContents.executeJavaScript(`api.call('test:calls')`);
   assert.equal(calls.filter(c => c[0] === 'chat:send').at(-1)[2], 'Track orders');
@@ -307,6 +328,113 @@ app.whenReady().then(async () => {
   assert.match(modes.progress,/75%/);assert.equal(modes.legacyButtons,0);
   await win.webContents.executeJavaScript(`document.querySelector('[data-theme=graphite]').click();document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('on',s.id==='chat'));`);
   fs.writeFileSync(path.join(output,'code-easycode-modes.png'),(await win.webContents.capturePage()).toPNG());
+  const atmosphereUi=await win.webContents.executeJavaScript(`(()=>{
+    const tiles=[...document.querySelectorAll('.background-preset')];
+    const liquid=tiles.find(b=>b.dataset.effect==='liquid');liquid?.click();
+    const video=document.querySelector('#chatBackground video');
+    return {tiles:tiles.length>=8,selection:document.querySelector('#backgroundEffect').value==='liquid',preview:!!document.querySelector('#backgroundPreview'),interactive:!!document.querySelector('#backgroundInteractive'),video:!!video&&video.loop&&video.muted,upload:document.querySelector('#backgroundFile').accept.includes('video/webm')};
+  })()`);
+  assert.deepEqual(atmosphereUi,{tiles:true,selection:true,preview:true,interactive:true,video:true,upload:true});
+  const effectChecks = await win.webContents.executeJavaScript(`(async()=>{
+    const select=document.querySelector('#backgroundEffect');
+    if (!select) return {controls:false};
+    const checks=[];
+    for(const value of ['ascii','liquid','stars','grid','aurora']) {
+      select.value=value;select.dispatchEvent(new Event('change'));
+      await new Promise(r=>setTimeout(r,160));
+      const layer=document.querySelector('#chatBackground');
+      checks.push(document.documentElement.dataset.chatBackground===value && getComputedStyle(layer).pointerEvents==='none' && [...document.querySelectorAll('#log > .msg')].every(row=>getComputedStyle(row).backgroundColor==='rgba(0, 0, 0, 0)'));
+    }
+    const pause=document.querySelector('#backgroundPaused');pause.checked=true;pause.dispatchEvent(new Event('change'));
+    const saved=JSON.parse(localStorage.getItem('relay.background.v1'));
+    const input=document.querySelector('#input'); input.focus();
+    document.querySelector('#quickBtn').click(); document.querySelector('#quickActions').close();
+    await new Promise(r=>setTimeout(r,50));
+    const focus=document.activeElement===input;
+    select.value='off';select.dispatchEvent(new Event('change'));
+    return {controls:true,effects:checks.every(Boolean),paused:saved.paused,focus,off:document.querySelector('#chatBackground').hidden};
+  })()`);
+  assert.deepEqual(effectChecks,{controls:true,effects:true,paused:true,focus:true,off:true});
+  const pointerChecks=await win.webContents.executeJavaScript(`(()=>{
+    const effect=document.querySelector('#backgroundEffect');effect.value='grid';effect.dispatchEvent(new Event('change'));
+    const pause=document.querySelector('#backgroundPaused');pause.checked=false;pause.dispatchEvent(new Event('change'));
+    const scene=document.querySelector('.ch-main'),canvas=document.querySelector('#chatBackground canvas'),r=scene.getBoundingClientRect(),before=canvas.toDataURL();
+    const move=new PointerEvent('pointermove',{clientX:r.left+r.width*.9,clientY:r.top+r.height*.2,bubbles:true,cancelable:true});scene.dispatchEvent(move);
+    const moved=canvas.toDataURL()!==before;
+    pause.checked=true;pause.dispatchEvent(new Event('change'));const paused=canvas.toDataURL();scene.dispatchEvent(move);
+    return {moved,passive:!move.defaultPrevented,paused:canvas.toDataURL()===paused};
+  })()`);
+  assert.deepEqual(pointerChecks,{moved:true,passive:true,paused:true});
+  // Generated 1-second VP8 test pattern; excluded from packaged app by !test-* .
+  const videoFixture=fs.readFileSync(path.join(__dirname,'test-background.webm')).toString('base64');
+  const videoChecks=await win.webContents.executeJavaScript(`(async()=>{
+    const bytes=Uint8Array.from(atob('${videoFixture}'),c=>c.charCodeAt(0));
+    const transfer=new DataTransfer();transfer.items.add(new File([bytes],'loop.webm',{type:'video/webm'}));
+    const input=document.querySelector('#backgroundFile');input.files=transfer.files;await input.onchange();
+    const v=document.querySelector('#chatBackground video');await new Promise(r=>setTimeout(r,150));const uploaded=document.querySelector('#backgroundEffect').value==='video'&&v.loop&&v.muted&&v.videoWidth>0;
+    const saved=await new Promise((resolve,reject)=>{const r=indexedDB.open('relay-wallpapers',1);r.onerror=reject;r.onsuccess=()=>{const db=r.result,get=db.transaction('media').objectStore('media').get('video');get.onsuccess=()=>{resolve(get.result?.size>0);db.close();};};});
+    const pause=document.querySelector('#backgroundPaused');pause.checked=false;pause.dispatchEvent(new Event('change'));await new Promise(r=>setTimeout(r,150));const playing=!v.paused;
+    pause.checked=true;pause.dispatchEvent(new Event('change'));const paused=v.paused;
+    await document.querySelector('#backgroundRemove').onclick();
+    return {uploaded,saved,playing,paused,removed:!v.getAttribute('src')};
+  })()`);
+  assert.deepEqual(videoChecks,{uploaded:true,saved:true,playing:true,paused:true,removed:true});
+  const wallpaperChecks=await win.webContents.executeJavaScript(`(async()=>{
+    const file=document.querySelector('#backgroundFile'), select=document.querySelector('#backgroundEffect');
+    const canvas=document.createElement('canvas');canvas.width=2;canvas.height=2;canvas.getContext('2d').fillRect(0,0,2,2);
+    const blob=await new Promise(r=>canvas.toBlob(r));const transfer=new DataTransfer();transfer.items.add(new File([blob],'wallpaper.png',{type:'image/png'}));file.files=transfer.files;await file.onchange();
+    const saved=JSON.parse(localStorage.getItem('relay.background.v1'));
+    const uploaded=saved.effect==='wallpaper' && saved.image.startsWith('data:image/png;base64,');
+    const bad=new DataTransfer();bad.items.add(new File(['bad'],'bad.svg',{type:'image/svg+xml'}));file.files=bad.files;await file.onchange();
+    const rejected=document.querySelector('#backgroundStatus').textContent.includes('Choose a PNG');
+    document.querySelector('#backgroundRemove').click();
+    return {uploaded,rejected,removed:select.value==='off' && !JSON.parse(localStorage.getItem('relay.background.v1')).image};
+  })()`);
+  assert.deepEqual(wallpaperChecks,{uploaded:true,rejected:true,removed:true});
+  await win.webContents.executeJavaScript(`
+    document.querySelector('[data-theme=ocean]').click();
+    const select=document.querySelector('#backgroundEffect');select.value='ascii';select.dispatchEvent(new Event('change'));
+    const pause=document.querySelector('#backgroundPaused');pause.checked=false;pause.dispatchEvent(new Event('change'));
+    document.querySelector('#input').value=''; document.querySelector('#input').focus();
+  `);
+  await win.webContents.debugger.sendCommand('Input.insertText',{text:'Typing with an animated background'});
+  assert.equal(await win.webContents.executeJavaScript(`document.querySelector('#input').value`),'Typing with an animated background');
+  await new Promise(r=>setTimeout(r,200));
+  fs.writeFileSync(path.join(output,'chat-ascii-background.png'),(await win.webContents.capturePage()).toPNG());
+  const animation=await win.webContents.executeJavaScript(`(async()=>{const canvas=document.querySelector('#chatBackground canvas');const first=canvas.toDataURL();await new Promise(r=>setTimeout(r,200));const moves=canvas.toDataURL()!==first;document.querySelector('#backgroundPaused').click();const still=canvas.toDataURL();await new Promise(r=>setTimeout(r,150));return {moves,paused:canvas.toDataURL()===still};})()`);
+  assert.deepEqual(animation,{moves:true,paused:true});
+  await win.webContents.executeJavaScript(`{const liquidEffect=document.querySelector('#backgroundEffect');liquidEffect.value='liquid';liquidEffect.dispatchEvent(new Event('change'));document.querySelector('#backgroundPaused').click();}`);
+  await new Promise(r=>setTimeout(r,200));
+  fs.writeFileSync(path.join(output,'chat-liquid-background.png'),(await win.webContents.capturePage()).toPNG());
+
+  await win.webContents.executeJavaScript(`document.querySelector('#input').value='';grow();`);
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+  const reducedMotion=await win.webContents.executeJavaScript(`(async()=>{const canvas=document.querySelector('#chatBackground canvas');await new Promise(r=>setTimeout(r,100));const before=canvas.toDataURL();await new Promise(r=>setTimeout(r,150));return canvas.toDataURL()===before;})()`);
+  assert.equal(reducedMotion,true);
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[]});
+  await win.webContents.executeJavaScript(`showTab('themes');document.querySelector('main').scrollTop=0;`);
+  await new Promise(r=>setTimeout(r,200));
+  assert.ok(await win.webContents.executeJavaScript(`document.querySelector('.background-preset').getBoundingClientRect().height > 0`),'Background controls must be visible in Themes');
+  assert.equal(await win.webContents.executeJavaScript(`getComputedStyle(document.querySelector('#backgroundFile')).display`),'none');
+  fs.writeFileSync(path.join(output,'background-controls.png'),(await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`const effect=document.querySelector('#backgroundEffect');effect.value='off';effect.dispatchEvent(new Event('change'));showTab('chat');`);
+
+  const palettePolish = await win.webContents.executeJavaScript(`(async()=>{
+    const trigger=document.querySelector('#quickBtn'); trigger.click();
+    const d=document.querySelector('#quickActions'); const r=d.getBoundingClientRect();
+    d.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,clientX:r.left-8,clientY:r.top-8}));
+    d.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left-8,clientY:r.top-8}));
+    const outsideClosed=!d.open;
+    await QuickActions.open(); d.querySelector('input').click(); const insideOpen=d.open; d.close();
+    const themes=['forest','ember','ocean','porcelain'].every(id=>!!document.querySelector('.theme-choice[data-theme="'+id+'"]'));
+    return {plain:!trigger.querySelector('kbd'),outsideClosed,insideOpen,themes};
+  })()`);
+  assert.deepEqual(palettePolish,{plain:true,outsideClosed:true,insideOpen:true,themes:true});
+  await win.webContents.executeJavaScript(`document.querySelector('[data-theme=ocean]').click(); QuickActions.open();`);
+  await new Promise(resolve=>setTimeout(resolve,180));
+  fs.writeFileSync(path.join(output,'actions-polished.png'),(await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`document.querySelector('#quickActions').close(); document.querySelector('[data-theme=graphite]').click();`);
+
   const cli=await win.webContents.executeJavaScript(`(async()=>{
     AUTHST={codex:{installed:false,loggedIn:true,method:'chatgpt'}};
     const chip=authStatusEl('codex');document.body.append(chip);

@@ -48,7 +48,7 @@ window.QuickActions = (() => {
   async function open(next = 'commands') {
     if (next === 'find' && !chatOpen()) return;
     const token = ++generation; mode = next; selected = 0; sessions = []; input.value = '';
-    const title = mode === 'find' ? 'Find in chat' : mode === 'sessions' ? 'Switch session' : 'Command palette';
+    const title = mode === 'find' ? 'Find in chat' : mode === 'sessions' ? 'Switch session' : 'Actions';
     dialog.querySelector('h2').textContent = title; input.setAttribute('aria-label',title);
     input.placeholder = mode === 'find' ? 'Search message text…' : mode === 'sessions' ? 'Search sessions or projects…' : 'Search actions…';
     if (!dialog.open) dialog.showModal(); input.focus(); draw();
@@ -68,6 +68,21 @@ window.QuickActions = (() => {
     dialog = node('dialog',{id:'quickActions'}); dialog.setAttribute('aria-labelledby','quickTitle');
     const header = node('header'), title = node('h2',{id:'quickTitle'}), close = node('button',{type:'button',textContent:'Close'});
     close.onclick = ()=>dialog.close(); header.append(title,close);
+    dialog.addEventListener('close', () => {
+      // Native dialogs restore the Actions trigger, leaving typing outside the composer.
+      requestAnimationFrame(() => {
+        if (dialog.open || !chatOpen() || document.querySelector('dialog[open]')) return;
+        const active = document.activeElement;
+        if (!active || active === document.body || active.id === 'quickBtn' || dialog.contains(active)) document.querySelector('#input').focus({preventScroll:true});
+      });
+    });
+    const outside = event => {
+      const r = dialog.getBoundingClientRect();
+      return event.target === dialog && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom);
+    };
+    let backdropPress = false;
+    dialog.addEventListener('pointerdown', event => { backdropPress = outside(event); });
+    dialog.addEventListener('click', event => { if (backdropPress && outside(event)) dialog.close(); backdropPress = false; });
     input = node('input',{type:'search',autocomplete:'off',spellcheck:false});
     input.setAttribute('role','combobox'); input.setAttribute('aria-controls','quickResults'); input.setAttribute('aria-expanded','true'); input.setAttribute('aria-autocomplete','list');
     results = node('div',{id:'quickResults'}); results.setAttribute('role','listbox'); results.setAttribute('aria-label','Results');
@@ -84,7 +99,7 @@ window.QuickActions = (() => {
       const key = event.key.toLowerCase();
       if ((key==='p' && event.shiftKey) || (key==='k' && !event.shiftKey)) {event.preventDefault(); open(key==='k' ? 'sessions' : 'commands');}
       else if (key==='f' && chatOpen() && !event.shiftKey) {event.preventDefault(); open('find');}
-      else if (!dialog.open && !event.shiftKey && key==='l' && chatOpen()) {event.preventDefault(); document.querySelector('#input').focus();}
+      else if (!event.shiftKey && key==='l' && chatOpen()) {event.preventDefault(); if (dialog.open) dialog.close(); document.querySelector('#input').focus();}
       else if (!dialog.open && !event.shiftKey && key==='n' && ctx.sid()) {event.preventDefault(); Promise.resolve(ctx.newSession()).catch(error=>window.alert(error.message));}
     });
   }

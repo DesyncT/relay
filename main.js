@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage, Tray, Menu, Notification } = require('electron');
+const {createAlerts,canNotifyComplete}=require('./notifications');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +19,7 @@ const { fixMojibake } = require('./mojibake');
 const ACCESS_NOTE = 'Text is UTF-8. In Windows PowerShell set [Console]::OutputEncoding = [Text.Encoding]::UTF8 first, read files with -Encoding UTF8, and fetch web pages with curl.exe (Invoke-WebRequest misreads them). Never copy garbled characters like â€™ or Â· into messages, files or requirements: write the real ones (’ ·). Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
-{ const old = path.join(app.getPath('appData'), 'jarvis'); app.setPath('userData', !app.isPackaged ? path.join(app.getPath('appData'), 'Relay-dev') : require('fs').existsSync(old) ? old : path.join(app.getPath('appData'), 'Relay')); } // npm start gets its own data folder and instance lock so it runs beside the installed Relay; installs from before the rename keep their data folder
+{ const old = path.join(app.getPath('appData'), 'jarvis'); app.setPath('userData', !app.isPackaged ? (process.env.RELAY_TEST_DATA_DIR || path.join(app.getPath('appData'), 'Relay-dev')) : require('fs').existsSync(old) ? old : path.join(app.getPath('appData'), 'Relay')); } // npm start gets its own data folder and instance lock so it runs beside the installed Relay; installs from before the rename keep their data folder
 
 const HOME = os.homedir();
 const DATA = app.getPath('userData');
@@ -428,43 +429,24 @@ try {
   if (fs.existsSync(p)) questionBadge = nativeImage.createFromPath(p);
 } catch {}
 
-function notifyQuestion({ from, text, sid }) {
-  try {
-    if (Notification && Notification.isSupported()) {
-      const who = from ? (from.charAt(0).toUpperCase() + from.slice(1)) : 'Agent';
-      const clean = String(text || 'Needs your input to continue').replace(/\[ask-user[!:\s\S]*?\]/gi, '').trim().slice(0, 160);
-      const n = new Notification({
-        title: `${who} has a question`,
-        body: clean || 'Needs your input to continue',
-        icon: path.join(__dirname, 'assets', 'relay.ico'),
-      });
-      n.on('click', () => {
-        showApp();
-        clearQuestionAlert();
-      });
-      n.show();
-    }
-  } catch {}
-  for (const w of BrowserWindow.getAllWindows()) {
-    try {
-      w.flashFrame(true);
-      if (process.platform === 'win32' && questionBadge && !questionBadge.isEmpty()) {
-        w.setOverlayIcon(questionBadge, 'Question pending');
-      }
-    } catch {}
-  }
-}
-
-function clearQuestionAlert() {
-  for (const w of BrowserWindow.getAllWindows()) {
-    try {
-      w.flashFrame(false);
-      if (process.platform === 'win32') {
-        w.setOverlayIcon(null, '');
-      }
-    } catch {}
-  }
-}
+const alerts=createAlerts({
+  windows:()=>BrowserWindow.getAllWindows(),Notification,
+  badges:{question:questionBadge,complete:nativeImage.createFromPath(path.join(__dirname,'assets','complete-badge.png'))},
+  icon:path.join(__dirname,'assets','relay.ico'),
+  playSound(kind) {
+    if(process.platform!=='win32')return shell.beep();
+    // .NET cannot read inside Electron's ASAR archive; stage the tiny WAV locally.
+    const name=kind==='question'?'question.wav':'complete.wav';
+    const soundDir=path.join(DATA,'sounds');fs.mkdirSync(soundDir,{recursive:true});
+    const soundPath=path.join(soundDir,name);fs.copyFileSync(path.join(__dirname,'assets',name),soundPath);
+    const wav=soundPath.replace(/'/g,"''");
+    const player=spawn('powershell.exe',['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-Command',`$p=New-Object System.Media.SoundPlayer '${wav}'; $p.PlaySync()`],{windowsHide:true,stdio:'ignore'});
+    player.on('error',()=>shell.beep());player.unref();
+  },
+  openSession(sid){showApp();if(sid)send('notify:openSession',{sid});},
+});
+function notifyQuestion(data){alerts.notify('question',data);}
+function clearQuestionAlert(){alerts.clear();}
 
 function post(sid, from, text, replyTo, attachments, extra) {
   text = fixMojibake(text);
@@ -512,7 +494,7 @@ async function ask(sid, who, trigger, isLead) {
         if (ep === rt.epoch && !rt.paused) post(sid,who,text,null,null,{progress:true});
       }});
       if (ep !== rt.epoch) return {next:[]};
-      const asked=easyModeOn(sid)?parseTurn(result.text,result.prov || who):null, from=result.prov || who;
+      const asked=(easyModeOn(sid)||/\[ask-user/i.test(result.text))?parseTurn(result.text,result.prov || who):null, from=result.prov || who;
       const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,null,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(asked?.askUser && {askUser:true,options:asked.options || []})});
       if (result.usage) send('agent:usage',{sid,who,...result.usage});
       return {next:[],msg,ended:true};
@@ -535,6 +517,7 @@ ipcMain.handle('skills:inUse', (_e, sid) => ({ forced: readText(RULE_FILES.force
 
 // ---- Auto mode: a plain [ask-user] is answered by two cheap, independent, read-only voters; the user only hears about it if they disagree or fail ----
 function enqueue(sid, who, trigger, after, lead, options = {}) {
+  if(quitting) return;
   const lane = RT(sid).lanes[who];
   // Once the user has queued another prompt, don't schedule another agent follow-up;
   // the user queue drains as soon as every active lane settles.
@@ -545,11 +528,12 @@ function enqueue(sid, who, trigger, after, lead, options = {}) {
 }
 
 // Crash/close safety: which agents were working and the wrap-up state live on the session, so a restart picks the work back up.
+let restoringSessions = true; // Startup queue reads wait until interrupted runs are restored.
 let quitting = false; // quitting kills runs; don't let those kills erase the saved state
 function saveResume(sid) {
-  if (quitting) return;
+  if (quitting || restoringSessions) return;
   const rt = RT(sid), who = AGENT_NAMES.filter((a) => rt.lanes[a].busy || rt.lanes[a].next);
-  try { store.updateSession(sid, { resume: who.length ? { who, wrapping: !!rt.wrapping, requests: rt.requests || [], reviewRequestAt: rt.reviewRequestAt || null, building: !!rt.building, by: rt.restartBy || null, restarts: rt.restarts || 0 } : null }); } catch {}
+  try { store.updateSession(sid, { resume: (who.length || rt.selectionTrigger) ? { who, selectionTrigger:rt.selectionTrigger || null, wrapping: !!rt.wrapping, requests: rt.requests || [], reviewRequestAt: rt.reviewRequestAt || null, building: !!rt.building, by: rt.restartBy || null, restarts: rt.restarts || 0 } : null }); } catch {}
 }
 const isRelay = (sid) => path.resolve(cwdFor(sid)) === path.resolve(__dirname);
 // Planned restart: save every chat's working state, relaunch, and resumeSessions() picks it all back up
@@ -562,6 +546,7 @@ function restartRelay(by) {
   setTimeout(() => { app.relaunch(); app.quit(); }, 800);
 }
 async function resumeSessions() {
+  try {
   for (const meta of store.listSessions()) {
     const s = sessOf(meta.id), r = s?.resume, wasSupercode = !!s?.supercode;
     if (s && !s.legacyWorkflowCleaned) {
@@ -570,14 +555,19 @@ async function resumeSessions() {
       else store.updateSession(s.id, { legacyWorkflowCleaned:true, easyMode:s.easyMode ?? wasSupercode, supercode:false, easycode:null, easycodeArchive:[], ...(s.reqs?.assignments && {reqs:null}), ...(s.supercode && {resume:null}) });
       if (wasSupercode) continue;
     }
+    if (r?.selectionTrigger) { enqueueSpreader(s.id,r.selectionTrigger); continue; }
     if (!r?.who?.length) continue;
     const rt = RT(s.id);
-    Object.assign(rt, { wrapping: r.wrapping, requests: r.requests, reviewRequest: r.requests.join('\n\n'), reviewRequestAt: r.reviewRequestAt, building: r.building, restarts: r.restarts || 0 });
+    Object.assign(rt, { wrapping: r.wrapping, requests: r.requests || [], reviewRequest: (r.requests || []).join('\n\n'), reviewRequestAt: r.reviewRequestAt, building: r.building, restarts: r.restarts || 0 });
     const names = r.who.map((w) => '@' + w).join(' and ');
     const note = post(s.id, 'system', r.by
       ? `Relay restarted${r.by === 'you' ? '' : ` for ${r.by}`} and is now running the latest code. ${names}: check that the changes really work now, tell your teammate what you see, then continue.`
       : `Relay closed while ${names} ${r.who.length > 1 ? 'were' : 'was'} working. Pick up where you left off: check the files for edits you already made, tell your teammate where you are, then continue.`, null, null, { muted: true });
-    for (const who of r.who) enqueue(s.id, who, note, null, false, { resume:true });
+    for (const who of r.who.filter(w=>AGENT_NAMES.includes(w))) enqueue(s.id, who, note, null, false, { resume:true });
+  }
+  } finally {
+    restoringSessions=false;
+    for(const meta of store.listSessions()) drainUserQueue(meta.id);
   }
 }
 
@@ -667,6 +657,7 @@ ipcMain.handle('sessions:working', () => workingIds());
 async function pump(sid, who) {
   // Supercode chats run until the user says "wrap up" (or the team goes idle); a single agent keeps the maxTurns cap
   const rt = RT(sid), lane = rt.lanes[who], ep = rt.epoch, max = supercodeOn(sid) ? Infinity : Math.max(1, +settings.maxTurns || 4);
+  let completed=null;
   lane.busy = true; sendWorking(); saveResume(sid); // saved as it starts: closing Relay mid-turn still knows who was working
   while (lane.next && ep === rt.epoch) {
     const { trigger, after, lead } = lane.next; lane.next = null;
@@ -678,6 +669,7 @@ async function pump(sid, who) {
     rt.turns++;
     // a bug inside ask() must never silently lock this lane: report it and move on
     const { next, msg, ended } = await ask(sid, who, trigger, lead).catch((e) => { post(sid, 'system', `${who} failed: ${String(e?.message || e).slice(0, 300)}`, null, null, { failure: formatFailureInfo(e?.message || String(e), who) }); return { next: [] }; });
+    completed=msg || null;
     if (ep !== rt.epoch) break;
     if (rt.awaiting) {
       for (const l of Object.values(rt.lanes)) l.next = null;
@@ -688,6 +680,7 @@ async function pump(sid, who) {
   }
   lane.busy = false; saveResume(sid); sendWorking();
   drainUserQueue(sid);
+  if(canNotifyComplete({msg:completed,busy:chatBusy(sid),queued:!!userQueues.get(sid)?.length,cancelled:ep!==rt.epoch || rt.paused || quitting})) alerts.notify('complete',{sid,from:completed.from,text:completed.text});
 }
 
 // Reading ~600 MB of CLI logs took 5s+ on the UI thread and froze Relay ("not responding"): scan in a worker thread,
@@ -798,7 +791,7 @@ const drainingUserQueue = new Set();
 const queueUpdate = (sid) => send('chat:queue', { sid, items: (userQueues.get(sid) || []) });
 const chatBusy = (sid) => RT(sid).selecting || Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive);
 function drainUserQueue(sid) {
-  if (drainingUserQueue.has(sid)) return;
+  if (quitting || restoringSessions || drainingUserQueue.has(sid)) return;
   const q = userQueues.get(sid);
   if (!q?.length || chatBusy(sid)) return;
   // Dispatch starts lanes synchronously; lock the dequeue so parallel lane completions can't
@@ -825,10 +818,10 @@ async function spreadTo(sid) {
   return p;
 }
 function enqueueSpreader(sid,trigger) {
-  const rt=RT(sid), epoch=rt.epoch; rt.selecting=true; sendWorking();
-  return spreadTo(sid).then(p=>{if (rt.epoch===epoch) enqueue(sid,p,trigger,null,true,{user:true});})
+  const rt=RT(sid), epoch=rt.epoch; rt.selecting=true; rt.selectionTrigger=trigger; saveResume(sid); sendWorking();
+  return spreadTo(sid).then(p=>{if (!quitting && rt.epoch===epoch) enqueue(sid,p,trigger,null,true,{user:true});})
         .catch(error=>{if(rt.epoch===epoch)post(sid,'system','Could not select a provider.',null,null,{failure:formatFailureInfo(error.message,'spreader')});})
-        .finally(()=>{if(rt.epoch===epoch){rt.selecting=false;sendWorking();drainUserQueue(sid);}});
+        .finally(()=>{if(rt.epoch===epoch){rt.selecting=false;rt.selectionTrigger=null;saveResume(sid);sendWorking();drainUserQueue(sid);}});
 }
 function dispatchUser(sid, { text, files, reply }) {
   const sess = store.getSession(sid), rt = RT(sid); // throws on an unknown session
@@ -879,6 +872,10 @@ ipcMain.handle('chat:queue-interrupt-send', (_e, sid, id) => {
   drainUserQueue(sid); // waits until active lane promises unwind
   return true;
 });
+ipcMain.handle('notify:test', (_e,kind) => {
+  if(!['question','complete'].includes(kind))throw new Error('Unknown alert');
+  alerts.notify(kind,{from:'Relay',text:kind==='question'?'This is the input-request chime.':'This is the completion chime.'});
+});
 ipcMain.handle('notify:clearQuestion', () => {
   clearQuestionAlert();
   return true;
@@ -890,7 +887,7 @@ ipcMain.handle('chat:send', (_e, sid, text, attachments = [], options = {}) => {
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
   const item = { text, files, reply: target ? ref(target) : null };
   const instant = !files.length && (conversationReply(text) !== null);
-  if (!instant && options.queue !== false && (chatBusy(sid) || userQueues.get(sid).length)) {
+  if (quitting || restoringSessions || (!instant && options.queue !== false && (chatBusy(sid) || userQueues.get(sid).length))) {
     const q = userQueues.get(sid) || []; q.push({ ...item, id: 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), queuedAt: Date.now() }); userQueues.set(sid, q); queueUpdate(sid);
     drainUserQueue(sid);
     return { queued: true };
@@ -944,10 +941,12 @@ ipcMain.handle('chat:stop', (_e, sid) => {
 });
 
 function interruptSession(sid, rt = RT(sid)) {
-  rt.epoch++; rt.selecting=false;
+  rt.epoch++; rt.selecting=false; rt.selectionTrigger=null;
   for (const l of Object.values(rt.lanes)) l.next = null;
   for (const p of procs.values()) if (p.sid === sid) killProc(p,true);
   stopSubs(sid);
+  if(restoringSessions) { try { store.updateSession(sid,{resume:null}); } catch {} }
+  else saveResume(sid);
 }
 
 require('./plugins').register(ipcMain, { shell, HOME, cwdFor, cmds: () => ({ claude: settings.claudeCmd, codex: settings.codexCmd }) });
@@ -1036,6 +1035,7 @@ function createWindow() {
   });
   // closing the last window hides Relay to the tray (agents keep working); the tray's Exit quits for real
   w.on('close', (e) => { if (!quitting && tray && BrowserWindow.getAllWindows().every((x) => x === w || x.isDestroyed())) { e.preventDefault(); w.hide(); } });
+  if(process.env.RELAY_TEST_DATA_DIR && !app.isPackaged) { w.on('page-title-updated',e=>e.preventDefault()); w.setTitle('Relay - Test'); }
   w.setMenuBarVisibility(false);
   w.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   // the app window only ever shows index.html; the Browser panel's <webview> gets no preload and no node
