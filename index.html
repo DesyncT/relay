@@ -595,9 +595,7 @@
   <button data-tab="usage" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 4 3 5-6"/></svg>Usage</button>
   <button data-tab="agents"><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Subagents</button>
   <button data-tab="rules"><svg class="i" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>Rules</button>
-  <button data-tab="skills"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16v4M17 18h4"/></svg>Skills</button>
   <button data-tab="settings"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg>Settings</button>
-  <button data-tab="themes"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg>Themes</button>
   <div id="sidebar"></div>
   <div class="foot" id="navFoot"><span id="navStats"></span><button id="updPill" hidden></button></div>
 </nav>
@@ -737,9 +735,18 @@ const speakerColor = (from) => from.startsWith('claude') ? 'var(--claude)' : fro
 const flash = (node) => { node.textContent = 'Saved'; setTimeout(() => node.textContent = '', 1500); };
 
 // tabs
+// Fewer sidebar tabs: Skills lives with Rules, Themes with Settings. One switcher above the page flips between the pair.
+const TAB_HOME = { skills: 'rules', themes: 'settings' }, TAB_PAIRS = [['rules', 'Rules'], ['skills', 'Skills']], TAB_PAIRS2 = [['settings', 'Settings'], ['themes', 'Themes']];
+function renderTabPair(t) {
+  const pair = [TAB_PAIRS, TAB_PAIRS2].find((p) => p.some((x) => x[0] === t)); let box = $('#tabpair');
+  if (!box) { box = el('div', { id: 'tabpair', className: 'tabpair' }); $('main').prepend(box); }
+  box.hidden = !pair; if (!pair) return;
+  box.replaceChildren(...pair.map(([id, name]) => { const b = el('button', { type: 'button', className: id === t ? 'on' : '', textContent: name }); b.onclick = () => { showTab(id); window.Titlebar?.setTitle?.(name); }; return b; }));
+}
 const showTab = (t) => {
   document.querySelectorAll('nav button, main > section').forEach((x) => x.classList.remove('on'));
-  document.querySelector(`nav button[data-tab="${t}"]`)?.classList.add('on'); $("#" + t).classList.add('on');
+  document.querySelector(`nav button[data-tab="${TAB_HOME[t] || t}"]`)?.classList.add('on'); $("#" + t).classList.add('on');
+  renderTabPair(t);
   if (t === 'chat' && typeof refreshCfg === 'function') { refreshCfg(); renderChips(); }
   if (t === 'chat') scrollLogToBottom();
   if (t === 'skills') { SkillsUI.init({ api, getSid: () => openSid }); SkillsUI.show(); }
@@ -1567,9 +1574,10 @@ async function addFiles(files) {
 }
 async function sendChat(pick, interrupt = false) { // pick: an option button's label, sent as-is without touching the draft
   if (queueEdit && pick == null) return saveQueueEdit();
-  const text = pick ?? $('#input').value.trim();
+  let text = pick ?? $('#input').value.trim();
+  const skillMsg = pick == null ? skillOf(text) : null; if (skillMsg) text = skillMsg; // /skill-name <task> goes to the agent
   if (!text && !pend.length) return;
-  if (pick == null && !pend.length && /^\/[a-z]+(\s|$)/i.test(text)) { $('#input').value = ''; grow(); $('#slash').hidden = true; saveDraft(); return runSlash(text); }
+  if (!skillMsg && pick == null && !pend.length && /^\/[a-z]+(\s|$)/i.test(text)) { $('#input').value = ''; grow(); $('#slash').hidden = true; saveDraft(); return runSlash(text); }
   if (!openSid) return;
   const sid = openSid, reply = pick ? null : replying;
   const files = pick ? [] : pend;
@@ -1692,11 +1700,14 @@ function runSlash(text) {
   if (!openSid) return card('Open a session first.');
   return c.run(m[2].trim());
 }
-let slashSel = 0, slashList = [];
+let slashSel = 0, slashList = [], skillCmds = [], skillsFor = null;
+// Installed skills and plugin skills join the slash menu; they go to the agent as a normal message.
+async function loadSkillCmds() { if (skillsFor === openSid) return; skillsFor = openSid; try { skillCmds = (await api.call('skills:list', openSid)).filter((n) => !CMDS.some((c) => c.n === n)).map((n) => ({ n, a: '<task>', d: 'Skill', skill: true })); } catch { skillCmds = []; } }
+const skillOf = (text) => { const m = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text), c = m && skillCmds.find((x) => x.n === m[1]); return c ? `Use the ${c.n} skill.${m[2].trim() ? ' ' + m[2].trim() : ''}` : null; };
 function renderSlash() {
-  const m = /^\/(\w*)$/.exec($('#input').value), box = $('#slash');
+  const m = /^\/([\w-]*)$/.exec($('#input').value), box = $('#slash'); if (m) loadSkillCmds().then(() => { if (/^\/([\w-]*)$/.test($('#input').value) && !slashList.length) renderSlash(); });
   if (!m && box.hidden) { slashList = []; return; }
-  slashList = m ? CMDS.filter((c) => c.n.startsWith(m[1].toLowerCase())) : [];
+  slashList = m ? [...CMDS, ...skillCmds].filter((c) => c.n.toLowerCase().startsWith(m[1].toLowerCase())) : [];
   box.hidden = !slashList.length;
   if (box.hidden) return;
   slashSel = Math.min(slashSel, slashList.length - 1);
@@ -1746,12 +1757,20 @@ function renderTyping() {
   const jobs = reqJobs(reqsNow), sep = () => el('span', { textContent: '·' });
   const rows = [...Object.keys(act).filter((w) => !jobs.some((j) => j.who === w && !j.model)).map((w) => ({ who:w, ...act[w], text:` is ${act[w].status}` })), ...jobs.map((j) => ({ ...j, job:true }))];
   $('#reqbar').classList.toggle('working', rows.length > 0); // live shimmer on the progress bar while agents run
-  if (!rows.length) { const busy = $('#busy'); if (busy.hasChildNodes()) busy.replaceChildren(); return; }
-  const dots = el('span', { className: 'dots', style: `color:${nameColor(rows[0].who)}` }, el('i'), el('i'), el('i'));
+  const busy = $('#busy'), signature = JSON.stringify([openSid, rows]);
+  if (busy.dataset.signature === signature) {
+    for (const timer of busy.querySelectorAll('.busy-time')) timer.textContent = dur(Date.now() - Number(timer.dataset.since));
+    return;
+  }
+  busy.dataset.signature = signature;
+  if (!rows.length) { if (busy.hasChildNodes()) busy.replaceChildren(); return; }
+  const dots = el('span', { className: 'cc-spin' }); // Claude Code style glyph spinner (CSS-animated)
+  dots.setAttribute('aria-hidden','true');
   const nm = (w) => el('b', { textContent: w, style: `color:${nameColor(w)}` });
-  if (rows.length > 1 && rows.every((x) => x.status === 'typing')) return $('#busy').replaceChildren(dots, ...rows.flatMap((x, i) => [...(i ? [i === rows.length - 1 ? ' and ' : ', '] : []), nm(x.who)]), ' are typing…');
-  $('#busy').replaceChildren(dots, ...rows.flatMap((x, i) => [...(i ? [sep()] : []), avatar(x.who, 1, null, modelProvider(x.model)), nm(x.who), ...(x.model ? [RoutingUI.badge(x.model, x.effort)] : []),
-    x.job ? el('span', { className: 'rq-think', textContent: x.text }) : x.text, ...(x.since ? [el('span', { className: 'mono', textContent: dur(Date.now() - x.since) })] : [])]));
+  const timer = (since) => { const t = el('span',{className:'mono busy-time',textContent:dur(Date.now() - since)}); t.dataset.since = since; return t; };
+  if (rows.length > 1 && rows.every((x) => x.status === 'typing')) return busy.replaceChildren(dots, ...rows.flatMap((x, i) => [...(i ? [i === rows.length - 1 ? ' and ' : ', '] : []), nm(x.who)]), el('span',{className:'rq-think',textContent:'are typing…'}));
+  $('#busy').replaceChildren(dots, ...rows.flatMap((x, i) => [...(i ? [sep()] : []), el('span',{className:'busy-logo',style:`--c:${nameColor(x.who)}`,innerHTML:logo((modelProvider(x.model)||x.who)==='codex'?'openai':(modelProvider(x.model)||x.who),15,nameColor(x.who))}), nm(x.who), ...(x.model ? [RoutingUI.badge(x.model, x.effort)] : []),
+    el('span', { className: 'rq-think', textContent: x.text }), ...(x.since ? [timer(x.since)] : [])]));
 }
 // Progress follows the agent's own todo list.
 function renderReqs(r) {

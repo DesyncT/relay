@@ -25,10 +25,11 @@ nav > button[data-tab].on { background:var(--raised); color:var(--text); box-sha
 .sb .sb-title { display:block; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:20px; }
 .sb .sb-row .sb-title, .sb .sb-row .sb-edit { grid-column:2; grid-row:1; }
 .sb .sb-row .sb-more { position:static; grid-column:4; grid-row:1; width:24px; height:24px; margin:0; }
-.sb .sb-row :is(.sb-dot,.sb-spin),
-.sb .sb-row:hover :is(.sb-dot,.sb-spin),
-.sb .sb-row:focus-within :is(.sb-dot,.sb-spin) { position:relative; grid-column:3; grid-row:1; margin:0; opacity:1; }
+.sb .sb-row :is(.sb-dot,.sb-qdot,.sb-spin),
+.sb .sb-row:hover :is(.sb-dot,.sb-qdot,.sb-spin),
+.sb .sb-row:focus-within :is(.sb-dot,.sb-qdot,.sb-spin) { position:relative; grid-column:3; grid-row:1; margin:0; opacity:1; }
 .sb .sb-dot { width:4px; height:4px; justify-self:center; background:var(--claude); }
+.sb .sb-qdot { width:6px; height:6px; justify-self:center; margin:0; }
 .sb .sb-spin { width:12px; height:12px; }
 .sb .sb-hit { padding:8px 12px; gap:4px; }
 .sb .sb-hit .sb-title { flex:none; }
@@ -37,8 +38,7 @@ nav > button[data-tab].on { background:var(--raised); color:var(--text); box-sha
 .sb .sb-show { height:32px; line-height:32px; padding:0 28px; }
 .sb .sb-search { gap:12px; }
 .sb .sb-q { height:36px; padding:0 12px; font-size:13px; }
-.sb .sb-menu { animation:none; box-shadow:none; }
-.sb .sb-in, .sb .sb-new { animation:none; }
+.sb .sb-menu { box-shadow:none; }
 .sb .sb-dot::after { display:none; }
 nav > button[data-tab]:focus-visible,
 .sb :is(.sb-act,.sb-row,.sb-group-h,.sb-hit,.sb-more,.sb-mi,.sb-show,.sb-q,.sb-edit):focus-visible {

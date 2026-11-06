@@ -47,4 +47,4 @@ function sync(dataDir) {
   return (dir = plug);
 }
 
-module.exports = { sync };
+module.exports = { sync, claudeSkills };

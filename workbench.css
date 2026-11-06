@@ -483,16 +483,32 @@ html body #chat.on .ch-head #quota { gap:12px; order:0; }
   #busy .status-loader circle { animation:none; opacity:.6; }
 }
 
-/* Agent activity line: a prominent card under the latest message, with a shine sweep and a soft pulse. */
-.ch-main > #busy:not(:empty) { position:relative; overflow:hidden; margin:8px 16px 4px; padding:10px 16px; min-height:44px; gap:10px; font-size:15px; line-height:24px; color:var(--text-2); background:color-mix(in srgb,var(--claude) 8%,var(--card)); border:1px solid color-mix(in srgb,var(--claude) 45%,var(--line)); border-radius:12px; box-shadow:0 0 0 0 color-mix(in srgb,var(--claude) 30%,transparent); }
-.ch-main > #busy:not(:empty) b { font-size:16px; }
-.ch-main > #busy:not(:empty) .status-loader, .ch-main > #busy:not(:empty) .status-loader svg { width:28px; height:28px; color:var(--claude); }
+/* Agent activity line: spinner, a tinted provider tile, name, model chip, shimmering status and a quiet timer pill. */
+.ch-main > #busy:not(:empty) { margin:0 16px; padding:8px 20px; min-height:40px; gap:8px; font-size:14px; }
+.ch-main > #busy:not(:empty) b { font-size:14px; font-weight:600; letter-spacing:.01em; }
+.ch-main > #busy:not(:empty) .busy-logo { display:inline-flex; align-items:center; flex:none; }
+.ch-main > #busy:not(:empty) .busy-time { margin-left:4px; padding:1px 8px; border-radius:999px; background:var(--raised); color:var(--text-2); font-size:12px; line-height:18px; }
 .ch-main > #busy:not(:empty) .rq-think { font-weight:500; }
-.ch-main > #busy:not(:empty) .busy-time { margin-left:auto; color:var(--text-2); font-size:13px; }
-.ch-main > #busy:not(:empty)::after { content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(100deg,transparent 30%,color-mix(in srgb,var(--claude) 22%,transparent) 50%,transparent 70%); transform:translateX(-100%); }
-@media (prefers-reduced-motion:no-preference) {
-  .ch-main > #busy:not(:empty) { animation:busyPulse 2.4s ease-in-out infinite; }
-  .ch-main > #busy:not(:empty)::after { animation:busyShine 2.8s ease-in-out infinite; }
-}
-@keyframes busyShine { to { transform:translateX(100%); } }
-@keyframes busyPulse { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb,var(--claude) 28%,transparent); } 50% { box-shadow:0 0 14px 2px color-mix(in srgb,var(--claude) 28%,transparent); } }
+#busy .cc-spin { flex:none; width:20px; text-align:center; color:var(--claude); font:18px/1 var(--mono); }
+#busy .cc-spin::before { content:'\00b7'; }
+@media (prefers-reduced-motion:no-preference) { #busy .cc-spin::before { animation:ccSpin 1.2s steps(1) infinite; } }
+@keyframes ccSpin { 0% { content:'·'; } 16% { content:'✢'; } 33% { content:'✳'; } 50% { content:'✶'; } 66% { content:'✻'; } 83% { content:'✽'; } }
+
+/* Spend strip follows the theme like the composer it sits on. */
+#chat.on #spend { background:var(--card); }
+
+/* Status shine: a bright, narrow highlight that clearly travels across the text. */
+.ch-main > #busy:not(:empty) .rq-think { background-image:linear-gradient(100deg,var(--muted) 38%,#fff 50%,var(--muted) 62%); background-size:260% 100%; animation-duration:1.9s; }
+
+/* Paired tabs (Rules/Skills, Settings/Themes) share one switcher above the page. */
+.tabpair { display:flex; gap:2px; width:max-content; margin:0 0 16px; padding:2px; border-radius:10px; background:var(--card); box-shadow:inset 0 0 0 1px var(--line); }
+.tabpair[hidden] { display:none; }
+.tabpair button { all:unset; box-sizing:border-box; height:28px; padding:0 14px; border-radius:8px; color:var(--text-2); font-size:13px; line-height:28px; cursor:pointer; }
+.tabpair button:hover { color:var(--text); }
+.tabpair button.on { background:var(--raised); color:var(--text); }
+.tabpair button:focus-visible { outline:2px solid var(--claude); outline-offset:1px; }
+/* Attachment strip: room above and right of the tiles so the remove button isn't clipped by the scroll container. */
+#pend { padding:12px 16px 10px 12px; }
+.tile .x { top:-8px; right:-8px; width:22px; height:22px; background:var(--raised); box-shadow:0 1px 4px rgba(0,0,0,.4); }
+.tile .x:hover { background:var(--deep); }
+.tile .x:focus-visible { outline:2px solid var(--claude); outline-offset:1px; }

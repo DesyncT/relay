@@ -61,6 +61,34 @@ app.whenReady().then(async () => {
     return {main,restored,saved,draft};
   })()`);
   assert.deepEqual(queueEditing,{main:true,restored:true,saved:true,draft:true});
+  const motion = await win.webContents.executeJavaScript(`(() => {
+    window.motionPrevious = {act,reqsNow,spendTotals,spendLedger};
+    reqsNow = null;
+    act = {claude:{status:'thinking',since:Date.now()-20000},codex:{status:'typing',since:Date.now()-10000}};
+    spendTotals = {claude:{tokens:394800,cost:.34},codex:{tokens:2100000,cost:.72}};
+    renderTyping(); renderSpend();
+    const loader = document.querySelector('#busy .cc-spin'), shimmer = document.querySelector('#busy .rq-think');
+    const timer = document.querySelector('#busy .busy-time'), before = timer.textContent;
+    timer.dataset.since = Number(timer.dataset.since)-2000;
+    renderTyping();
+    return {dots:getComputedStyle(loader,'::before').animationName,stable:loader === document.querySelector('#busy .cc-spin') && shimmer === document.querySelector('#busy .rq-think'),timerUpdated:timer.textContent !== before,shine:getComputedStyle(shimmer).animationName,
+      iconsAligned:[...document.querySelectorAll('#spend .sp')].every(e=>{const icon=e.querySelector('svg').getBoundingClientRect(),text=e.querySelector('b').getBoundingClientRect();return Math.abs((icon.top+icon.bottom-text.top-text.bottom)/2)<1;})};
+  })()`);
+  assert.equal(motion.dots,'ccSpin'); assert.equal(motion.stable,true); assert.equal(motion.timerUpdated,true); assert.equal(motion.shine,'rqThink'); assert.equal(motion.iconsAligned,true);
+  for (const width of [1280,860]) {
+    win.setSize(width,900);
+    await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    fs.writeFileSync(path.join(output,'thinking-motion-'+width+'.png'),(await win.webContents.capturePage()).toPNG());
+  }
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+  const reducedStatusMotion = await win.webContents.executeJavaScript(`(() => {
+    const shine=getComputedStyle(document.querySelector('#busy .rq-think')),dot=getComputedStyle(document.querySelector('#busy .cc-spin'),'::before');
+    return {shine:shine.animationName,dot:dot.animationName,readable:shine.color !== 'rgba(0, 0, 0, 0)'};
+  })()`);
+  assert.deepEqual(reducedStatusMotion,{shine:'none',dot:'none',readable:true});
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[]});
+  await win.webContents.executeJavaScript('({act,reqsNow,spendTotals,spendLedger}=window.motionPrevious); delete window.motionPrevious; renderTyping(); renderSpend();');
+  console.log('Thinking shimmer, persistent loader, provider alignment and reduced motion passed');
   const queueImages = await win.webContents.executeJavaScript(`(async () => {
     const original = {name:'existing.png',path:'existing.png',size:10};
     renderQueue([{id:'queue-images',text:'',files:[original]}]);

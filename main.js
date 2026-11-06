@@ -14,7 +14,7 @@ const registerPanels = require('./panels-main');
 const models = require('./models');
 const { providerArgs } = require('./permissions');
 const { normalPrompt, createProgressStream } = require('./normal-code');
-const { pickProvider } = require('./spreader');
+const { pickProvider, balanceFor, canKeepBalance } = require('./spreader');
 const { fixMojibake } = require('./mojibake');
 const ACCESS_NOTE = 'Text is UTF-8. In Windows PowerShell set [Console]::OutputEncoding = [Text.Encoding]::UTF8 first, read files with -Encoding UTF8, and fetch web pages with curl.exe (Invoke-WebRequest misreads them). Never copy garbled characters like â€™ or Â· into messages, files or requirements: write the real ones (’ ·). Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
@@ -404,7 +404,7 @@ const forcedLine = () => { const n = readText(RULE_FILES.forced).split(/\r?\n/).
 // Installed skill names: folders in ~/.claude/skills and <project>/.claude/skills
 ipcMain.handle('skills:list', (_e, sid) => {
   const names = new Set();
-  for (const d of [path.join(HOME, '.claude', 'skills'), path.join(cwdFor(sid), '.claude', 'skills')]) {
+  for (const d of [path.join(HOME, '.claude', 'skills'), path.join(HOME, '.agents', 'skills'), path.join(cwdFor(sid), '.claude', 'skills')]) {
     try { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.isDirectory() || e.isSymbolicLink()) names.add(e.name); } catch {}
   }
   return [...names].sort();
@@ -816,11 +816,14 @@ const SPREAD_ASK = 'Before changing anything, check the request is clear. If a m
 async function spreadTo(sid) {
   const sess = sessOf(sid), avail = AGENT_NAMES.filter((p) => !isDown(p));
   const prev = sess?.messages?.findLast((x) => AGENT_NAMES.includes(x.from));
-  // An answer goes back to the agent that asked the question, so it keeps its context.
-  if (prev?.askUser && avail.includes(prev.from)) return prev.from;
   const quota = await require('./quota').readQuota().catch(() => ({}));
-  const p = pickProvider(quota, avail, sess?.spreadLast) || 'claude';
-  try { store.updateSession(sid, { spreadLast: p }); } catch {}
+  // Keep question context unless that provider has exhausted a reported limit.
+  if (prev?.askUser && avail.includes(prev.from) && pickProvider(quota,[prev.from])) return prev.from;
+  const p = pickProvider(quota, avail, sess?.spreadLast, sess?.spreadBalance);
+  if (!p) throw new Error('No provider currently has quota available. Wait for a limit to reset.');
+  const balance = sess?.spreadBalance;
+  const keep = p === sess?.spreadLast && canKeepBalance(quota,p,balance);
+  try { store.updateSession(sid, { spreadLast: p, spreadBalance: keep ? balance : balanceFor(quota,avail,p) }); } catch {}
   return p;
 }
 function enqueueSpreader(sid,trigger) {
