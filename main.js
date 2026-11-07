@@ -221,6 +221,7 @@ function codexRun(prompt, images, c = {}) {
   let text = '', inp = 0, cac = 0, out = 0, errText = '', stderrText = '';
   const progress = createProgressStream(c.onProgress);
   const said = []; // every agent message, not just the last
+  const generated = require('./generated-images').collectImages(path.join(HOME, '.codex', 'generated_images'), c.resumeId);
   const act = [], seat = c.seat || 'codex';
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, seat, st, c.route?.meta);
   setStatus('codex', 'thinking');
@@ -230,6 +231,7 @@ function codexRun(prompt, images, c = {}) {
   const runModel = modelFromArgs(args, c.route?.meta?.model || (readText(path.join(HOME, '.codex', 'config.toml')).match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || 'gpt-unknown');
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
     const e = json(l), it = e.item || {};
+    generated.event(e);
     try { activity.codex(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
     if (e.type === 'error' && (e.message || e.error?.message)) errText = String(e.message || e.error.message);
     else if (e.type === 'turn.failed' && (e.error?.message || e.message)) errText = String(e.error?.message || e.message);
@@ -253,7 +255,12 @@ function codexRun(prompt, images, c = {}) {
       throw error;
     }
     progress.finish(text);
-    return { text: text.trim(), said, usage: mkUsage(runModel, inp, cac, out), activity: act };
+    const attachments = generated.finish().map(file => {
+      const name = path.basename(file), dest = path.join(UP, `${Date.now()}-${name}`);
+      fs.mkdirSync(UP, { recursive: true }); fs.copyFileSync(file, dest);
+      return { name, path: dest, size: fs.statSync(dest).size, type: 'image/' + (path.extname(name).slice(1).toLowerCase().replace('jpg', 'jpeg')) };
+    });
+    return { text: text.trim(), said, attachments, usage: mkUsage(runModel, inp, cac, out), activity: act };
   }).finally(() => setStatus('codex', null));
 }
 
@@ -508,7 +515,7 @@ async function ask(sid, who, trigger, isLead) {
       }});
       if (ep !== rt.epoch) return {next:[]};
       const asked=(easyModeOn(sid)||/\[ask-user/i.test(result.text))?parseTurn(result.text,result.prov || who):null, from=result.prov || who;
-      const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,null,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(asked?.askUser && {askUser:true,options:asked.options || []})});
+      const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,result.attachments,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(asked?.askUser && {askUser:true,options:asked.options || []})});
       if (result.usage) send('agent:usage',{sid,who,...result.usage});
       return {next:[],msg,ended:true};
     } catch (error) {
@@ -629,7 +636,7 @@ async function runSub(r) {
   }
   subPush(r);
   let m;
-  if (res) { m = post(r.sid, r.owner, res.text, null, null, { sub: r.title, ...(res.activity?.length && { activity: res.activity }), usage: res.usage, ...(prov !== r.owner && { via: prov }), route: { phase: 'other', model: r.model, effort: r.effort } }); send('agent:usage', { sid: r.sid, who: r.owner, ...res.usage }); }
+  if (res) { m = post(r.sid, r.owner, res.text, null, res.attachments, { sub: r.title, ...(res.activity?.length && { activity: res.activity }), usage: res.usage, ...(prov !== r.owner && { via: prov }), route: { phase: 'other', model: r.model, effort: r.effort } }); send('agent:usage', { sid: r.sid, who: r.owner, ...res.usage }); }
   else {
     const failure = formatFailureInfo(err, r.owner);
     failure.title = `Subagent "${r.title}" failed`;

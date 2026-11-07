@@ -571,6 +571,20 @@ app.whenReady().then(async () => {
   })()`);
   assert.deepEqual(imageDrafts,{tabs:true,separate:true,restored:true});
   console.log('Pasted image drafts survive tabs and session switches');
+  const imagePath = path.join(__dirname, 'assets', 'complete-badge.png');
+  await win.webContents.executeJavaScript(`
+    showTab('chat'); document.querySelector('#log').replaceChildren();
+    addMsg({from:'codex',text:'Created your image.',at:Date.now(),attachments:[{name:'generated.png',path:${JSON.stringify(imagePath)},type:'image/png'}]});
+  `);
+  const generatedImage = await win.webContents.executeJavaScript(`(async()=>{
+    const img=document.querySelector('#log .atts img'); await img.decode(); img.click();
+    const result={loaded:img.naturalWidth>0,preview:!!document.querySelector('.lb img'),alt:img.alt};
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    result.closed=!document.querySelector('.lb'); return result;
+  })()`);
+  assert.deepEqual(generatedImage,{loaded:true,preview:true,alt:'generated.png',closed:true});
+  fs.writeFileSync(path.join(output,'generated-image.png'),(await win.webContents.capturePage()).toPNG());
+  console.log('Generated image attachment loads and opens full-size');
   console.log('Renderer layout, progress, question controls and theme checks passed. Screenshots: ' + output);
   win.destroy(); app.quit();
 }).catch(error => { console.error(error); app.exit(1); });
