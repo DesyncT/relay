@@ -571,7 +571,7 @@ app.whenReady().then(async () => {
   })()`);
   assert.deepEqual(imageDrafts,{tabs:true,separate:true,restored:true});
   console.log('Pasted image drafts survive tabs and session switches');
-  const imagePath = path.join(__dirname, 'assets', 'complete-badge.png');
+  const imagePath = process.env.RELAY_TEST_IMAGE || path.join(__dirname, 'assets', 'complete-badge.png');
   await win.webContents.executeJavaScript(`
     showTab('chat'); document.querySelector('#log').replaceChildren();
     addMsg({from:'codex',text:'Created your image.',at:Date.now(),attachments:[{name:'generated.png',path:${JSON.stringify(imagePath)},type:'image/png'}]});
@@ -583,6 +583,24 @@ app.whenReady().then(async () => {
     result.closed=!document.querySelector('.lb'); return result;
   })()`);
   assert.deepEqual(generatedImage,{loaded:true,preview:true,alt:'generated.png',closed:true});
+  const linkedImage = await win.webContents.executeJavaScript(`(async()=>{
+    document.querySelector('#log').replaceChildren();
+    addMsg({from:'codex',text:'[Open the treasure chest image]('+${JSON.stringify(imagePath.split(path.sep).join('/'))}+')',at:Date.now()});
+    const img=document.querySelector('#log .atts img');
+    if(!img)return {loaded:false};
+    await img.decode(); img.click();
+    const result={loaded:img.naturalWidth>0,preview:!!document.querySelector('.lb img'),rawMarkdown:document.querySelector('#log .body').textContent.includes('](')};
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return result;
+  })()`);
+  assert.deepEqual(linkedImage,{loaded:true,preview:true,rawMarkdown:false});
+  const linkCases = await win.webContents.executeJavaScript(`({
+    windows:linkedImages('[View](C:/Images/chest with gold.png)')[0]?.path,
+    fileUrl:linkedImages('![Chest](file:///C:/Images/chest%20with%20gold.png)')[0]?.path,
+    code:linkedImages('\x60[View](C:/Images/chest.png)\x60').length,
+    remote:linkedImages('[View](https://example.com/chest.png)').length,
+    unsafe:linkedImages('[View](javascript:alert(1))').length
+  })`);
+  assert.deepEqual(linkCases,{windows:'C:/Images/chest with gold.png',fileUrl:'C:/Images/chest with gold.png',code:0,remote:0,unsafe:0});
   fs.writeFileSync(path.join(output,'generated-image.png'),(await win.webContents.capturePage()).toPNG());
   console.log('Generated image attachment loads and opens full-size');
   console.log('Renderer layout, progress, question controls and theme checks passed. Screenshots: ' + output);

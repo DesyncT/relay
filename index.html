@@ -1161,6 +1161,14 @@ function mdBlocks(t) {
   flush();
   return out.join('');
 }
+const LOCAL_IMAGE_LINK = /!?\[([^\]\n]+)\]\(<?((?:[A-Za-z]:[\\/]|file:\/\/\/|\/)[^\n]*?\.(?:png|jpe?g|webp|gif|bmp|svg|avif|ico))>?\)/gi;
+function linkedImages(text) {
+  return [...String(text || '').replace(/```[\s\S]*?```|`[^`\n]*`/g, '').matchAll(LOCAL_IMAGE_LINK)].map((m) => {
+    let p = m[2];
+    if (p.startsWith('file:///')) { try { p = decodeURIComponent(new URL(p).pathname).replace(/^\/([A-Za-z]:)/, '$1'); } catch {} }
+    return {name: p.split(/[\\/]/).pop(), path:p};
+  });
+}
 function md(s) { // escape first, stash code so later rules can't touch it, then bold / links / mentions
   const keep = [], stash = (h) => `\0${keep.push(h) - 1}\0`;
   return s.replace(/\0/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -1168,6 +1176,7 @@ function md(s) { // escape first, stash code so later rules can't touch it, then
     .replace(/`([^`\n]+)`/g, (_, c) => stash(`<code>${c}</code>`))
     .replace(/^[\s\S]*$/, mdBlocks)
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(LOCAL_IMAGE_LINK, (_, label) => stash(`<span>${label}</span>`))
     .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => stash(`<a href="${u}" target="_blank" rel="noreferrer">${t}</a>`))
     .replace(/https?:\/\/(?:(?!&quot;)[^\s<])*[^\s<.,;:!?)]/g, (u) => stash(`<a href="${u}" target="_blank" rel="noreferrer">${u}</a>`))
     .replace(/(^|[^*\w])\*(?=\S)([^*\n]*?\S)\*(?!\*)/g, '$1<i>$2</i>')
@@ -1206,7 +1215,9 @@ const actThumbs = (list) => list.filter((a) => (a.kind === 'create' || a.kind ==
 function fileCards(m) {
   const paths = [...(m.files || [])];
   for (const a of m.activity || []) if ((a.kind === 'create' || a.kind === 'edit') && a.abs && ACT_CARD.test(a.abs) && !paths.includes(a.abs)) paths.push(a.abs);
-  return paths.length ? [el('div', { className: 'atts' }, ...paths.slice(0, 6).map((p) => Panels.fileCard(p)))] : [];
+  const seen = new Set([...(m.attachments || []).map(a => a.path), ...paths].map(p => p.replace(/\\/g, '/')));
+  const images = linkedImages(m.text).filter(a => { const key=a.path.replace(/\\/g, '/'); if(seen.has(key))return false; seen.add(key); return true; });
+  return paths.length || images.length ? [el('div', { className: 'atts' }, ...images.slice(0, 6).map(attNode), ...paths.slice(0, 6).map((p) => Panels.fileCard(p)))] : [];
 }
 function emptyState() {
   if ($('#log').children.length) return;
