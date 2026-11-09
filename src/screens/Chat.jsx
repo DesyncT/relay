@@ -32,7 +32,7 @@ export default function Chat() {
     return () => mo.disconnect();
   }, []);
   useEffect(() => { // queued messages live at the end of the log: keep following them when the reader is at the bottom
-    const el = log.current, q = document.getElementById('logQueue'); if (!el || !q) return;
+    const el = log.current, q = document.getElementById('logTail'); if (!el || !q) return;
     let near = true;
     const onScroll = () => { near = el.scrollHeight - el.scrollTop - el.clientHeight < 120; };
     const ro = new ResizeObserver(() => { if (near) scrollLogToBottom(); });
@@ -54,10 +54,10 @@ export default function Chat() {
       <div id="log" ref={log} role="log" aria-label="Conversation" aria-live="polite" tabIndex={0}>
         {!rows.length && <ConversationStart sid={chat.sid} />}
         <MessageRows rows={rows} openAsk={openAsk} />
-        <div id="logQueue" />
+        <div id="logTail"><Typing /><div id="logQueue" /></div>
       </div>
       <ScrollButton logRef={log} />
-      <Typing /><ReqBar /><ReplyChip /><Composer />
+      <ReqBar /><ReplyChip /><Composer />
     </div><SubsAside /><Panels /></div>
     <AnimatePresence>{drag && (
       <motion.div id="drop" className="cu-drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.15 } }}>

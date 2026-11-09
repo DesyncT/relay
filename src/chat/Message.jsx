@@ -53,7 +53,7 @@ function FileCard({ p }) { // Panels.fileCard
   return (
     <motion.button type="button" className="fc-card" aria-label={'Open ' + name} onClick={() => openFile(p)} whileHover={{ y: -1 }} whileTap={{ scale: 0.99 }}>
       {img && st?.url && !badImg && <img alt={name} loading="lazy" src={st.url} onError={() => setBadImg(true)} />}
-      <div className="fc-row"><Ico d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z" /><div className="fc-info"><div className="fc-name">{name}</div><div className="fc-meta">{meta}</div></div></div>
+      <div className="fc-row"><FileIco /><div className="fc-info"><div className="fc-name">{name}</div><div className="fc-meta">{meta}</div></div></div>
     </motion.button>
   );
 }

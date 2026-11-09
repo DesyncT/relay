@@ -16,10 +16,7 @@
 .cu-line, .cu-row { display:inline-flex; align-items:center; gap:6px; }
 .cu-is { color:var(--muted); }
 .cu-mark { position:relative; width:22px; height:22px; justify-content:center; }
-.cu-mark svg { position:relative; animation:cuSpin 6s linear infinite; }
-.cu-pulse { position:absolute; inset:1px; border-radius:50%; border:1px solid var(--c, var(--claude)); opacity:0; animation:cuPulse 2s var(--ease) infinite; }
-@keyframes cuPulse { 0% { transform:scale(.6); opacity:.55; } 100% { transform:scale(1.45); opacity:0; } }
-@keyframes cuSpin { to { transform:rotate(360deg); } }
+.cu-mark svg { position:relative; animation:none; }
 .cu-verbbox { position:relative; display:inline-grid; }
 .cu-verb { display:inline-flex; align-items:baseline; white-space:pre; }
 .cu-word span { display:inline-block; color:var(--text-2); animation:cuLetter 1.9s ease-in-out infinite; }
@@ -46,7 +43,7 @@
 #reqbar li.done .rq-title { transition:color .4s var(--ease); }
 
 @media (prefers-reduced-motion:reduce) {
-  .sb-arrow, .cu-mark svg, .cu-pulse, .cu-word span, .cu-drop-bd rect, #reqbar.working .rq-fill, #reqbar li.done .rq-ic { animation:none !important; }
+  .sb-arrow, .cu-mark svg, .cu-word span, .cu-drop-bd rect, #reqbar.working .rq-fill, #reqbar li.done .rq-ic { animation:none !important; }
   .cu-word span { opacity:1; }
 }
 
@@ -57,3 +54,7 @@
 #logQueue:empty { display:none; }
 #logQueue #queueCount { margin:0; padding:0; }
 #logQueue .q-item { margin-bottom:20px; }
+
+#log #busy { height:auto; min-height:30px; padding:8px 0 16px; overflow:visible; white-space:normal; }
+#log #busy:empty { display:none; }
+#log #busy .cu-line { flex-wrap:wrap; }

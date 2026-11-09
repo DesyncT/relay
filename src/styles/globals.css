@@ -185,3 +185,13 @@ html.theme-fading *,html.theme-fading *::before,html.theme-fading *::after { tra
 .quota-details h3 { margin:0 0 12px; font-size:14px; }
 .quota-details p { margin:0 0 12px; color:var(--text-2); }
 @media(max-width:900px) { .quota-summary { gap:4px; padding:0 4px; font-size:11px; } .quota-summary small { display:none; } }
+/* Generated files share the chat's compact attachment treatment. */
+.fc-card { display:block; max-width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--raised); color:var(--text); font:inherit; text-align:left; cursor:pointer; }
+.fc-card:hover { border-color:var(--text-2); }
+.fc-card:focus-visible { outline:2px solid var(--text-2); outline-offset:2px; }
+.fc-row { display:flex; align-items:center; gap:10px; }
+.fc-row > .i { width:22px; height:22px; flex:none; color:var(--text-2); }
+.fc-info { min-width:0; }
+.fc-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; line-height:18px; font-weight:500; }
+.fc-meta { color:var(--muted); font-size:11px; line-height:16px; }
+.fc-card > img { display:block; max-width:220px; max-height:140px; object-fit:contain; margin-bottom:8px; }

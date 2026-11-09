@@ -30,7 +30,7 @@ const Verb = ({ text }) => (
   </span>
 );
 const Mark = ({ who, p }) => (
-  <span className="busy-logo cu-mark" style={{ '--c': nameColor(who) }}><i className="cu-pulse" /><Logo name={p === 'codex' ? 'openai' : p} size={15} color={nameColor(who)} /></span>
+  <span className="busy-logo cu-mark" style={{ '--c': nameColor(who) }}><Logo name={p === 'codex' ? 'openai' : p} size={15} color={nameColor(who)} /></span>
 );
 
 export function Typing() {
