@@ -230,7 +230,8 @@ function FailureCard({ m }) {
 }
 
 // ---- one row of the log ----
-const rowMotion = (row) => row.live ? { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0, transition: { duration: 0.34, ease, delay: row.delay || 0 } } } : { initial: false };
+// Conversation text must paint at full opacity, including newly received messages.
+const rowMotion = () => ({ initial: false });
 
 // DOM nodes handed to addSystemCard are mounted into a ref'd wrapper
 function Mount({ node }) {

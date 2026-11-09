@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { call } from '../api.js';
 import { useStore } from '../store.js';
 import { layoutItems, scrollLogToBottom, setLogEl, setSubsOpen, useChat } from '../chat/chatStore.js';
@@ -15,7 +15,7 @@ export default function Chat() {
   const panel = useStore(s => s.pnMode);
   const log = useRef(null);
   const [scrolled, setScrolled] = useState(false);
-  const { rows, openAsk } = layoutItems(chat.items);
+  const { rows, openAsk } = useMemo(() => layoutItems(chat.items), [chat.items]);
   useLayoutEffect(() => { setLogEl(log.current); if (chat.items.length) scrollLogToBottom(); else if (log.current) log.current.scrollTop = 0; return () => setLogEl(null); }, [chat.epoch]);
   useEffect(() => { if (panel) setSubsOpen(false); }, [panel]);
   return <>
@@ -31,7 +31,7 @@ export default function Chat() {
     <div className="ch-body"><div className="ch-main">
       <div id="log" ref={log} role="log" aria-label="Conversation" aria-live="polite" onScroll={() => { const el = log.current; setScrolled(el.scrollHeight - el.clientHeight - el.scrollTop > 80); }}>
         {!rows.length && <ConversationStart sid={chat.sid} />}
-        {rows.map(row => <Message key={row.id} row={row} isOpen={row.id === openAsk} />)}
+        <MessageRows rows={rows} openAsk={openAsk} />
       </div>
       {scrolled && <button id="scrollBottom" aria-label="Scroll to bottom" onClick={scrollLogToBottom}><svg className="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6" /></svg></button>}
       <Typing /><ReqBar /><ReplyChip /><Composer />
@@ -40,3 +40,7 @@ export default function Chat() {
     <Lightbox />
   </>;
 }
+
+const MessageRows = memo(function MessageRows({ rows, openAsk }) {
+  return rows.map(row => <Message key={row.id} row={row} isOpen={row.id === openAsk} />);
+});

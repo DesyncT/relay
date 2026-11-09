@@ -4,6 +4,7 @@
 const { contextBridge } = require('electron');
 const fs = require('fs');
 const fx = process.env.RELAY_FIXTURES ? JSON.parse(fs.readFileSync(process.env.RELAY_FIXTURES, 'utf8')) : {};
+for (const [key, value] of Object.entries(fx.__storage || {})) localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
 const calls = [], listeners = new Map();
 contextBridge.exposeInMainWorld('api', {
   on: (ch, fn) => { (listeners.get(ch) || listeners.set(ch, []).get(ch)).push(fn); },

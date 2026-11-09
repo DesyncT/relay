@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { call } from './api.js';
 import { getState, setState, useStore } from './store.js';
 import { SCREENS } from './screens/index.js';
@@ -9,18 +8,14 @@ import CommandPalette from './components/CommandPalette.jsx';
 import Boot from './components/Boot.jsx';
 import ChatBackground from './components/shell/ChatBackground.jsx';
 import { openSession } from './chat/chatStore.js';
-import { ease } from './motion.js';
-
-const ORDER = ['usage', 'chat', 'agents', 'rules', 'skills', 'settings', 'themes'];
-let dir = 1, prevTab = 'usage';
 
 export default function App() {
   const tab = useStore((s) => s.tab);
-  const reduced = useReducedMotion();
   const [ready, setReady] = useState(false);
   const started = useRef(false);
+  const main = useRef(null);
+  useLayoutEffect(() => { if (main.current) main.current.scrollTop = 0; }, [tab]);
   const Screen = SCREENS[tab] || SCREENS[TAB_HOME[tab]] || SCREENS.usage;
-  if (tab !== prevTab) { dir = Math.sign(ORDER.indexOf(tab) - ORDER.indexOf(prevTab)) || 1; prevTab = tab; }
 
   // Startup mirrors the legacy IIFE: profile, lastTab + active session, reopen where you left off, then lift the splash.
   useEffect(() => {
@@ -48,13 +43,10 @@ export default function App() {
       <Boot ready={ready} />
       <Titlebar />
       <Nav />
-      <main>
-        <AnimatePresence mode="popLayout" initial={false} custom={dir}>
-          <motion.section key={tab} id={tab} className="on" custom={dir}
-            initial={{ opacity: 0, filter: reduced ? 'blur(0px)' : 'blur(3px)' }} animate={{ opacity: 1, filter: 'blur(0px)', transition: { duration: 0.32, ease } }} exit={{ opacity: 0, transition: { duration: 0.12 } }}>
-            <Screen />
-          </motion.section>
-        </AnimatePresence>
+      <main ref={main}>
+        <section key={TAB_HOME[tab] || tab} id={tab} className="on">
+          <Screen />
+        </section>
       </main>
       <ChatBackground />
       <CommandPalette />

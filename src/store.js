@@ -7,8 +7,10 @@ const listeners = new Set();
 export const getState = () => state;
 export const setState = (patch) => {
   const next = typeof patch === 'function' ? patch(state) : patch;
+  if (!Object.keys(next).some(key => !Object.is(state[key], next[key]))) return;
   state = { ...state, ...next };
   listeners.forEach((l) => l());
 };
+const subscribe = cb => { listeners.add(cb); return () => listeners.delete(cb); };
 export const useStore = (select = (s) => s) =>
-  useSyncExternalStore((cb) => (listeners.add(cb), () => listeners.delete(cb)), () => select(state));
+  useSyncExternalStore(subscribe, () => select(state));

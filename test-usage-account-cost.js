@@ -14,6 +14,9 @@ const fake=path.join(__dirname,'test-fake-codex.js');
     assert.ok(t.accountTokenAdjustment>0,'account tokens exceed local');
     assert.ok(Math.abs(t.accountCostEstimate-t.cost/(t.localTokens)*t.accountTokenAdjustment)<1e-9,'priced at the local average rate');
     assert.equal(t.lifetimeCostEstimate,t.cost+t.accountCostEstimate);
+    assert.equal(u.tools.Codex.accountCostEstimate,t.accountCostEstimate);
+    assert.equal(u.tools.Codex.lifetimeCostEstimate,u.tools.Codex.cost+t.accountCostEstimate);
+    for(const [name,provider] of Object.entries(u.tools)) if(name!=='Codex') {assert.equal(provider.accountCostEstimate,0);assert.equal(provider.lifetimeCostEstimate,provider.cost);}
     console.log('Lifetime account-token cost estimate passed');
   } finally {fs.rmSync(home,{recursive:true,force:true});}
 })();

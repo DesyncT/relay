@@ -43,7 +43,7 @@ export default function Composer() {
   const sid = useStore((s) => s.openSid), replying = useStore((s) => s.chatReplying), waitFor = useStore((s) => s.chatWaitFor);
   const busy = useStore((s) => s.chatBusy), cfg = useStore((s) => s.cfg);
 
-  const [text, setText] = useState(''), [pend, setPend] = useState([]), [uploads, setUploads] = useState(0);
+  const [text, setText] = useState(() => loadDraft(sid)), [pend, setPend] = useState(() => loadDraftFiles(sid)), [uploads, setUploads] = useState(0);
   const [items, setItems] = useState([]), [qEdit, setQEdit] = useState(null), [failed, setFailed] = useState([]);
   const [queueBusy, setQueueBusy] = useState(true), [lightbox, setLightbox] = useState(null);
   const [info, setInfo] = useState({}), [conns, setConns] = useState([]), [leadSel, setLeadSel] = useState(null), [mode, setModeState] = useState('edits');

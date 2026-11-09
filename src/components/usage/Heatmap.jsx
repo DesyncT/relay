@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion } from 'framer-motion';
 import { ftok, dayLabel } from './util.jsx';
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -47,7 +46,7 @@ export default function Heatmap({ days }) {
       <div id="uheat" onMouseLeave={() => setTip(null)}>
         <div className="hm-grid" style={{ gridTemplateRows: 'repeat(7,auto)' }}>
           {cells.map((c, i) => (
-            <motion.i key={c.date} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.floor(i / 7) * 0.008 }}
+            <i key={c.date}
               style={{ background: c.v ? `rgba(59,130,246,${(0.15 + 0.85 * c.v / max).toFixed(2)})` : 'rgba(128,128,128,.15)' }}
               data-d={c.date} onMouseEnter={(e) => over(c, e)} />
           ))}

@@ -11,7 +11,8 @@ let S = { sid: null, title: '', loaded: false, items: [], subs: [], subsOpen: fa
 const listeners = new Set();
 const patch = (p) => { S = { ...S, ...p }; listeners.forEach((l) => l()); };
 export const getChat = () => S;
-export const useChat = (sel = (s) => s) => useSyncExternalStore((cb) => (listeners.add(cb), () => listeners.delete(cb)), () => sel(S));
+const subscribe = cb => { listeners.add(cb); return () => listeners.delete(cb); };
+export const useChat = (sel = (s) => s) => useSyncExternalStore(subscribe, () => sel(S));
 export const useMessages = () => useChat((s) => s.items);
 
 const actBy = {}; // agent activity per session, so switching away and back keeps "claude is typing"
@@ -45,8 +46,10 @@ export function addMsg(m, live, batch) {
   const item = { id: ++nid, m };
   if (live) { liveN = Date.now() - liveT < 800 ? liveN + 1 : 0; liveT = Date.now(); item.live = true; item.delay = liveN * 0.06; }
   if (batch) { batch.push(item); return item; }
+  const follow = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 100 || m.from === 'user';
   patch({ items: [...S.items, item] });
-  scrollLogToBottom(); syncShared();
+  if (follow) scrollLogToBottom();
+  syncShared();
   return item;
 }
 // local system card (slash command output); not persisted. Accepts a React node or a DOM node.
@@ -156,7 +159,7 @@ api.on('subagent:removed', (d) => { if (d.sid === S.sid) patch({ subs: S.subs.fi
 api.on('limits:state', (s) => { if (s?.down) patch({ limits: s.down }); });
 api.on('skills:changed', (d) => { if (d.sid === S.sid) refreshChips(); });
 api.on('notify:openSession', ({ sid }) => { if (sid) openSession(sid).catch((e) => console.error(e)); });
-const procs = (list) => patch({ stoppable: !!list?.some((p) => /\((chat|sub)\)$/.test(p.label)) });
+const procs = (list) => { const stoppable = !!list?.some(p => /\((chat|sub)\)$/.test(p.label)); if (stoppable !== S.stoppable) patch({ stoppable }); };
 api.on('procs', procs);
 api.on('sessions:changed', (d) => {
   if (d?.id !== S.sid) return;

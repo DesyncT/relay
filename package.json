@@ -1,7 +1,7 @@
 {
   "name": "relay",
   "productName": "Relay",
-  "version": "0.1.62",
+  "version": "0.1.63",
   "description": "AI coding agents (Claude Code, Codex and any model you connect) working together in one chat",
   "author": "DesyncT",
   "license": "MIT",
@@ -18,7 +18,9 @@
     "dist": "npm run build:ui && electron-builder --win --publish never",
     "release": "npm run build:ui && electron-builder --win --publish always",
     "build:ui": "vite build && node -e \"require('fs').cpSync('assets','renderer-dist/assets',{recursive:true})\"",
-    "test:ui:legacy": "electron test-renderer.js"
+    "test:ui:legacy": "electron test-renderer.js",
+    "test:layout": "npm run build:ui && electron tools/test-layout.cjs",
+    "test:account-cost": "node test-usage-account-cost.js"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.3.0",

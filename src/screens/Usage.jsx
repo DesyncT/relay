@@ -91,7 +91,7 @@ function Report({ s, snap, rescan }) {
   const cov = s.coverage;
   const totals = [['Known lifetime tokens', t.tokens], ['Cached input', t.cached], ['Uncached input', t.uncached], ['Output', t.output]];
   return (
-    <motion.div variants={stagger(0.05)} initial="initial" animate="animate">
+    <motion.div initial={false}>
       <button className="rescan" id="rescan" onClick={rescan}>Rescan</button>
       <Limits snap={snap} />
       <motion.div className="u-top" variants={item}>
@@ -99,9 +99,12 @@ function Report({ s, snap, rescan }) {
           <p className="u-big"><CountUp value={t.cost} format={usd} /></p>
           <div className="u-sub">{t.sessions} local sessions · API estimate <svg viewBox="0 0 16 16" role="img" aria-label={INFO}><title>{INFO}</title><circle cx="8" cy="8" r="6.5" /><path d="M8 7.2v4M8 4.8v.1" /></svg></div>
           {tools.map((k, i) => (
-            <motion.div className="u-tool" key={k} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, ease, delay: 0.15 + i * 0.07 }}>
+            <motion.div className="u-tool" key={k} initial={false}>
               <div className="r1"><span className="dot" style={{ background: ucol(k) }} /><ToolIcon k={k} /><span className="n">{k}</span><small>{toolsMap[k].sessions} sessions</small><span className="c">{usd(toolsMap[k].cost)}</span></div>
-              <div className="r2">{pct(toolsMap[k].cost, t.cost)} of estimated cost · {sh(toolsMap[k].tokens)} tokens</div>
+              <div className="r2">{pct(toolsMap[k].cost, t.cost)} of local estimated cost · {sh(toolsMap[k].tokens)} tokens</div>
+              <div className="provider-lifetime" title="Local transcript costs plus any priced account-only tokens. Recovered tokens without pricing are excluded.">Lifetime API estimate <b>{(toolsMap[k].accountCostEstimate || (k === 'Codex' ? t.accountCostEstimate : 0)) > 0 ? '\u2248 ' : ''}{usd(toolsMap[k].lifetimeCostEstimate ?? (toolsMap[k].cost + (k === 'Codex' ? t.accountCostEstimate || 0 : 0)))}</b>
+                {(toolsMap[k].accountCostEstimate || (k === 'Codex' ? t.accountCostEstimate : 0)) > 0 && <small>+{usd(toolsMap[k].accountCostEstimate ?? t.accountCostEstimate)} estimated from account-only tokens</small>}
+              </div>
             </motion.div>
           ))}
           {t.accountCostEstimate > 0 && <p className="u-sub" title="Tokens that only your Codex account reports, priced at your average local Codex rate">Lifetime incl. account-only tokens ≈ <b>{usd(t.lifetimeCostEstimate)}</b> (+{usd(t.accountCostEstimate)} estimated)</p>}

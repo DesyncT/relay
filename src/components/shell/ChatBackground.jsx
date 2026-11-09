@@ -1,3 +1,4 @@
+import { useReducedMotion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../../store.js';
@@ -69,7 +70,7 @@ function Layer({ host }) {
     return () => { live = false; url && URL.revokeObjectURL(url); };
   }, [p.hasVideo, p.effect]);
 
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduced = useReducedMotion();
   const run = chatOn && vis && !reduced && !p.paused;
   useEffect(() => {
     const v = vid.current; if (!v) return;
@@ -80,17 +81,24 @@ function Layer({ host }) {
   useEffect(() => {
     const cv = canvas.current, c = cv?.getContext('2d'); if (!c) return;
     const style = getComputedStyle(document.documentElement), acc = style.getPropertyValue('--claude').trim(), sec = style.getPropertyValue('--codex').trim();
-    const size = () => { cv.width = Math.min(host.clientWidth, 1200); cv.height = Math.min(host.clientHeight, 1000); };
+    const size = () => { cv.width = Math.min(host.clientWidth, 960); cv.height = Math.min(host.clientHeight, 640); };
     size();
-    const ro = new ResizeObserver(size); ro.observe(host);
+    const ro = new ResizeObserver(() => { size(); paint(t); }); ro.observe(host);
     const media = p.effect === 'video' ? vid.current : img.current;
     const paint = (t) => draw(c, cv.width, cv.height, t, p, pt.current, acc, sec, media);
-    let raf = 0, last = performance.now(), t = 0;
-    const tick = (now) => { if (now - last >= 50) { t += Math.min(now - last, 100) * 0.001 * p.speed / 50; last = now; paint(t); } raf = requestAnimationFrame(tick); };
-    if (run && !MEDIA.includes(p.effect)) raf = requestAnimationFrame(tick); else paint(0);
+    let timer = 0, last = performance.now(), t = 0, quietUntil = 0;
+    const quiet = () => { quietUntil = performance.now() + 180; };
+    const tick = () => {
+      const now = performance.now();
+      if (now >= quietUntil) { t += Math.min(now - last, 100) * 0.001 * p.speed / 50; paint(t); }
+      last = now; timer = setTimeout(tick, 50);
+    };
+    if (run && !MEDIA.includes(p.effect)) timer = setTimeout(tick, 50); else paint(0);
+    host.addEventListener('scroll', quiet, { passive: true });
+    document.addEventListener('input', quiet, { passive: true });
     const move = (e) => { if (!p.interactive || MEDIA.includes(p.effect)) return; const r = host.getBoundingClientRect(); pt.current = { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }; };
     host.addEventListener('pointermove', move, { passive: true });
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); host.removeEventListener('pointermove', move); };
+    return () => { clearTimeout(timer); host.removeEventListener('scroll', quiet); document.removeEventListener('input', quiet); ro.disconnect(); host.removeEventListener('pointermove', move); };
   }, [p, run, host, videoUrl]);
 
   if (p.effect === 'off') return null;
@@ -106,11 +114,11 @@ export default function ChatBackground() {
   const [host, setHost] = useState(null);
   const tab = useStore((s) => s.tab);
   useEffect(() => {
-    if (tab !== 'chat') return;
+    if (tab !== 'chat') { setHost(null); return; }
     let n = 0, t;
-    const find = () => { const h = document.querySelector('.ch-main'); if (h) setHost(h); else if (n++ < 20) t = setTimeout(find, 100); };
+    const find = () => { const h = document.querySelector('#log'); if (h) setHost(h); else if (n++ < 20) t = setTimeout(find, 100); };
     find();
     return () => clearTimeout(t);
   }, [tab]);
-  return host ? <Layer host={host} /> : null;
+  return tab === 'chat' && host?.isConnected ? <Layer host={host} /> : null;
 }

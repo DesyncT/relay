@@ -217,7 +217,7 @@ async function scan({home=HOME,env=process.env,ledgerFile,accountUsage=false,cod
     total: { ...tot,localTokens,accountTokenAdjustment,accountCostEstimate,lifetimeCostEstimate:tot.cost+accountCostEstimate,costIsEstimate: true, scope: 'Codex account lifetime when available; Claude retained history plus recovered statistics; API costs from local transcripts only', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
     accountUsage:account?{codex:account}:{},localDayTokens,
     coverage,
-    tools: Object.fromEntries(Object.entries(tools).map(([k, v]) => [k, { ...v, sessions: v.sessions.size }])),
+    tools: Object.fromEntries(Object.entries(tools).map(([k, v]) => [k, { ...v, sessions: v.sessions.size, accountCostEstimate: k === 'Codex' ? accountCostEstimate : 0, lifetimeCostEstimate: v.cost + (k === 'Codex' ? accountCostEstimate : 0) }])),
     models, days, dayTokens: dayTok, type, speed,
   };
 }

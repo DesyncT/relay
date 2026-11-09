@@ -11,7 +11,7 @@ if (arg('fixtures')) process.env.RELAY_FIXTURES = path.resolve(arg('fixtures'));
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ show: false, width: w, height: h, webPreferences: { preload: path.join(__dirname, 'harness-preload.cjs'), contextIsolation: true, sandbox: false, backgroundThrottling: false } });
+  const win = new BrowserWindow({ show: false, width: w, height: h, webPreferences: { preload: path.join(__dirname, 'harness-preload.cjs'), contextIsolation: true, sandbox: false, backgroundThrottling: false, offscreen: true } });
   const errors = [];
   win.webContents.on('console-message', (_e, level, msg) => { if (msg.startsWith('CHECK ')) console.log(msg); if (level >= 2 && !msg.includes('Electron Security Warning')) errors.push(msg); });
   win.webContents.on('render-process-gone', (_e, d) => errors.push('renderer gone: ' + d.reason));
