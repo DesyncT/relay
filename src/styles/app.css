@@ -1,0 +1,7 @@
+/* React-only additions: motion hooks the legacy stylesheets never needed. */
+nav button { position: relative; }
+nav .nav-pill { position: absolute; inset: 0; border-radius: inherit; background: var(--raised); z-index: 0; }
+nav button > * { position: relative; z-index: 1; }
+main > section { display: none; }
+main > section.on { display: block; }
+#boot { position: fixed; inset: 0; display: grid; place-items: center; background: var(--deep); z-index: 99; }

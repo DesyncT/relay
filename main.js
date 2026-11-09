@@ -1077,7 +1077,9 @@ function createWindow() {
   });
   w.on('closed', () => { if (w === win) win = BrowserWindow.getAllWindows()[0] || null; });
   w.on('focus', () => clearQuestionAlert());
-  w.loadFile(path.join(__dirname, 'index.html'));
+  // React renderer (npm run build:ui); the legacy index.html remains until every screen is ported
+  const built = path.join(__dirname, 'renderer-dist', 'index.html');
+  w.loadFile(fs.existsSync(built) && !process.env.RELAY_LEGACY_UI ? built : path.join(__dirname, 'index.html'));
   if (!win) win = w;
   return w;
 }

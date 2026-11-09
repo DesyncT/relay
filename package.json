@@ -9,21 +9,27 @@
   "repository": "github:DesyncT/relay",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "npm run build:ui && electron .",
     "check": "node usage.js",
     "test:images": "node test-generated-images.js",
     "test": "node test-code-mode.js && node test-mojibake.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-question-controls.js && node test-resume-queue.js && node test-workflow-modes.js && node spreader.js && node test-spreader-steps.js && node test-quota.js && node test-usage-history.js && node test-account-usage.js && node test-easycode-design.js && node test-cli-installation.js && node test-error-handling-and-alerts.js && node test-alerts.js",
     "test:ui": "electron test-renderer.js",
     "test:electron": "electron test-electron-workspaces.js",
     "dist": "electron-builder --win --publish never",
-    "release": "electron-builder --win --publish always"
+    "release": "electron-builder --win --publish always",
+    "build:ui": "vite build && node -e \"require('fs').cpSync('assets','renderer-dist/assets',{recursive:true})\""
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^6.3.0",
     "electron": "^33.2.1",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "vite": "^8.3.7"
   },
   "dependencies": {
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "framer-motion": "^14.11.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "build": {
     "appId": "com.desynct.relay",
@@ -40,7 +46,9 @@
       "!.agents/**",
       "!**/*.md",
       "!**/*.map",
-      "!**/*.log"
+      "!**/*.log",
+      "!src/**",
+      "!vite.config.mjs"
     ],
     "win": {
       "target": "nsis",
