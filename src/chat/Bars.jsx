@@ -24,7 +24,7 @@ const Verb = ({ text }) => (
     <span className="cu-sr">{text}</span>
     <AnimatePresence initial={false} mode="popLayout">
       <motion.span key={text} className="cu-verb" initial={{ opacity: 0, y: 7, filter: 'blur(3px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} exit={{ opacity: 0, y: -7, filter: 'blur(3px)' }} transition={{ duration: 0.26, ease }}>
-        <Letters text={text} /><span className="cu-dots" aria-hidden="true"><i /><i /><i /></span>
+        <Letters text={text} />
       </motion.span>
     </AnimatePresence>
   </span>
@@ -54,7 +54,7 @@ export function Typing() {
                   {i > 0 && <span aria-hidden="true">·</span>}
                   <Mark who={x.who} p={p} />
                   {nm(x.who)}{x.model && <RtBadge model={x.model} effort={x.effort} />}
-                  <span className="cu-is">is</span><Verb text={String(x.status)} />
+                  <span className="cu-is">is</span><Verb text={String(x.status).replace(/^(thinking|typing|working)\s*(?:\.{2,}|\u2026)+$/i, '$1')} />
                   {x.since ? <span className="mono busy-time cu-time" aria-hidden="true">{dur(now - x.since)}</span> : null}
                 </motion.span>
               );

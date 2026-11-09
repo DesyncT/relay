@@ -1,22 +1,22 @@
-/* Rich message bodies: markdown, code, tables, callouts, generated visuals, word reveal. Scoped to .rt. */
-.rt { --rt-ok:#46a758; --rt-warn:#e5a03a; --rt-bad:var(--negative,#e5484d); white-space:normal; }
-.rt > * { margin:0; } .rt > * + * { margin-top:10px; }
-.rt p { white-space:pre-wrap; overflow-wrap:anywhere; }
-.rt .h1, .rt .h2, .rt .h3 { margin-top:16px; letter-spacing:-.01em; } .rt > :first-child { margin-top:0; }
-.rt .h1 { font-size:18px; line-height:26px; font-weight:600; } .rt .h2 { font-size:16px; line-height:24px; font-weight:600; } .rt .h3 { font-size:14.5px; line-height:22px; font-weight:600; color:var(--text); }
-.rt hr { border:0; height:1px; background:var(--line-strong); margin:16px 0; }
-.rt del { color:var(--muted); text-decoration-color:var(--muted); }
-.rt ul, .rt ol { margin:0; padding-left:22px; } .rt li > ul, .rt li > ol { margin:2px 0 2px; padding-left:20px; }
-.rt li { line-height:24px; } .rt li + li { margin-top:2px; }
-.rt ul.rt-tasks { list-style:none; padding-left:2px; } .rt .rt-tasks .rt-tasks, .rt li > ul.rt-tasks { padding-left:22px; }
-.rt li.task { display:flex; flex-wrap:wrap; gap:0 8px; align-items:baseline; } .rt li.task > ul, .rt li.task > ol { flex-basis:100%; }
-.rt li.task.done { color:var(--text-2); }
-.rt li.task input { appearance:none; flex:none; width:15px; height:15px; margin:0; align-self:center; border:1.5px solid var(--line-strong); border-radius:4px; background:transparent; position:relative; }
-.rt li.task input:checked { background:var(--rt-ok); border-color:var(--rt-ok); }
-.rt li.task input:checked::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid var(--deep); border-width:0 2px 2px 0; transform:rotate(45deg); }
-.rt blockquote { padding:2px 0 2px 14px; border-left:3px solid var(--line-strong); }
-.rt code { overflow-wrap:anywhere; }
-.rt .sr-only, .rt-viz .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* Rich message bodies: markdown, code, tables, callouts, generated visuals, word reveal. Scoped to .rich-message. */
+.rich-message { --rt-ok:#46a758; --rt-warn:#e5a03a; --rt-bad:var(--negative,#e5484d); white-space:normal; }
+.rich-message > * { margin:0; } .rich-message > * + * { margin-top:10px; }
+.rich-message p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.rich-message .h1, .rich-message .h2, .rich-message .h3 { margin-top:16px; letter-spacing:-.01em; } .rich-message > :first-child { margin-top:0; }
+.rich-message .h1 { font-size:18px; line-height:26px; font-weight:600; } .rich-message .h2 { font-size:16px; line-height:24px; font-weight:600; } .rich-message .h3 { font-size:14.5px; line-height:22px; font-weight:600; color:var(--text); }
+.rich-message hr { border:0; height:1px; background:var(--line-strong); margin:16px 0; }
+.rich-message del { color:var(--muted); text-decoration-color:var(--muted); }
+.rich-message ul, .rich-message ol { margin:0; padding-left:22px; } .rich-message li > ul, .rich-message li > ol { margin:2px 0 2px; padding-left:20px; }
+.rich-message li { line-height:24px; } .rich-message li + li { margin-top:2px; }
+.rich-message ul.rt-tasks { list-style:none; padding-left:2px; } .rich-message .rt-tasks .rt-tasks, .rich-message li > ul.rt-tasks { padding-left:22px; }
+.rich-message li.task { display:flex; flex-wrap:wrap; gap:0 8px; align-items:baseline; } .rich-message li.task > ul, .rich-message li.task > ol { flex-basis:100%; }
+.rich-message li.task.done { color:var(--text-2); }
+.rich-message li.task input { appearance:none; flex:none; width:15px; height:15px; margin:0; align-self:center; border:1.5px solid var(--line-strong); border-radius:4px; background:transparent; position:relative; }
+.rich-message li.task input:checked { background:var(--rt-ok); border-color:var(--rt-ok); }
+.rich-message li.task input:checked::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid var(--deep); border-width:0 2px 2px 0; transform:rotate(45deg); }
+.rich-message blockquote { padding:2px 0 2px 14px; border-left:3px solid var(--line-strong); }
+.rich-message code { overflow-wrap:anywhere; }
+.rich-message .sr-only, .rt-viz .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 
 /* word / block reveal */
 .rt-live .w { animation:rt-w .45s var(--ease,cubic-bezier(.22,1,.36,1)) both; position:relative; }
@@ -29,8 +29,8 @@
 .rt-code { border:1px solid var(--line); border-radius:10px; background:var(--deep); overflow:hidden; max-width:100%; }
 .rt-code-h { display:flex; align-items:center; justify-content:space-between; padding:0 6px 0 12px; height:32px; border-bottom:1px solid var(--line); background:color-mix(in srgb, var(--text) 3%, transparent); }
 .rt-lang { font:500 11.5px/1 var(--mono); color:var(--muted); letter-spacing:.02em; }
-.rt-code pre.rt-pre, .rt .rt-code pre { margin:0; border:0; border-radius:0; background:none; padding:10px 14px 12px; font:13px/20px var(--mono); overflow-x:auto; white-space:pre; tab-size:2; }
-.rt .rt-code pre code { font:inherit; padding:0; background:none; overflow-wrap:normal; }
+.rt-code pre.rt-pre, .rich-message .rt-code pre { margin:0; border:0; border-radius:0; background:none; padding:10px 14px 12px; font:13px/20px var(--mono); overflow-x:auto; white-space:pre; tab-size:2; }
+.rich-message .rt-code pre code { font:inherit; padding:0; background:none; overflow-wrap:normal; }
 .rt-copy { display:inline-flex; align-items:center; height:24px; min-width:62px; justify-content:center; padding:0 8px; border:0; border-radius:6px; background:transparent; color:var(--text-2); font-weight:500; font-size:11.5px; line-height:1; cursor:pointer; overflow:hidden; transition:background .15s, color .15s; }
 .rt-copy:hover { background:color-mix(in srgb, var(--text) 8%, transparent); color:var(--text); } .rt-copy.done { color:var(--rt-ok); }
 .rt-copy:focus-visible, .rt-code pre:focus-visible, .rt-tbl:focus-visible { outline:2px solid var(--antigravity); outline-offset:-2px; }
@@ -86,10 +86,10 @@
 .rt-side li svg { flex:none; width:14px; height:14px; margin-top:3px; fill:none; stroke:var(--muted); stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
 .rt-compare.pc .rt-a li svg { stroke:var(--rt-ok); } .rt-compare.pc .rt-b li svg { stroke:var(--rt-bad); } .rt-compare:not(.pc) .rt-b h4 { color:var(--claude); }
 @media (max-width:520px) { .rt-compare { grid-template-columns:1fr; } .rt-side + .rt-side { border-left:0; border-top:1px solid var(--line); } }
-.rt .rt-tasks li.task input { width:15px; height:15px; min-width:0; padding:0; box-sizing:border-box; flex:none; }
+.rich-message .rt-tasks li.task input { width:15px; height:15px; min-width:0; padding:0; box-sizing:border-box; flex:none; }
 /* beat the legacy #chat #log .body rules (workbench.css) */
-#chat #log .msg .rt :is(p, ul, ol, blockquote) { margin-block:0; }
-#chat #log .msg .rt > * + * { margin-top:10px; }
-#chat #log .msg .rt li > :is(ul, ol) { margin-block:2px; }
-#chat #log .msg .rt .rt-code pre { padding:10px 14px 12px; border:0; background:none; border-radius:0; margin:0; }
-#chat #log .msg .rt .rt-call-b > * + * { margin-top:6px; }
+#chat #log .msg .rich-message :is(p, ul, ol, blockquote) { margin-block:0; }
+#chat #log .msg .rich-message > * + * { margin-top:10px; }
+#chat #log .msg .rich-message li > :is(ul, ol) { margin-block:2px; }
+#chat #log .msg .rich-message .rt-code pre { padding:10px 14px 12px; border:0; background:none; border-radius:0; margin:0; }
+#chat #log .msg .rich-message .rt-call-b > * + * { margin-top:6px; }

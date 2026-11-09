@@ -104,6 +104,6 @@ function RichText({ text, id, live = false, name = 'you', className = 'body' }) 
     const ctx = { live: anim, blockMode, anim: anim && !blockMode, chunk, step: n ? Math.min(STEP, CAP_MS / Math.ceil(n / chunk)) : STEP, n: 0, b: 0, name };
     return render(parse(s), ctx);
   }, [text, name, anim]);
-  return <div className={className + ' rt' + (anim ? ' rt-live' : '')}>{tree}</div>;
+  return <div className={className + ' rich-message' + (anim ? ' rt-live' : '')}>{tree}</div>;
 }
 export default memo(RichText);

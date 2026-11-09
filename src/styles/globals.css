@@ -49,9 +49,9 @@ input,textarea { caret-color:var(--claude); }
 #chat .ch-main { position:relative; isolation:isolate; container-type:inline-size; background:var(--bg); }
 #chat #log { position:relative; isolation:auto; padding:24px 20px; background:transparent; scroll-padding:24px; }
 #chat .ch-main > #chatBackground { position:absolute; inset:0; z-index:-1; pointer-events:none; overflow:hidden; }
-#chat .ch-main > #chatBackground::after { content:''; position:absolute; inset:0; background:color-mix(in srgb,var(--bg) 30%,transparent); }
+#chat .ch-main > #chatBackground::after { content:''; position:absolute; inset:0; background:color-mix(in srgb,var(--bg) 60%,transparent); }
 #chat #log > .msg,#chat #log > .msg.grp { width:100%; padding-right:0; margin:0 0 20px; background:transparent; border:0; border-radius:0; }
-#chat #log > .msg .body { max-width:none; background:var(--bg); font-size:14px; line-height:24px; font-weight:400; }
+#chat #log > .msg .body { max-width:none; background:transparent; border:0; border-radius:0; box-shadow:none; padding:0; margin:0; font-size:14px; line-height:24px; font-weight:400; }
 #chat #log > .msg .nm { font-size:12px; font-weight:600; }
 #chat #log > .msg .t { font-size:11px; color:var(--muted); }
 #chat #log .av { width:28px; height:28px; border-radius:8px; }
@@ -59,7 +59,7 @@ input,textarea { caret-color:var(--claude); }
 #chat #log .msg .opt { min-height:40px; border-radius:6px; background:var(--card); transition:background var(--scene-fast); }
 #chat #log .msg .opt:hover:not(:disabled) { background:var(--raised); border-color:var(--line-strong); }
 #chat.on .cbar { flex:none; width:calc(100% - 40px); max-width:none; margin:8px auto 16px !important; border-radius:12px; border:1px solid var(--line-strong); box-shadow:none; background:var(--card); transition:border-color var(--scene-fast); }
-#chat.on .cbar:focus-within { border-color:var(--claude); box-shadow:none; }
+#chat.on .cbar:focus-within { border-color:var(--line-strong); box-shadow:none; }
 #chat .cbar textarea { background:transparent; min-height:56px; max-height:180px; overflow:auto; padding:16px 16px 8px; font-size:14px; line-height:24px; }
 #chat .cbar .cb-tools { display:flex; flex-wrap:wrap; gap:8px; padding:8px 12px; }
 #chat .cbar .composer-help { margin:0 12px; padding:8px 0; border-top:1px solid var(--line); font-size:10px; color:var(--text-2); }
@@ -122,7 +122,7 @@ html.theme-fading *,html.theme-fading *::before,html.theme-fading *::after { tra
 /* Full-width conversation; backgrounds remain visible in the gutters and between messages. */
 #chat #log > .msg { padding-left:44px; }
 #chat #log > .msg.grp > .av { left:0; top:0; width:28px; height:28px; }
-#chat #log > .msg .hd { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-height:24px; background:var(--bg); font:12px/20px var(--app-font,var(--scene-font)); }
+#chat #log > .msg .hd { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-height:24px; background:transparent; font:12px/20px var(--app-font,var(--scene-font)); }
 #chat #log > .msg .nm { font:600 13px/20px var(--app-font,var(--scene-font)); }
 #chat #log > .msg .t { margin-left:0; font:400 11px/20px var(--app-font,var(--scene-font)); }
 #chat .rt-chip { display:inline-flex; align-items:center; gap:8px; padding:0 6px; border:1px solid var(--line-strong); border-radius:4px; color:var(--text-2); font:400 11px/18px var(--app-font,var(--scene-font)); white-space:nowrap; }

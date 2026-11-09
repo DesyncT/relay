@@ -46,6 +46,8 @@ export default function Composer() {
   const [text, setText] = useState(() => loadDraft(sid)), [pend, setPend] = useState(() => loadDraftFiles(sid)), [uploads, setUploads] = useState(0);
   const [items, setItems] = useState([]), [qEdit, setQEdit] = useState(null), [failed, setFailed] = useState([]);
   const [queueBusy, setQueueBusy] = useState(true), [lightbox, setLightbox] = useState(null);
+  const [qHost, setQHost] = useState(null); // queued messages render at the end of the chat log, not above the composer
+  useEffect(() => setQHost(document.getElementById('logQueue')), []);
   const [info, setInfo] = useState({}), [conns, setConns] = useState([]), [leadSel, setLeadSel] = useState(null), [mode, setModeState] = useState('edits');
   const [menu, setMenu] = useState(null), [kb, setKb] = useState(false);
   const [slashSel, setSlashSel] = useState(0), [slashOff, setSlashOff] = useState(false), [skills, setSkills] = useState({ sid: null, list: [] });
@@ -320,8 +322,8 @@ export default function Composer() {
 
   return (
     <>
-      <Queue items={items} sid={sid} onEdit={beginEdit} onOpen={(src, name) => setLightbox({ src, name })}
-        onError={(m) => addSystemCard(<div>{m}</div>)} />
+      {qHost && createPortal(<Queue items={items} sid={sid} onEdit={beginEdit} onOpen={(src, name) => setLightbox({ src, name })}
+        onError={(m) => addSystemCard(<div>{m}</div>)} />, qHost)}
       <div className={'cbar' + (qEdit ? ' editing-queue' : '')}>
         <div id="spend" aria-label="Current chat session usage totals">
           {spendKeys.length > 0 && <span className="spend-caption">This chat ·</span>}

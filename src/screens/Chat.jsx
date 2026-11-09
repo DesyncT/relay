@@ -31,6 +31,14 @@ export default function Chat() {
     mo.observe(host, { attributes: true, attributeFilter: ['class'] });
     return () => mo.disconnect();
   }, []);
+  useEffect(() => { // queued messages live at the end of the log: keep following them when the reader is at the bottom
+    const el = log.current, q = document.getElementById('logQueue'); if (!el || !q) return;
+    let near = true;
+    const onScroll = () => { near = el.scrollHeight - el.scrollTop - el.clientHeight < 120; };
+    const ro = new ResizeObserver(() => { if (near) scrollLogToBottom(); });
+    el.addEventListener('scroll', onScroll, { passive: true }); ro.observe(q);
+    return () => { el.removeEventListener('scroll', onScroll); ro.disconnect(); };
+  }, []);
   useEffect(() => { if (panel) setSubsOpen(false); }, [panel]);
   return <>
     <div className="ch-head">
@@ -46,6 +54,7 @@ export default function Chat() {
       <div id="log" ref={log} role="log" aria-label="Conversation" aria-live="polite" tabIndex={0}>
         {!rows.length && <ConversationStart sid={chat.sid} />}
         <MessageRows rows={rows} openAsk={openAsk} />
+        <div id="logQueue" />
       </div>
       <ScrollButton logRef={log} />
       <Typing /><ReqBar /><ReplyChip /><Composer />

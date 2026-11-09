@@ -30,7 +30,7 @@ function Att({ a }) {
   const id = useId();
   if (isImg(a)) {
     const src = fileUrl(a.path);
-    return <motion.img layoutId={lbId(id)} src={src} alt={a.name} title={a.name} onClick={() => openLightbox(src, a.name, id)} whileHover={{ scale: 1.02 }} transition={spring} />;
+    return <motion.img layoutId={lbId(id)} src={src} alt={a.name} title={a.name} onClick={() => openLightbox(src, a.name, id)} transition={spring} />;
   }
   return (
     <div className="fcard"><FileIco /><div><div className="fn">{a.name}</div><div className="fs">{fsize(a.size)}</div></div>
