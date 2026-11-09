@@ -22,6 +22,10 @@ npm install
 npm start
 ```
 
+The renderer uses React and Framer Motion under `src/`. `npm start`, `npm run dist`, and `npm run release` build it with Vite first.
+
+Run `npm test` for the existing behavior checks and `npm run test:ui` for isolated React checks at 1280?800 and 860?760. UI checks use mock IPC and temporary data; screenshots are written to the system temporary directory. `npm run test:ui:legacy` retains the previous renderer checks while migration coverage is expanded.
+
 Build the installer: `npm run dist`. Publish a release (needs `GH_TOKEN`): `npm run release`.
 
 ## Keyboard shortcuts and chat tools

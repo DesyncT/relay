@@ -1,0 +1,5 @@
+/* Usage motion extras; layout comes from base.css */
+#usage .hm-grid i { transition: background-color .25s; }
+#usage .u-lim b, #usage .u-lim small { white-space: nowrap; }
+#usage .u-seg button { transition: color .15s, background-color .15s; }
+#usage .rescan { transition: color .15s; }

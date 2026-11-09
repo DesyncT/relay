@@ -1,0 +1,8 @@
+.pn { position:relative; }
+.pn-inner { position:relative; flex:1; min-width:320px; min-height:0; display:flex; flex-direction:column; }
+.pn-mode { flex:1; min-height:0; display:flex; flex-direction:column; }
+.pn-grip:focus-visible { background:var(--line-strong); outline:none; }
+.pn-hb { position:relative; }
+.pn-hb[aria-pressed="true"] { color:var(--text); }
+.pn-hb-ind { position:absolute; inset:0; border-radius:8px; background:var(--card); z-index:-1; }
+.pn-hb svg { position:relative; }

@@ -1,0 +1,29 @@
+/* Settings + Themes additions on top of the legacy .set-* / .theme-* rules. */
+html.theme-fading *, html.theme-fading *::before, html.theme-fading *::after { transition: background-color .3s, color .3s, border-color .3s, fill .3s, outline-color .3s !important; }
+.tabpair button { position: relative; }
+.tabpair button > span { position: relative; z-index: 1; }
+.tabpair button.on { background: transparent; }
+.tabpair .tp-ind { position: absolute; inset: 0; border-radius: 8px; background: var(--raised); }
+.set-nav button { position: relative; }
+.set-nav button > span { position: relative; z-index: 1; }
+.set-nav button.on { background: transparent; box-shadow: none; }
+.set-nav .sn-ind { position: absolute; inset: 0; border-radius: 8px; background: var(--raised); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+.set-bar { transform-origin: bottom right; }
+.saved { min-width: 40px; display: inline-block; }
+.auth-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.auth-dot { color: var(--positive, #4ade80); }
+.conn-row { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raised); font-size: 13px; margin-bottom: 6px; }
+.conn-menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 400px; max-height: 380px; overflow: auto; background: var(--card); border: 1px solid var(--line-strong); border-radius: 12px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.conn-grp { padding: 8px 12px 4px; font-size: 12px; color: var(--muted); }
+.conn-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.conn-badge.ok { color: var(--positive, #4ade80); }
+.conn-badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.conn-form { margin-top: 10px; max-width: 520px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.conn-form .hint { margin: 0; }
+.conn-form input { font-family: var(--mono); font-size: 13px; }
+.upd-bar i { transform-origin: left; }
+.theme-choice { cursor: pointer; }
+.theme-preview { position: relative; }
+.theme-choice { position: relative; }
+.theme-ring { position: absolute; top: -5px; left: -5px; right: -5px; height: 176px; border: 2px solid var(--claude); border-radius: calc(var(--app-radius) + 4px); pointer-events: none; }
+.theme-choice[aria-pressed="true"] .theme-preview { outline: 0; }

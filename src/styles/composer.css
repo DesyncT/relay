@@ -1,0 +1,12 @@
+/* Composer overrides: Framer Motion owns transform/opacity, so the legacy CSS animations and transitions step aside. */
+#modeMenu { animation: none; }
+#pend .tile { animation: none; }
+#chat .send { transition: background-color .15s var(--ease), color .15s var(--ease); }
+.cbar .mi-hdr { padding: 8px 12px 4px; font-size: 11px; color: var(--muted); cursor: default; }
+/* Slash menu: one highlight pill glides between rows (layoutId) instead of each row repainting. */
+#slash .mi { position: relative; }
+#slash .mi.on { background: transparent; }
+#slash .mi > span { position: relative; }
+#slash .mi > .slash-hi { position: absolute; inset: 0; z-index: 0; background: var(--raised); border-radius: 8px; }
+#sendRecovery button, #queueEditBar button { transition: background-color .15s var(--ease); }
+#queueEditBar button:disabled, #sendRecovery button:disabled { opacity: .5; cursor: default; }

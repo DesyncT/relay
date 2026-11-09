@@ -1,0 +1,589 @@
+{
+  "usage:scan": {
+    "total": {
+      "sessions": 120,
+      "cost": 812.34,
+      "tokens": 2400000000,
+      "cached": 1900000000,
+      "uncached": 300000000,
+      "output": 200000000,
+      "savings": 3000.5,
+      "unpriced": [
+        "foo"
+      ],
+      "accountCostEstimate": 50,
+      "lifetimeCostEstimate": 900,
+      "recoveredTokens": 1000000
+    },
+    "tools": {
+      "Claude Code": {
+        "cost": 600,
+        "sessions": 80,
+        "tokens": 1500000000
+      },
+      "Codex": {
+        "cost": 212.34,
+        "sessions": 40,
+        "tokens": 900000000
+      }
+    },
+    "models": {
+      "claude-opus-4": {
+        "cost": 600,
+        "tool": "Claude Code",
+        "tokens": 1500000000,
+        "rates": [
+          15,
+          75,
+          18.75,
+          1.5
+        ],
+        "breakdown": {
+          "input": 1000,
+          "output": 200
+        },
+        "costs": {
+          "input": 1.5,
+          "output": 2
+        }
+      },
+      "gpt-5": {
+        "cost": 212,
+        "tool": "Codex",
+        "tokens": 900000000,
+        "breakdown": {},
+        "costs": {}
+      }
+    },
+    "days": {
+      "2026-09-30": {
+        "Claude Code": 22.353394814380465,
+        "Codex": 0
+      },
+      "2026-10-01": {
+        "Claude Code": 28.913861588522632,
+        "Codex": 12
+      },
+      "2026-10-02": {
+        "Claude Code": 8.89105736128156,
+        "Codex": 0
+      },
+      "2026-10-03": {
+        "Claude Code": 19.306144000709985,
+        "Codex": 0
+      },
+      "2026-10-04": {
+        "Claude Code": 29.753365603293474,
+        "Codex": 12
+      },
+      "2026-10-05": {
+        "Claude Code": 32.84548008488453,
+        "Codex": 0
+      },
+      "2026-10-06": {
+        "Claude Code": 15.872480583600716,
+        "Codex": 0
+      },
+      "2026-10-07": {
+        "Claude Code": 29.997355803218014,
+        "Codex": 12
+      },
+      "2026-10-08": {
+        "Claude Code": 16.54280043725072,
+        "Codex": 0
+      },
+      "2026-10-09": {
+        "Claude Code": 12.12112935969195,
+        "Codex": 0
+      },
+      "2026-10-10": {
+        "Claude Code": 29.640948722785854,
+        "Codex": 12
+      },
+      "2026-10-11": {
+        "Claude Code": 19.909016526389028,
+        "Codex": 0
+      },
+      "2026-10-12": {
+        "Claude Code": 28.12717364923607,
+        "Codex": 0
+      },
+      "2026-10-13": {
+        "Claude Code": 28.69127785213509,
+        "Codex": 12
+      },
+      "2026-10-14": {
+        "Claude Code": 22.876753514388085,
+        "Codex": 0
+      },
+      "2026-10-15": {
+        "Claude Code": 3.9705525029331907,
+        "Codex": 0
+      },
+      "2026-10-16": {
+        "Claude Code": 27.167350860198713,
+        "Codex": 12
+      },
+      "2026-10-17": {
+        "Claude Code": 25.38661212525512,
+        "Codex": 0
+      },
+      "2026-10-18": {
+        "Claude Code": 0.2655392787121163,
+        "Codex": 0
+      },
+      "2026-10-19": {
+        "Claude Code": 45.09966915608168,
+        "Codex": 12
+      },
+      "2026-10-20": {
+        "Claude Code": 27.38835752182883,
+        "Codex": 0
+      },
+      "2026-10-21": {
+        "Claude Code": 4.49631628988857,
+        "Codex": 0
+      },
+      "2026-10-22": {
+        "Claude Code": 22.529617403150286,
+        "Codex": 12
+      },
+      "2026-10-23": {
+        "Claude Code": 28.841924756386703,
+        "Codex": 0
+      },
+      "2026-10-24": {
+        "Claude Code": 8.637099499951958,
+        "Codex": 0
+      },
+      "2026-10-25": {
+        "Claude Code": 19.508635204713507,
+        "Codex": 12
+      },
+      "2026-10-26": {
+        "Claude Code": 49.71822067084611,
+        "Codex": 0
+      },
+      "2026-10-27": {
+        "Claude Code": 12.605011104799228,
+        "Codex": 0
+      },
+      "2026-10-28": {
+        "Claude Code": 16.09718754001305,
+        "Codex": 12
+      },
+      "2026-10-29": {
+        "Claude Code": 29.999706196521103,
+        "Codex": 0
+      },
+      "2026-10-30": {
+        "Claude Code": 16.320633326681094,
+        "Codex": 0
+      },
+      "2026-10-31": {
+        "Claude Code": 12.363554557252698,
+        "Codex": 12
+      },
+      "2026-11-01": {
+        "Claude Code": 29.680747398701453,
+        "Codex": 0
+      },
+      "2026-11-02": {
+        "Claude Code": 39.709597961563674,
+        "Codex": 0
+      },
+      "2026-11-03": {
+        "Claude Code": 8.382464945967776,
+        "Codex": 12
+      },
+      "2026-11-04": {
+        "Claude Code": 28.767728239894154,
+        "Codex": 0
+      },
+      "2026-11-05": {
+        "Claude Code": 22.704074859237846,
+        "Codex": 0
+      },
+      "2026-11-06": {
+        "Claude Code": 4.233600241796016,
+        "Codex": 12
+      },
+      "2026-11-07": {
+        "Claude Code": 27.278922804770453,
+        "Codex": 0
+      },
+      "2026-11-08": {
+        "Claude Code": 25.244129544236895,
+        "Codex": 0
+      },
+      "2026-11-09": {
+        "Claude Code": 20,
+        "Codex": 12
+      }
+    },
+    "dayTokens": {
+      "2026-09-30": 3334690,
+      "2026-10-01": 1333215,
+      "2026-10-02": 4775368,
+      "2026-10-03": 3827070,
+      "2026-10-04": 639818,
+      "2026-10-05": 4518461,
+      "2026-10-06": 4242851,
+      "2026-10-07": 66384,
+      "2026-10-08": 4171117,
+      "2026-10-09": 4573712,
+      "2026-10-10": 771257,
+      "2026-10-11": 3740288,
+      "2026-10-12": 4813029,
+      "2026-10-13": 1460694,
+      "2026-10-14": 3234597,
+      "2026-10-15": 4956014,
+      "2026-10-16": 2120895,
+      "2026-10-17": 2664165,
+      "2026-10-18": 4999804,
+      "2026-10-19": 2738646,
+      "2026-10-20": 2040410,
+      "2026-10-21": 4943523,
+      "2026-10-22": 3301584,
+      "2026-10-23": 1375817,
+      "2026-10-24": 4788297,
+      "2026-10-25": 3798440,
+      "2026-10-26": 683686,
+      "2026-10-27": 4537234,
+      "2026-10-28": 4219270,
+      "2026-10-29": 22128,
+      "2026-10-30": 4195358,
+      "2026-10-31": 4555651,
+      "2026-11-01": 727500,
+      "2026-11-02": 3769511,
+      "2026-11-03": 4800851,
+      "2026-11-04": 1418311,
+      "2026-11-05": 3268218,
+      "2026-11-06": 4949962,
+      "2026-11-07": 2080734,
+      "2026-11-08": 2701512,
+      "2026-11-09": 5000000
+    },
+    "type": {
+      "input": 100,
+      "cacheRead": 200,
+      "cacheWrite": 50,
+      "output": 300
+    },
+    "speed": {
+      "standard": 500,
+      "fast": 100
+    },
+    "accountUsage": {
+      "codex": {
+        "cached": true,
+        "summary": {
+          "lifetimeTokens": 3000000000
+        }
+      }
+    },
+    "coverage": {
+      "malformedLines": 2
+    }
+  },
+  "settings:get": {
+    "lastTab": "chat",
+    "disabledProviders": [
+      "antigravity"
+    ],
+    "lead": "claude"
+  },
+  "usage:quota": {
+    "codex": {
+      "windows": [
+        {
+          "minutes": 300,
+          "used": 35,
+          "remaining": 65,
+          "reset": 1794230991794,
+          "tokens": 1200
+        }
+      ]
+    },
+    "claude": {
+      "estimated": true,
+      "windows": [
+        {
+          "minutes": 300,
+          "tokens": 5000
+        }
+      ]
+    }
+  },
+  "update:get": {
+    "state": "idle",
+    "current": "0.1.61"
+  },
+  "agents:list": [
+    {
+      "name": "reviewer",
+      "model": "inherit",
+      "desc": "Reviews code",
+      "text": "---\nname: reviewer\n---\nhi"
+    },
+    {
+      "name": "tester",
+      "model": "sonnet",
+      "desc": "Runs tests",
+      "text": "x"
+    }
+  ],
+  "procs:list": [],
+  "rules:get": {
+    "shared": {
+      "text": "be nice",
+      "path": "C:/x/shared.md"
+    },
+    "forced": {
+      "text": "ponytail\n",
+      "path": "C:/x/forced.md"
+    },
+    "claude": {
+      "text": "",
+      "path": "C:/x/CLAUDE.md"
+    },
+    "codex": {
+      "text": "c",
+      "path": "C:/x/AGENTS.md"
+    }
+  },
+  "prices:get": {
+    "claude-sonnet": [
+      3,
+      15
+    ]
+  },
+  "settings:save": {},
+  "agents:save": true,
+  "rules:save": true,
+  "plugins:skills": {
+    "ok": true,
+    "skills": [
+      {
+        "name": "ponytail",
+        "source": "user",
+        "description": "lazy"
+      }
+    ]
+  },
+  "plugins:claudeList": {
+    "ok": true,
+    "plugins": [
+      {
+        "id": "a@m",
+        "name": "a",
+        "enabled": true,
+        "version": "1",
+        "marketplace": "m"
+      }
+    ],
+    "marketplaces": [
+      {
+        "name": "m",
+        "source": "x/y"
+      }
+    ]
+  },
+  "plugins:codexList": {
+    "ok": true,
+    "plugins": [],
+    "marketplaces": []
+  },
+  "settings:limits": {
+    "maxRounds": [
+      6,
+      1,
+      20,
+      "Max rounds",
+      "How many rounds a task may take",
+      "Team",
+      ""
+    ],
+    "parallelTasks": [
+      0,
+      0,
+      8,
+      "Parallel tasks",
+      "Tasks at once",
+      "Team",
+      ""
+    ],
+    "timeoutMin": [
+      30,
+      1,
+      240,
+      "Timeout",
+      "Per run",
+      "Runs",
+      "min"
+    ]
+  },
+  "auth:status": {
+    "claude": {
+      "installed": true,
+      "loggedIn": true,
+      "method": "claude.ai"
+    },
+    "codex": {
+      "installed": true,
+      "loggedIn": false
+    },
+    "antigravity": {
+      "installed": false
+    }
+  },
+  "models:presets": [
+    {
+      "id": "ollama",
+      "name": "Ollama (local)",
+      "local": true,
+      "baseUrl": "http://localhost:11434/v1",
+      "engine": "claude"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "envKey": "OPENROUTER_API_KEY",
+      "engine": "claude"
+    }
+  ],
+  "models:detect": {
+    "presets": {
+      "ollama": {
+        "running": true
+      }
+    }
+  },
+  "models:list": [
+    {
+      "id": "c1",
+      "preset": "openrouter",
+      "name": "OpenRouter",
+      "models": [
+        "a",
+        "b"
+      ],
+      "hasKey": true
+    }
+  ],
+  "profile:get": {
+    "name": "you",
+    "avatar": ""
+  },
+  "themes:generate": {
+    "name": "Neon",
+    "font": "mono",
+    "radius": 4,
+    "borderWidth": 1,
+    "density": "compact",
+    "colors": {
+      "deep": "#050505",
+      "bg": "#0a0a0a",
+      "card": "#111111",
+      "raised": "#1a1a1a",
+      "text": "#ffffff",
+      "text2": "#dddddd",
+      "muted": "#cccccc",
+      "line": "#333333",
+      "lineStrong": "#555555",
+      "accent": "#ff00aa",
+      "codex": "#00ffaa",
+      "negative": "#ff5555"
+    }
+  },
+  "sessions:getActive": "s1",
+  "sessions:working": [
+    "s2"
+  ],
+  "sessions:tree": {
+    "active": "s1",
+    "projects": [
+      {
+        "id": "p1",
+        "name": "jarvis",
+        "path": "C:/jarvis",
+        "collapsed": false
+      },
+      {
+        "id": "p2",
+        "name": "other",
+        "path": "C:/other",
+        "collapsed": false
+      }
+    ],
+    "sessions": [
+      {
+        "id": "s1",
+        "projectId": "p1",
+        "title": "Port the shell"
+      },
+      {
+        "id": "s2",
+        "projectId": "p1",
+        "title": "Fix bug",
+        "unread": false
+      },
+      {
+        "id": "s3",
+        "projectId": "p1",
+        "title": "Unread chat",
+        "unread": true
+      },
+      {
+        "id": "s4",
+        "projectId": "p2",
+        "title": "Question one",
+        "waitingQuestion": true
+      }
+    ]
+  },
+  "sessions:search": [
+    {
+      "projectName": "jarvis",
+      "sessionId": "s2",
+      "title": "Fix bug",
+      "snippet": "found the bug"
+    }
+  ],
+  "chat:info": {
+    "id": "s1",
+    "title": "Build something remarkable",
+    "projectId": "p1",
+    "lead": "claude",
+    "mode": "edits"
+  },
+  "chat:history": [
+    {
+      "from": "user",
+      "text": "Make Relay feel effortless.",
+      "at": 1794224116396
+    },
+    {
+      "from": "claude",
+      "text": "The React workspace is ready. Smooth transitions keep your focus on the conversation.\n\nWhich detail should we refine next? [ask-user: Motion | Typography | Layout]",
+      "at": 1794224121396
+    }
+  ],
+  "chat:queue": [],
+  "subagents:list": [],
+  "skills:inUse": {
+    "used": []
+  },
+  "skills:list": [],
+  "limits:get": {
+    "down": {}
+  },
+  "panel:term:start": {
+    "cwd": "C:/jarvis"
+  },
+  "panel:files": [],
+  "chat:send": {
+    "ok": true
+  }
+}
