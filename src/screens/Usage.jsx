@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { call, useIpcEvent } from '../api.js';
 import { getState, setState } from '../store.js';
 import { ease, fadeUp, item, stagger } from '../motion.js';
@@ -84,6 +84,8 @@ function Breakdown({ models, dayKeys, days, tools, t }) {
 }
 
 function Report({ s, snap, rescan }) {
+  const reduced = useReducedMotion();
+  const reveal = { initial: { y: reduced ? 0 : 18 }, whileInView: { y: 0 }, viewport: { once: true, amount: 0.12 }, transition: { duration: 0.55, ease } };
   const t = s.total, days = s.days || {}, toolsMap = s.tools || {};
   const tools = Object.keys(toolsMap).sort((a, b) => (toolsMap[b]?.cost || 0) - (toolsMap[a]?.cost || 0));
   const models = Object.entries(s.models || {}).sort((a, b) => b[1].cost - a[1].cost);
@@ -94,16 +96,16 @@ function Report({ s, snap, rescan }) {
   const totals = [['Known lifetime tokens', t.tokens], ['Cached input', t.cached], ['Uncached input', t.uncached], ['Output', t.output]];
   return (
     <motion.div initial={false}>
-      <button className="rescan" id="rescan" onClick={rescan}>Rescan</button>
+      <header className="usage-heading"><div><h2>Usage</h2><p>Activity, capacity and API cost estimates.</p></div><button className="rescan" id="rescan" onClick={rescan}>Refresh history <span aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M20 7v5h-5M4 17v-5h5M6 8a7 7 0 0 1 12-2l2 2M4 16l2 2a7 7 0 0 0 12-2" /></svg></span></button></header>
       <Limits snap={snap} />
-      <motion.div className="u-top" variants={item}>
+      <motion.div className="u-top" {...reveal}>
         <div>
-          <p className="u-big"><CountUp value={lifetimeTotal} format={usd} /></p>
+          <p className="usage-total-label">Lifetime API estimate</p><p className="u-big"><CountUp value={lifetimeTotal} format={usd} /></p>
           <div className="u-sub">{t.sessions} local sessions · API estimate <svg viewBox="0 0 16 16" role="img" aria-label={INFO}><title>{INFO}</title><circle cx="8" cy="8" r="6.5" /><path d="M8 7.2v4M8 4.8v.1" /></svg></div>
           {tools.map((k, i) => (
-            <motion.div className="u-tool" key={k} initial={false}>
+            <motion.div className="u-tool" key={k} {...reveal} transition={{ duration: 0.5, ease, delay: i * 0.06 }}>
               <div className="r1"><span className="dot" style={{ background: ucol(k) }} /><ToolIcon k={k} /><span className="n">{k}</span><small>{toolsMap[k].sessions} sessions</small><span className="c">{usd(providerCost(k))}</span></div>
-              <div className="r2">{pct(providerCost(k), lifetimeTotal)} of lifetime estimated cost · {sh(toolsMap[k].tokens)} tokens</div>
+              <div className="provider-share" aria-hidden="true"><motion.i style={{ background: ucol(k), scaleX: reduced ? providerCost(k) / (lifetimeTotal || 1) : 0 }} whileInView={{ scaleX: providerCost(k) / (lifetimeTotal || 1) }} viewport={{ once: true }} transition={{ duration: 0.9, ease, delay: i * 0.1 }} /></div><div className="r2">{pct(providerCost(k), lifetimeTotal)} of lifetime estimated cost · {sh(toolsMap[k].tokens)} tokens</div>
               <div className="provider-lifetime" title="Local transcript costs plus any priced account-only tokens. Recovered tokens without pricing are excluded.">Lifetime API estimate <b>{(toolsMap[k].accountCostEstimate || (k === 'Codex' ? t.accountCostEstimate : 0)) > 0 ? '\u2248 ' : ''}{usd(toolsMap[k].lifetimeCostEstimate ?? (toolsMap[k].cost + (k === 'Codex' ? t.accountCostEstimate || 0 : 0)))}</b>
                 {(toolsMap[k].accountCostEstimate || (k === 'Codex' ? t.accountCostEstimate : 0)) > 0 && <small>+{usd(toolsMap[k].accountCostEstimate ?? t.accountCostEstimate)} estimated from account-only tokens</small>}
               </div>
@@ -112,10 +114,10 @@ function Report({ s, snap, rescan }) {
           {t.accountCostEstimate > 0 && <p className="u-sub" title="Tokens that only your Codex account reports, priced at your average local Codex rate">Lifetime incl. account-only tokens ≈ <b>{usd(t.lifetimeCostEstimate)}</b> (+{usd(t.accountCostEstimate)} estimated)</p>}
           {t.unpriced.length > 0 && <p className="warn">{t.unpriced.length} unpriced model{t.unpriced.length === 1 ? '' : 's'}: tokens are included; their estimated cost is unavailable.</p>}
         </div>
-        <div><h3>Estimated daily API cost</h3><Chart days={s.chartDays || days} tools={tools} accountCostDays={s.accountCostDays || {}} />
+        <div><Chart days={s.chartDays || days} tools={tools} accountCostDays={s.accountCostDays || {}} />
           {t.accountCostEstimate > 0 && <p className="muted usage-coverage">{Object.keys(s.accountCostDays || {}).length ? <>Codex includes {usd(t.accountCostEstimate)} in account-only estimates, spread across usage days in proportion to token activity. These are allocated estimates, not recorded daily charges.</> : <>The {usd(t.accountCostEstimate)} account-only estimate is included in Codex totals. No dated Codex activity is available to distribute it on the graph.</>}</p>}</div>
       </motion.div>
-      <motion.div variants={item}>
+      <motion.div {...reveal}>
         <h3>Totals</h3>
         <div className="u-totals">
           {totals.map(([l, v]) => <div key={l}>{l}<span><CountUp value={v} format={(n) => sh(Math.round(n))} /></span></div>)}
@@ -130,7 +132,7 @@ function Report({ s, snap, rescan }) {
         <Heatmap days={s.dayTokens || {}} />
         <p className="muted usage-coverage">All retained local CLI history, including archives and sessions outside Relay. Imported history stays saved locally.{cov?.malformedLines || cov?.unreadableFiles?.length ? ` ${cov.malformedLines || 0} incomplete log lines and ${cov.unreadableFiles?.length || 0} unreadable files were skipped; totals may be incomplete.` : ''}</p>
       </motion.div>
-      <motion.div className="u-split" variants={item}>
+      <motion.div className="u-split" {...reveal}>
         <div><div className="u-hd"><h3>Cost by type</h3></div><Bar keys={TYPE_KEYS} o={s.type} /></div>
         <div><div className="u-hd"><h3>Cost by speed</h3><span>Premium {usd(s.speed.fast / 2)}</span></div><Bar keys={SPEED_KEYS} o={s.speed} /></div>
       </motion.div>

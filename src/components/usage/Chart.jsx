@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion, useMotionValue, useSpring } from 'framer-motion';
+import { AnimatePresence, motion, useMotionValue, useSpring, useReducedMotion } from 'framer-motion';
 import { usd, dayLabel, ucol } from './util.jsx';
 import { ease } from '../../motion.js';
 import RangeTabs from './RangeTabs.jsx';
@@ -42,7 +42,8 @@ const FX = { fontSize: 13, fill: '#85858b', fontFamily: 'inherit' };
 
 export default function Chart({ days, tools, accountCostDays = {} }) {
   const box = useRef(null), tipRef = useRef(null);
-  const [W, setW] = useState(900), [hover, setHover] = useState(null), [mode, setMode] = useState('daily');
+  const reduced = useReducedMotion();
+  const [W, setW] = useState(900), [hover, setHover] = useState(null), [mode, setMode] = useState('daily'), [span, setSpan] = useState('all');
   const tipX = useMotionValue(0), sx = useSpring(tipX, { stiffness: 600, damping: 40 });
 
   useEffect(() => { // debounced width, like the legacy ResizeObserver
@@ -51,8 +52,11 @@ export default function Chart({ days, tools, accountCostDays = {} }) {
     return () => { clearTimeout(t); ro.disconnect(); };
   }, []);
 
-  const keys = Object.keys(days).sort();
-  if (!keys.length) return <div className="u-chart" ref={box}><p className="dim">No sessions found yet</p></div>;
+  const now = new Date(), start = new Date(now.getFullYear(), span === 'year' ? 0 : now.getMonth(), span === 'year' ? 1 : span === 'month' ? 1 : now.getDate());
+  if (span === 'week') start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+  const dateKey = d => [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-');
+  const keys = Object.keys(days).filter(d => span === 'all' || (d >= dateKey(start) && d <= dateKey(now))).sort();
+
   const all = [];
   for (let t = Date.parse(keys[0]); t <= Date.parse(keys.at(-1)); t += 864e5) all.push(new Date(t).toISOString().slice(0, 10));
   const pts = series(all, days, accountCostDays, tools, mode);
@@ -72,10 +76,12 @@ export default function Chart({ days, tools, accountCostDays = {} }) {
   };
 
   const hp = hover && pts[hover.k];
+  const spanTotal = keys.reduce((n, d) => n + tools.reduce((v, k) => v + (days[d]?.[k] || 0), 0), 0);
   return (
     <div className="u-chart" ref={box}>
-      <div className="u-chart-head"><RangeTabs label="Cost range" value={mode} onChange={(m) => { setHover(null); setMode(m); }} /></div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${MODE_NOUN[mode]} estimated cost by provider, including allocated account-only estimates`} onMouseMove={move} onMouseLeave={() => setHover(null)}>
+      <div className="usage-chart-title"><h3>Estimated {mode} API cost</h3><span className="usage-period-total" aria-label="Selected period total" key={span}>{usd(spanTotal)} <small>in selected period</small></span></div>
+      <div className="u-chart-head"><label className="u-timespan">Time span <select aria-label="Time span" value={span} onChange={e => { setHover(null); setSpan(e.target.value); }}><option value="week">This week</option><option value="month">This month</option><option value="year">This year</option><option value="all">All time</option></select></label><RangeTabs label="Cost range" value={mode} onChange={(m) => { setHover(null); setMode(m); }} /></div>
+      {!keys.length ? <p className="dim">No usage in this time span.</p> : <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${MODE_NOUN[mode]} estimated cost by provider, including allocated account-only estimates`} onMouseMove={move} onMouseLeave={() => setHover(null)}>
         <AnimatePresence initial={false}>
           <motion.g key={mode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
             {[0, 1, 2, 3, 4].map((t) => (
@@ -83,20 +89,21 @@ export default function Chart({ days, tools, accountCostDays = {} }) {
             ))}
             {[...tools].reverse().map((tool, k) => {
               const line = pts.length > 1 ? mono(pts.map((p) => [x(p.i), y(p.v[tool])])) : '', c = ucol(tool), gid = `cg-${tool.replace(/\W/g, '')}`;
-              if (!line) return null;
+              if (!line) return pts.length === 1 ? <circle key={tool} cx={x(pts[0].i)} cy={y(pts[0].v[tool])} r={3} fill={c} /> : null;
               return (
                 <g key={tool}>
                   <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={c} stopOpacity=".22" /><stop offset="1" stopColor={c} stopOpacity="0" /></linearGradient></defs>
                   <motion.path d={`${line} L${x(pts.at(-1).i)},${y(0)} L${x(pts[0].i)},${y(0)} Z`} fill={`url(#${gid})`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 0.3 + k * 0.1 }} />
-                  <motion.path d={line} fill="none" stroke={c} strokeWidth="1.5" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.9, ease, delay: k * 0.1 }} />
+                  <motion.path d={line} fill="none" stroke={c} strokeWidth="1.5" strokeLinejoin="round" initial={{ pathLength: reduced ? 1 : 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.9, ease, delay: k * 0.1 }} />
                 </g>
               );
             })}
             {ticks.map((k) => <text key={k} x={x(pts[k].i)} y={H - 8} {...FX} textAnchor={k === 0 ? 'start' : k === pts.length - 1 && pts.length > 1 && mode !== 'weekly' ? 'end' : 'middle'}>{dayLabel(pts[k].d).toUpperCase()}</text>)}
           </motion.g>
         </AnimatePresence>
+        {hp && tools.map(tool => <circle key={tool} cx={x(hp.i)} cy={y(hp.v[tool])} r="4" fill={ucol(tool)} stroke="var(--bg)" strokeWidth="2" />)}
         {hover && <line y1={T} y2={T + ph} x1={x(hover.i)} x2={x(hover.i)} stroke="#444" />}
-      </svg>
+      </svg>}
       {hp && (
         <motion.div className="u-tip" ref={tipRef} style={{ display: 'block', left: 0, top: 56, x: sx, animation: 'none' }}>
           <div className="muted">{mode === 'weekly' ? `Week of ${dayLabel(hp.d)}` : mode === 'cumulative' ? `Total through ${dayLabel(hp.d)}` : dayLabel(hp.d)}</div>
