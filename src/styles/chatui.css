@@ -1,0 +1,69 @@
+/* chat polish: scroll button, thinking line, drop overlay, checklist */
+.cu-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+#log:focus-visible { outline:none; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--claude) 45%, transparent); }
+
+/* ---- scroll-to-bottom pill ---- */
+.sb-anchor { position:relative; flex:none; height:0; z-index:6; display:flex; justify-content:center; }
+#chat.on .sb-anchor #scrollBottom { position:absolute; left:auto; bottom:14px; transform:none; width:auto; height:44px; padding:0 4px; gap:8px; display:flex; align-items:center;
+  border:1px solid var(--line-strong); color:var(--text); cursor:pointer; will-change:transform;
+  background:linear-gradient(180deg, color-mix(in srgb, var(--raised) 92%, #fff 4%), var(--card)); box-shadow:0 8px 24px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+  transition:box-shadow .25s var(--ease), border-color .25s var(--ease), color .2s var(--ease); }
+#chat.on .sb-anchor #scrollBottom:hover { border-color:color-mix(in srgb, var(--claude) 55%, var(--line-strong)); box-shadow:0 10px 30px rgba(0,0,0,.5), 0 0 0 4px color-mix(in srgb, var(--claude) 12%, transparent), 0 0 26px color-mix(in srgb, var(--claude) 35%, transparent), inset 0 1px 0 rgba(255,255,255,.08); }
+#chat.on .sb-anchor #scrollBottom:focus-visible { outline:2px solid var(--claude); outline-offset:3px; }
+#chat.on .sb-anchor #scrollBottom.has-new { border-color:color-mix(in srgb, var(--claude) 45%, var(--line-strong)); }
+.sb-orb { position:relative; flex:none; width:36px; height:36px; display:grid; place-items:center; }
+.sb-ring { position:absolute; inset:-2px; width:40px; height:40px; transform:rotate(-90deg); overflow:visible; }
+.sb-ring circle { fill:none; stroke-width:2; }
+.sb-track { stroke:var(--line-strong); }
+.sb-prog { stroke:var(--claude); stroke-linecap:round; transition:stroke-dashoffset .12s linear; }
+.sb-arrow { width:18px; height:18px; stroke-width:1.8; animation:sbBob 1.8s ease-in-out infinite; }
+#scrollBottom:hover .sb-arrow { animation-duration:.9s; }
+@keyframes sbBob { 0%,100% { transform:translateY(-1.5px); } 50% { transform:translateY(2px); } }
+.sb-lbl { font-size:13px; font-weight:500; white-space:nowrap; letter-spacing:.01em; }
+.sb-cnt { flex:none; min-width:24px; height:24px; margin-right:6px; padding:0 7px; border-radius:999px; display:grid; place-items:center; overflow:hidden;
+  font:600 12px/1 var(--mono); font-variant-numeric:tabular-nums; color:#1b1b1d; background:var(--claude); box-shadow:0 0 12px color-mix(in srgb, var(--claude) 45%, transparent); }
+.sb-cnt > span { display:block; }
+
+/* ---- thinking / typing line ---- */
+#busy { overflow:hidden; height:30px; }
+.cu-line, .cu-row { white-space:nowrap; min-width:0; } .cu-line > *, .cu-row > * { flex:none; }
+.cu-line, .cu-row { display:inline-flex; align-items:center; gap:6px; }
+.cu-is { color:var(--muted); }
+.cu-mark { position:relative; width:22px; height:22px; justify-content:center; }
+.cu-mark svg { position:relative; animation:cuSpin 6s linear infinite; }
+.cu-pulse { position:absolute; inset:1px; border-radius:50%; border:1px solid var(--c, var(--claude)); opacity:0; animation:cuPulse 2s var(--ease) infinite; }
+@keyframes cuPulse { 0% { transform:scale(.6); opacity:.55; } 100% { transform:scale(1.45); opacity:0; } }
+@keyframes cuSpin { to { transform:rotate(360deg); } }
+.cu-verbbox { position:relative; display:inline-grid; }
+.cu-verb { display:inline-flex; align-items:baseline; white-space:pre; }
+.cu-word span { display:inline-block; color:var(--text-2); animation:cuLetter 1.9s ease-in-out infinite; }
+@keyframes cuLetter { 0%,60%,100% { color:var(--text-2); opacity:.7; transform:none; } 25% { color:var(--text); opacity:1; transform:translateY(-1px); } }
+.cu-dots { display:inline-flex; gap:2px; margin-left:3px; }
+.cu-dots i { width:3px; height:3px; border-radius:50%; background:var(--text-2); animation:cuDot 1.2s ease-in-out infinite; }
+.cu-dots i:nth-child(2) { animation-delay:.18s; } .cu-dots i:nth-child(3) { animation-delay:.36s; }
+@keyframes cuDot { 0%,70%,100% { opacity:.25; transform:translateY(0); } 35% { opacity:1; transform:translateY(-2px); } }
+#busy .cu-time { margin:0 0 0 2px; min-width:4.2ch; padding:1px 8px; text-align:center; border-radius:999px; font:500 11.5px/16px var(--mono); font-variant-numeric:tabular-nums; color:var(--text-2);
+  background:color-mix(in srgb, var(--raised) 80%, transparent); border:1px solid var(--line); }
+
+/* ---- drop overlay ---- */
+#chat #drop.cu-drop { opacity:1; visibility:visible; border:0; background:color-mix(in srgb, var(--deep) 82%, transparent); backdrop-filter:blur(6px); }
+.cu-drop-bd { position:absolute; inset:0; width:100%; height:100%; }
+.cu-drop-bd rect { fill:color-mix(in srgb, var(--claude) 5%, transparent); stroke:var(--claude); stroke-width:2; stroke-dasharray:9 8; stroke-linecap:round; animation:cuMarch 1s linear infinite; opacity:.85; }
+@keyframes cuMarch { to { stroke-dashoffset:-34; } }
+.cu-drop-card { position:relative; display:flex; flex-direction:column; align-items:center; gap:12px; padding:26px 36px; border-radius:18px; background:var(--raised); border:1px solid var(--line-strong); box-shadow:0 20px 60px rgba(0,0,0,.55); }
+.cu-drop-ic { width:28px; height:28px; stroke:var(--claude); stroke-width:1.6; }
+
+/* ---- checklist ---- */
+#reqbar .rq-fill { width:100% !important; transform-origin:left center; transform:scaleX(var(--p, 0)); transition:transform .6s var(--ease); will-change:transform; }
+#reqbar.working .rq-fill { background-image:linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent); background-size:60px 100%; background-repeat:no-repeat; animation:cuSheen 1.6s linear infinite; }
+@keyframes cuSheen { from { background-position:-60px 0; } to { background-position:calc(100% + 60px) 0; } }
+#reqbar .rq-pct, #reqbar .rq-cnt { font-variant-numeric:tabular-nums; }
+#reqbar li { transition:opacity .3s var(--ease), color .3s var(--ease); }
+#reqbar li.done .rq-ic { animation:cuPop .4s var(--ease); }
+@keyframes cuPop { 0% { transform:scale(.6); } 60% { transform:scale(1.18); } 100% { transform:scale(1); } }
+#reqbar li.done .rq-title { transition:color .4s var(--ease); }
+
+@media (prefers-reduced-motion:reduce) {
+  .sb-arrow, .cu-mark svg, .cu-pulse, .cu-word span, .cu-dots i, .cu-drop-bd rect, #reqbar.working .rq-fill, #reqbar li.done .rq-ic { animation:none !important; }
+  .cu-word span { opacity:1; }
+}

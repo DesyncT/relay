@@ -3,3 +3,12 @@
 #usage .u-lim b, #usage .u-lim small { white-space: nowrap; }
 #usage .u-seg button { transition: color .15s, background-color .15s; }
 #usage .rescan { transition: color .15s; }
+/* RangeTabs: pill with sliding highlight */
+#usage .u-range { border-radius: 999px; padding: 3px; }
+#usage .u-range button { position: relative; border-radius: 999px; padding: 4px 14px; background: none; }
+#usage .u-range button.on { background: none; }
+#usage .u-range button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
+#usage .u-range-pill { position: absolute; inset: 0; border-radius: 999px; background: #262626; }
+#usage .u-range-t { position: relative; }
+#usage .u-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#usage .u-chart-head { margin-bottom: 14px; }

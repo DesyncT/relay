@@ -4,6 +4,7 @@ import { call } from '../api.js';
 import { spring, fadeUp, stagger, item } from '../motion.js';
 import { PRESETS, TOKEN_MAP, validate, persistTheme, getSelected, getCustom } from '../theme/themeStore.js';
 import '../styles/settings.css';
+import BackgroundSettings from '../components/settings/BackgroundSettings.jsx';
 
 function Preview({ theme }) {
   const vars = Object.fromEntries(Object.entries(TOKEN_MAP).map(([k, t]) => ['--' + t, theme.colors[k]]));
@@ -46,6 +47,7 @@ export default function Themes() {
   return (
     <div id="themes" aria-busy={busy || undefined}>
       <div className="page-head"><div><h2>Themes</h2><p>A different atmosphere for the same workspace.</p></div></div>
+      <BackgroundSettings />
       <motion.div className="theme-presets" role="group" aria-label="Choose a theme" variants={stagger(0.05)} initial="initial" animate="animate">
         {cards.map(([id, theme]) => (
           <motion.button key={id} type="button" className="theme-choice" data-theme={id} aria-pressed={sel === id} variants={item} whileTap={{ scale: 0.985 }} onClick={() => use(theme, id)}>

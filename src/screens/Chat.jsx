@@ -9,18 +9,32 @@ import { SubsAside } from '../chat/Subs.jsx';
 import Panels, { PanelButtons, closePanel } from '../chat/Panels.jsx';
 import ConversationStart from '../components/ConversationStart.jsx';
 import { Lightbox } from '../chat/lightbox.jsx';
+import ScrollButton from '../chat/ScrollButton.jsx';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ease, spring } from '../motion.js';
+import '../styles/chatui.css';
 
 export default function Chat() {
   const chat = useChat();
   const panel = useStore(s => s.pnMode);
   const log = useRef(null);
-  const [scrolled, setScrolled] = useState(false);
+  const [drag, setDrag] = useState(false);
   const { rows, openAsk } = useMemo(() => layoutItems(chat.items), [chat.items]);
-  useLayoutEffect(() => { setLogEl(log.current); if (chat.items.length) scrollLogToBottom(); else if (log.current) log.current.scrollTop = 0; return () => setLogEl(null); }, [chat.epoch]);
+  useLayoutEffect(() => {
+    setLogEl(log.current); if (chat.items.length) scrollLogToBottom(); else if (log.current) log.current.scrollTop = 0;
+    if (chat.epoch > 1) log.current?.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'cubic-bezier(.22,1,.36,1)' });
+    return () => setLogEl(null);
+  }, [chat.epoch]);
+  useEffect(() => { // Composer toggles .drag on #chat while files are dragged over it
+    const host = document.getElementById('chat'); if (!host) return;
+    const mo = new MutationObserver(() => setDrag(host.classList.contains('drag')));
+    mo.observe(host, { attributes: true, attributeFilter: ['class'] });
+    return () => mo.disconnect();
+  }, []);
   useEffect(() => { if (panel) setSubsOpen(false); }, [panel]);
   return <>
     <div className="ch-head">
-      <div className="conversation-title"><span className={Object.keys(chat.act).length ? "session-beacon working" : "session-beacon"} aria-hidden="true" /><h2 id="chName">{chat.title || 'New session'}</h2></div>
+      <div className="conversation-title"><AnimatePresence initial={false} mode="popLayout"><motion.h2 id="chName" title={chat.title || 'New session'} key={chat.sid + '|' + chat.title} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22, ease }}>{chat.title || 'New session'}</motion.h2></AnimatePresence></div>
       <SkillChips /><Quota />
       <button className="b ghost" id="quickBtn" aria-label="Open actions" onClick={() => window.dispatchEvent(new CustomEvent('relay:palette', { detail: 'commands' }))}>Actions</button>
       <PanelButtons />
@@ -29,14 +43,21 @@ export default function Chat() {
     </div>
     <Limits />
     <div className="ch-body"><div className="ch-main">
-      <div id="log" ref={log} role="log" aria-label="Conversation" aria-live="polite" onScroll={() => { const el = log.current; setScrolled(el.scrollHeight - el.clientHeight - el.scrollTop > 80); }}>
+      <div id="log" ref={log} role="log" aria-label="Conversation" aria-live="polite" tabIndex={0}>
         {!rows.length && <ConversationStart sid={chat.sid} />}
         <MessageRows rows={rows} openAsk={openAsk} />
       </div>
-      {scrolled && <button id="scrollBottom" aria-label="Scroll to bottom" onClick={scrollLogToBottom}><svg className="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6" /></svg></button>}
+      <ScrollButton logRef={log} />
       <Typing /><ReqBar /><ReplyChip /><Composer />
     </div><SubsAside /><Panels /></div>
-    <div id="drop">Drop files to attach to this chat</div>
+    <AnimatePresence>{drag && (
+      <motion.div id="drop" className="cu-drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.15 } }}>
+        <svg className="cu-drop-bd" aria-hidden="true"><rect x="10" y="10" width="calc(100% - 20px)" height="calc(100% - 20px)" rx="14" /></svg>
+        <motion.div className="cu-drop-card" initial={{ scale: 0.88, y: 14 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }} transition={spring}>
+          <motion.svg className="i cu-drop-ic" viewBox="0 0 24 24" aria-hidden="true" animate={{ y: [0, -4, 0] }} transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}><path d="M12 16V4m-5 5 5-5 5 5M5 20h14" /></motion.svg>
+          Drop files to attach to this chat
+        </motion.div>
+      </motion.div>)}</AnimatePresence>
     <Lightbox />
   </>;
 }

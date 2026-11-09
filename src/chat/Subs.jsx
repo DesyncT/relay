@@ -85,7 +85,7 @@ export function SubsAside() {
   return (
     <AnimatePresence initial={false}>
       {show && (
-        <motion.aside id="subs" aria-label="Subagents" key="subs" initial={{ width: 0, opacity: 0 }} animate={{ width: 280, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ duration: 0.3, ease }}>
+        <motion.aside id="subs" aria-label="Subagents" key="subs" initial={{ width: 0, opacity: 0 }} animate={{ width: 280, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ width: { type: 'spring', stiffness: 300, damping: 32 }, opacity: { duration: 0.2 } }}>
           <div style={{ width: 280, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <div className="sb-h"><b>Subagents</b><span id="sbN">{[run && run + ' running', q && q + ' queued', !run && !q && dn + ' done'].filter(Boolean).join(' · ')}</span>
               <button className="sb-x" id="sbClose" type="button" aria-label="Hide subagents" title="Hide" onClick={() => setSubsOpen(false)}><Ico d="M18 6 6 18M6 6l12 12" /></button></div>

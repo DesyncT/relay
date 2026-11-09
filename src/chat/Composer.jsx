@@ -406,6 +406,7 @@ export default function Composer() {
           )}
         </AnimatePresence>
 
+        <div className="composer-entry">
         <textarea id="input" ref={inputRef} rows={1} spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off"
           value={text} placeholder={placeholder} aria-label={label}
           onChange={(e) => { setText(e.target.value); setSlashSel(0); setSlashOff(false); }} onKeyDown={onKeyDown} onPaste={onPaste} />
@@ -424,6 +425,7 @@ export default function Composer() {
           </AnimatePresence>
         </div>
 
+        </div>
         <div className="cb-tools">
           <button className="plus" id="plus" aria-label="Upload a file" onClick={() => fAny.current.click()}><Ico><path d="M12 5v14M5 12h14" /></Ico></button>
           <button className="chip" id="modeChip" ref={anchors.mode} data-menu="mode" aria-haspopup="dialog" aria-expanded={menu === 'mode'} title="Filesystem and network access are always enabled" onClick={toggle('mode')}>{modeRow[1]}</button>

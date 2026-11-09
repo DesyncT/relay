@@ -44,7 +44,6 @@ export default function Nav() {
   const stats = useStore((s) => s.navStats);
   return (
     <nav aria-label="Sections">
-      <div className="workspace-brand"><img src="./assets/relay.svg" alt="" /><div><strong>Relay</strong><span>Your working space</span></div><button type="button" className="workspace-shortcut" aria-label="Open actions" title="Actions (Ctrl+Shift+P)" onClick={() => window.dispatchEvent(new CustomEvent('relay:palette', { detail: 'commands' }))}>/</button></div>
       {TABS.map(([id, label, icon]) => (
         <button key={id} data-tab={id} className={home === id ? 'on' : ''} onClick={() => setState({ tab: id })} aria-current={home === id ? 'page' : undefined}>
           {home === id && <motion.span  className="nav-pill" transition={spring} />}

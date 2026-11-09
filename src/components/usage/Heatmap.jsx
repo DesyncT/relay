@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ftok, dayLabel } from './util.jsx';
+import RangeTabs from './RangeTabs.jsx';
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const MODES = [['daily', 'Daily'], ['weekly', 'Weekly'], ['cumulative', 'Cumulative']];
 
 function build(days, mode) { // trailing 52 weeks, Sunday first
   const now = new Date(); now.setHours(0, 0, 0, 0);
@@ -41,7 +41,7 @@ export default function Heatmap({ days }) {
   return (
     <>
       <div className="u-hd u-heat-head"><h3>Token activity</h3>
-        <div className="u-seg" id="uheatseg">{MODES.map(([v, n]) => <button key={v} className={mode === v ? 'on' : ''} data-v={v} onClick={() => setMode(v)}>{n}</button>)}</div>
+        <RangeTabs id="uheatseg" label="Token activity range" value={mode} onChange={setMode} />
       </div>
       <div id="uheat" onMouseLeave={() => setTip(null)}>
         <div className="hm-grid" style={{ gridTemplateRows: 'repeat(7,auto)' }}>

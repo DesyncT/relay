@@ -3,10 +3,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { call } from '../api.js';
 import { getState, setState, useStore } from '../store.js';
 import { spring, ease } from '../motion.js';
-import { Avatar, CARET, FileIco, Html, Ico, Pair, RtBadge, fileUrl, openFile, provLogo } from './bits.jsx';
+import { Avatar, CARET, FileIco, Ico, Pair, RtBadge, fileUrl, openFile, provLogo } from './bits.jsx';
 import { answerAsk, getChat, replyTo } from './chatStore.js';
 import { openLightbox, lbId } from './lightbox.jsx';
-import { disp, fcost, fsize, ftok, hm, isImg, linkedImages, md, messageProvider, nameColor, stamp, visibleSpeaker } from './md.js';
+import RichText from './richtext/RichText.jsx';
+import { disp, fcost, fsize, ftok, hm, isImg, linkedImages, messageProvider, nameColor, stamp, visibleSpeaker } from './md.js';
 
 let noticeTimer;
 function notify(text) { // same #appNotice toast the legacy notifyUI used
@@ -125,14 +126,14 @@ function Actions({ m }) {
 }
 
 // ---- auto approvals, judges, review context ----
-function AutoBody({ m, profile, isOpen, live }) {
+function AutoBody({ m, profile, isOpen, live, row }) {
   const votes = (m.text || '').split('\n').map((line) => {
     const v = /^([^:]+): (.+?) — (.*)$/.exec(line);
     if (v) return { name: v[1], pick: v[2], reason: v[3] };
     const missing = /^([^:]+): no answer$/.exec(line);
     return missing ? { name: missing[1], pick: '', reason: 'No response received' } : null;
   }).filter(Boolean);
-  if (!votes.length) return <Html className="body" html={md(m.text || '', profile.name)} />;
+  if (!votes.length) return <RichText id={row.id} text={m.text} name={profile.name} />;
   const agreed = m.auto === 'agree', binary = votes.every((v) => /^(yes|go|no)?$/i.test(v.pick));
   const approved = votes.filter((v) => /^(yes|go)$/i.test(v.pick)).length;
   const count = binary ? `${approved} of ${votes.length} approved` : `${votes.length} independent judgments`;
@@ -158,7 +159,7 @@ function Judge({ m, profile }) {
   return (
     <details className="judge-detail">
       <summary><span className="judge-role">{role}</span><span className={'judge-verdict ' + verdict.toLowerCase()}>{verdict === 'PASS' ? 'Passed' : verdict === 'FAIL' ? 'Needs changes' : 'Unverified'}</span><span className="judge-preview">{evidence.split('\n')[0].replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/`/g, '').slice(0, 140)}</span></summary>
-      <Html className="judge-evidence" html={md(evidence, profile.name)} />
+      <RichText className="judge-evidence" id={"j" + m.at} text={evidence} name={profile.name} />
     </details>
   );
 }
@@ -169,7 +170,7 @@ function ReviewContext({ context, inferred, profile }) {
         {context.requestAt && <button className="review-context-back" onClick={() => jump({ from: 'user', at: context.requestAt })}>View request</button>}</div>
       <div className="review-context-request">{context.request || 'Request not recorded'}</div>
       {context.files?.length ? <div className="review-context-files">{context.files.map((f) => <button key={f} title={f} onClick={() => openFile(f)}>{String(f).split(/[\\/]/).pop()}</button>)}</div> : null}
-      {context.result && <details className="review-context-result"><summary>Result being checked</summary><Html html={md(context.result, profile.name)} /></details>}
+      {context.result && <details className="review-context-result"><summary>Result being checked</summary><RichText className="" id={"c" + context.requestAt} text={context.result} name={profile.name} /></details>}
       {inferred && <div className="review-context-meta">Earlier review: exact scope and files were not recorded</div>}
     </div>
   );
@@ -254,13 +255,13 @@ function Row({ row, isOpen }) {
   if (row.kind === 'sys') return <motion.div className={'msg sys' + (m.muted ? ' muted' : '')} data-mid={row.id} {...mo}><Ico d="M5 12h14M13 6l6 6-6 6" /><span>{m.text}</span></motion.div>;
   if (row.kind === 'batch') return <motion.div className="msg review-context-row" data-mid={row.id} {...mo}><ReviewContext context={m.reviewBatch} inferred={row.inferred} profile={profile} /></motion.div>;
   if (row.kind === 'judge') return <motion.div className="msg judge-row" data-mid={row.id} {...mo}><Judge m={m} profile={profile} /></motion.div>;
-  if (row.kind === 'auto') return <motion.div className="msg approval-row dim" data-mid={row.id} {...mo}><AutoBody m={m} profile={profile} isOpen={isOpen} live={row.live} /><Actions m={m} /></motion.div>;
+  if (row.kind === 'auto') return <motion.div className="msg approval-row dim" data-mid={row.id} {...mo}><AutoBody m={m} profile={profile} isOpen={isOpen} live={row.live} row={row} /><Actions m={m} /></motion.div>;
 
   const cont = row.cont, r = m.replyTo, speaker = visibleSpeaker(m);
   const t = <span className="t" title={new Date(m.at).toLocaleString()}>{cont ? hm(m.at) : stamp(m.at)}</span>;
   const body = (
     <>
-      <Html className="body" html={md(m.text || '', profile.name)} />
+      <RichText id={row.id} live={row.live && m.from !== 'user'} text={m.text} name={profile.name} />
       {m.activity?.length ? <><ActList list={m.activity} />{m.activity.filter((a) => (a.kind === 'create' || a.kind === 'edit') && a.abs && ACT_IMG.test(a.abs)).slice(0, 4).map((a) => <Thumb key={a.abs} p={a.abs} />)}</> : null}
       {m.attachments?.length ? <div className="atts">{m.attachments.map((a, i) => <Att key={i} a={a} />)}</div> : null}
       <FileCards m={m} />

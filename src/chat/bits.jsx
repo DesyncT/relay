@@ -17,7 +17,7 @@ const short = (m) => { m = String(m || ''); const x = /^claude-([a-z]+)/.exec(m)
 export function RtBadge({ model, effort }) { // RoutingUI.badge
   if (!model && !effort) return <span />;
   const n = short(model);
-  return <span className="rt-chip" title={[model, effort && effort + ' effort'].filter(Boolean).join(', ')}>{n ? n[0].toUpperCase() + n.slice(1) : ''}{effort && <i>{effort}</i>}</span>;
+  return <span className="rt-chip" title={[model, effort && effort + ' effort'].filter(Boolean).join(', ')}>{n && <span className="rt-model">{n[0].toUpperCase() + n.slice(1)}</span>}{effort && <span className="rt-effort">{effort}</span>}</span>;
 }
 
 const USER_SVG = <svg viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>;

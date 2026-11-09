@@ -6,7 +6,7 @@ import { useStore } from '../../store.js';
 // Render half of backgrounds.js: decorative layer behind .ch-main. Prefs live in localStorage 'relay.background.v1'
 // (written by the Themes screen's settings panel); dispatch window event 'relay:background' after saving to apply live.
 const KEY = 'relay.background.v1', MEDIA = ['off', 'wallpaper', 'video'];
-const read = () => {
+export const readBackgroundPrefs = () => {
   let p = { effect: 'off', strength: 35, speed: 50, paused: false, interactive: true, image: '', hasVideo: false };
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) p = { ...p, ...s }; } catch {}
   p.strength = Math.max(10, Math.min(70, Number(p.strength) || 35)); p.speed = Math.max(10, Math.min(100, Number(p.speed) || 50));
@@ -54,12 +54,12 @@ function draw(c, w, h, t, p, pt, acc, sec, media) {
 }
 
 function Layer({ host }) {
-  const [p, setP] = useState(read), [videoUrl, setVideoUrl] = useState('');
+  const [p, setP] = useState(readBackgroundPrefs), [videoUrl, setVideoUrl] = useState('');
   const canvas = useRef(), img = useRef(), vid = useRef(), pt = useRef({ x: 0.5, y: 0.5 });
   const [vis, setVis] = useState(!document.hidden);
   const chatOn = useStore((s) => s.tab === 'chat');
   useEffect(() => {
-    const f = () => setP(read()), v = () => setVis(!document.hidden);
+    const f = () => setP(readBackgroundPrefs()), v = () => setVis(!document.hidden);
     window.addEventListener('relay:background', f); window.addEventListener('storage', f); document.addEventListener('visibilitychange', v);
     return () => { window.removeEventListener('relay:background', f); window.removeEventListener('storage', f); document.removeEventListener('visibilitychange', v); };
   }, []);
@@ -68,7 +68,7 @@ function Layer({ host }) {
     let url = '', live = true;
     storedVideo().then((f) => { if (live && f) setVideoUrl(url = URL.createObjectURL(f)); }).catch(() => {});
     return () => { live = false; url && URL.revokeObjectURL(url); };
-  }, [p.hasVideo, p.effect]);
+  }, [p.hasVideo, p.effect, p.mediaVersion]);
 
   const reduced = useReducedMotion();
   const run = chatOn && vis && !reduced && !p.paused;
@@ -94,11 +94,11 @@ function Layer({ host }) {
       last = now; timer = setTimeout(tick, 50);
     };
     if (run && !MEDIA.includes(p.effect)) timer = setTimeout(tick, 50); else paint(0);
-    host.addEventListener('scroll', quiet, { passive: true });
+    host.addEventListener('scroll', quiet, { passive: true, capture: true });
     document.addEventListener('input', quiet, { passive: true });
     const move = (e) => { if (!p.interactive || MEDIA.includes(p.effect)) return; const r = host.getBoundingClientRect(); pt.current = { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }; };
     host.addEventListener('pointermove', move, { passive: true });
-    return () => { clearTimeout(timer); host.removeEventListener('scroll', quiet); document.removeEventListener('input', quiet); ro.disconnect(); host.removeEventListener('pointermove', move); };
+    return () => { clearTimeout(timer); host.removeEventListener('scroll', quiet, true); document.removeEventListener('input', quiet); ro.disconnect(); host.removeEventListener('pointermove', move); };
   }, [p, run, host, videoUrl]);
 
   if (p.effect === 'off') return null;
@@ -116,7 +116,7 @@ export default function ChatBackground() {
   useEffect(() => {
     if (tab !== 'chat') { setHost(null); return; }
     let n = 0, t;
-    const find = () => { const h = document.querySelector('#log'); if (h) setHost(h); else if (n++ < 20) t = setTimeout(find, 100); };
+    const find = () => { const h = document.querySelector('.ch-main'); if (h) setHost(h); else if (n++ < 20) t = setTimeout(find, 100); };
     find();
     return () => clearTimeout(t);
   }, [tab]);

@@ -7,7 +7,7 @@ import '../../turn.js'; // classic script: defines window.parseTurn / window.for
 // Conversation state for the open session. Lives at module level (not in the Chat screen) because the
 // sidebar opens sessions and main pushes chat events even while another tab is showing.
 const AGENTS = ['claude', 'codex', 'antigravity'];
-let S = { sid: null, title: '', loaded: false, items: [], subs: [], subsOpen: false, reqs: null, spend: {}, ledger: false, act: {}, limits: { claude: 0, codex: 0, antigravity: 0 }, chips: null, info: null, stoppable: false, epoch: 0 };
+let S = { sid: null, title: '', loaded: false, items: [], subs: [], subsOpen: false, reqs: null, spend: {}, ledger: false, act: {}, limits: { claude: 0, codex: 0, antigravity: 0 }, chips: null, info: null, stoppable: false, epoch: 0, unread: 0 };
 const listeners = new Set();
 const patch = (p) => { S = { ...S, ...p }; listeners.forEach((l) => l()); };
 export const getChat = () => S;
@@ -34,10 +34,32 @@ export const cancelReply = () => setState({ chatReplying: null });
 // ---- scrolling ----
 let logEl = null;
 export const setLogEl = (el) => { logEl = el; };
+let anim = 0, stopAnim = null;
+const cancelScroll = () => { if (stopAnim) stopAnim(); };
 export const scrollLogToBottom = () => {
+  cancelScroll();
   if (!logEl) return;
   logEl.scrollTop = logEl.scrollHeight;
   requestAnimationFrame(() => { if (logEl) logEl.scrollTop = logEl.scrollHeight; });
+};
+export const clearUnread = () => { if (S.unread) patch({ unread: 0 }); };
+// eased (expo-out) scroll; any wheel/touch/key/pointer input from the user cancels it
+export const smoothScrollToBottom = (ms = 520) => {
+  cancelScroll();
+  const el = logEl; if (!el) return;
+  clearUnread();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return scrollLogToBottom();
+  const from = el.scrollTop, t0 = performance.now(), id = ++anim;
+  const stop = () => { anim++; stopAnim = null; ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((e) => el.removeEventListener(e, stop)); };
+  stopAnim = stop;
+  ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((e) => el.addEventListener(e, stop, { passive: true }));
+  const step = (now) => {
+    if (id !== anim) return;
+    const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 4), to = el.scrollHeight - el.clientHeight;
+    el.scrollTop = from + (to - from) * e;
+    if (k < 1) requestAnimationFrame(step); else stop();
+  };
+  requestAnimationFrame(step);
 };
 
 // ---- messages ----
@@ -47,7 +69,7 @@ export function addMsg(m, live, batch) {
   if (live) { liveN = Date.now() - liveT < 800 ? liveN + 1 : 0; liveT = Date.now(); item.live = true; item.delay = liveN * 0.06; }
   if (batch) { batch.push(item); return item; }
   const follow = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 100 || m.from === 'user';
-  patch({ items: [...S.items, item] });
+  patch({ items: [...S.items, item], ...(follow || m.from === 'system' ? {} : { unread: S.unread + 1 }) });
   if (follow) scrollLogToBottom();
   syncShared();
   return item;
@@ -117,7 +139,7 @@ export async function openSession(id, show = true) {
   const batch = [];
   for (const m of msgs) addMsg(m, false, batch);
   const a = id ? (actBy[id] ||= {}) : {};
-  patch({ sid: id || null, title: info ? info.title : '', loaded: true, items: batch, subs: sl, subsOpen: sl.length > 0 && !isPanelOpen(), reqs: info ? info.reqs || { items: [], idle: true } : null, ledger: !!info?.spend, spend: info?.spend ? JSON.parse(JSON.stringify(info.spend)) : {}, act: a, info, chips: null, epoch: S.epoch + 1 });
+  patch({ sid: id || null, title: info ? info.title : '', loaded: true, items: batch, subs: sl, subsOpen: sl.length > 0 && !isPanelOpen(), reqs: info ? info.reqs || { items: [], idle: true } : null, ledger: !!info?.spend, spend: info?.spend ? JSON.parse(JSON.stringify(info.spend)) : {}, act: a, info, chips: null, unread: 0, epoch: S.epoch + 1 });
   setState({ sessionCwd: info?.project?.path || getState().sbTree?.projects?.find(p => p.id === info?.projectId)?.path || getState().cfg.cwd || '', openSid: id || null, chatReplying: null, chatSessionInfo: info, ...(show ? { tab: 'chat' } : {}) });
   syncShared();
   window.ActiveChat = { sid: S.sid, supercode: false, easyMode: !!info?.easyMode, chatModels: info?.chatModels || {}, chatEffort: info?.chatEffort || 'low' };

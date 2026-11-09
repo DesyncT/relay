@@ -144,6 +144,21 @@ function cost(r) {
   return c;
 }
 
+// Account-only costs have no invoice dates. Allocate the estimate over observed Codex activity.
+function allocateAccountCost(localDays, buckets, amount) {
+  if (!(amount > 0) || !Number.isFinite(amount)) return {};
+  const weights = { ...localDays };
+  for (const b of buckets || []) weights[b.startDate] = Math.max(weights[b.startDate] || 0, b.tokens);
+  const days = Object.keys(weights).filter(day => weights[day] > 0).sort();
+  const total = days.reduce((n, day) => n + weights[day], 0);
+  let assigned = 0;
+  return Object.fromEntries(days.map((day, i) => {
+    const value = i === days.length - 1 ? Math.max(0, amount - assigned) : amount * weights[day] / total;
+    assigned += value;
+    return [day, value];
+  }));
+}
+
 async function scan({home=HOME,env=process.env,ledgerFile,accountUsage=false,codexCommand='codex',accountCacheFile} = {}) {
   const coverage={files:0,malformedLines:0,unreadableFiles:[]};
   const retained=new Map();
@@ -206,23 +221,31 @@ async function scan({home=HOME,env=process.env,ledgerFile,accountUsage=false,cod
     const codex=tools.Codex ||= {cost:0,tokens:0,sessions:new Set()};
     codex.localTokens=codex.tokens;accountTokenAdjustment=account.summary.lifetimeTokens-codex.tokens;
     codex.tokens=account.summary.lifetimeTokens;codex.tokenSource='codex-account';tot.tokens+=accountTokenAdjustment;
-    // The account reports only a token count, so price the tokens no local transcript covers at the average local Codex rate (an estimate, kept out of the breakdowns).
+    // The account reports only a token count, so price the tokens no local transcript covers at the average local Codex rate (an estimate, kept out of model/type breakdowns).
     if(accountTokenAdjustment>0 && codex.localTokens>0 && codex.cost>0)accountCostEstimate=codex.cost/codex.localTokens*accountTokenAdjustment;
     if(account.dailyUsageBuckets)for(const b of account.dailyUsageBuckets){
       const localCodex=recs.filter(r=>r.tool==='Codex' && r.day===b.startDate).reduce((n,r)=>n+recordTokens(r),0);
       dayTok[b.startDate]=(dayTok[b.startDate] || 0)-localCodex+b.tokens;
     }
   }
+  const codexDays = {};
+  for (const r of recs) if (r.tool === 'Codex' && r.day) codexDays[r.day] = (codexDays[r.day] || 0) + recordTokens(r);
+  const accountCostDays = allocateAccountCost(codexDays, account?.dailyUsageBuckets, accountCostEstimate);
+  const chartDays = Object.fromEntries(Object.entries(days).map(([day, values]) => [day, { ...values }]));
+  for (const [day, estimate] of Object.entries(accountCostDays)) {
+    const values = chartDays[day] ||= {};
+    values.Codex = (values.Codex || 0) + estimate;
+  }
   return {
-    total: { ...tot,localTokens,accountTokenAdjustment,accountCostEstimate,lifetimeCostEstimate:tot.cost+accountCostEstimate,costIsEstimate: true, scope: 'Codex account lifetime when available; Claude retained history plus recovered statistics; API costs from local transcripts only', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
+    total: { ...tot,localTokens,accountTokenAdjustment,accountCostEstimate,lifetimeCostEstimate:tot.cost+accountCostEstimate,costIsEstimate: true, scope: 'Codex account lifetime when available; Claude retained history plus recovered statistics; API costs from local transcripts plus allocated account-only estimates', unpriced: [...tot.unpriced], sessions: Object.values(tools).reduce((n, t) => n + t.sessions.size, 0),firstDay:Object.keys(dayTok).sort()[0] || null,lastDay:Object.keys(dayTok).sort().at(-1) || null },
     accountUsage:account?{codex:account}:{},localDayTokens,
     coverage,
     tools: Object.fromEntries(Object.entries(tools).map(([k, v]) => [k, { ...v, sessions: v.sessions.size, accountCostEstimate: k === 'Codex' ? accountCostEstimate : 0, lifetimeCostEstimate: v.cost + (k === 'Codex' ? accountCostEstimate : 0) }])),
-    models, days, dayTokens: dayTok, type, speed,
+    models, days, chartDays, accountCostDays, dayTokens: dayTok, type, speed,
   };
 }
 
-module.exports = { scan, priceFor, cost };
+module.exports = { scan, priceFor, cost, allocateAccountCost };
 
 if (require.main === module) {
   console.assert(priceFor('anthropic/claude-opus-5-5')[0] === 4, 'prefix strip');

@@ -89,6 +89,8 @@ function Report({ s, snap, rescan }) {
   const models = Object.entries(s.models || {}).sort((a, b) => b[1].cost - a[1].cost);
   const dayKeys = Object.keys(days).sort().reverse();
   const cov = s.coverage;
+  const lifetimeTotal = t.lifetimeCostEstimate ?? t.cost;
+  const providerCost = k => toolsMap[k].lifetimeCostEstimate ?? (toolsMap[k].cost + (k === 'Codex' ? t.accountCostEstimate || 0 : 0));
   const totals = [['Known lifetime tokens', t.tokens], ['Cached input', t.cached], ['Uncached input', t.uncached], ['Output', t.output]];
   return (
     <motion.div initial={false}>
@@ -96,12 +98,12 @@ function Report({ s, snap, rescan }) {
       <Limits snap={snap} />
       <motion.div className="u-top" variants={item}>
         <div>
-          <p className="u-big"><CountUp value={t.cost} format={usd} /></p>
+          <p className="u-big"><CountUp value={lifetimeTotal} format={usd} /></p>
           <div className="u-sub">{t.sessions} local sessions · API estimate <svg viewBox="0 0 16 16" role="img" aria-label={INFO}><title>{INFO}</title><circle cx="8" cy="8" r="6.5" /><path d="M8 7.2v4M8 4.8v.1" /></svg></div>
           {tools.map((k, i) => (
             <motion.div className="u-tool" key={k} initial={false}>
-              <div className="r1"><span className="dot" style={{ background: ucol(k) }} /><ToolIcon k={k} /><span className="n">{k}</span><small>{toolsMap[k].sessions} sessions</small><span className="c">{usd(toolsMap[k].cost)}</span></div>
-              <div className="r2">{pct(toolsMap[k].cost, t.cost)} of local estimated cost · {sh(toolsMap[k].tokens)} tokens</div>
+              <div className="r1"><span className="dot" style={{ background: ucol(k) }} /><ToolIcon k={k} /><span className="n">{k}</span><small>{toolsMap[k].sessions} sessions</small><span className="c">{usd(providerCost(k))}</span></div>
+              <div className="r2">{pct(providerCost(k), lifetimeTotal)} of lifetime estimated cost · {sh(toolsMap[k].tokens)} tokens</div>
               <div className="provider-lifetime" title="Local transcript costs plus any priced account-only tokens. Recovered tokens without pricing are excluded.">Lifetime API estimate <b>{(toolsMap[k].accountCostEstimate || (k === 'Codex' ? t.accountCostEstimate : 0)) > 0 ? '\u2248 ' : ''}{usd(toolsMap[k].lifetimeCostEstimate ?? (toolsMap[k].cost + (k === 'Codex' ? t.accountCostEstimate || 0 : 0)))}</b>
                 {(toolsMap[k].accountCostEstimate || (k === 'Codex' ? t.accountCostEstimate : 0)) > 0 && <small>+{usd(toolsMap[k].accountCostEstimate ?? t.accountCostEstimate)} estimated from account-only tokens</small>}
               </div>
@@ -110,7 +112,8 @@ function Report({ s, snap, rescan }) {
           {t.accountCostEstimate > 0 && <p className="u-sub" title="Tokens that only your Codex account reports, priced at your average local Codex rate">Lifetime incl. account-only tokens ≈ <b>{usd(t.lifetimeCostEstimate)}</b> (+{usd(t.accountCostEstimate)} estimated)</p>}
           {t.unpriced.length > 0 && <p className="warn">{t.unpriced.length} unpriced model{t.unpriced.length === 1 ? '' : 's'}: tokens are included; their estimated cost is unavailable.</p>}
         </div>
-        <div><h3>Estimated daily API cost</h3><Chart days={days} tools={tools} /></div>
+        <div><h3>Estimated daily API cost</h3><Chart days={s.chartDays || days} tools={tools} accountCostDays={s.accountCostDays || {}} />
+          {t.accountCostEstimate > 0 && <p className="muted usage-coverage">{Object.keys(s.accountCostDays || {}).length ? <>Codex includes {usd(t.accountCostEstimate)} in account-only estimates, spread across usage days in proportion to token activity. These are allocated estimates, not recorded daily charges.</> : <>The {usd(t.accountCostEstimate)} account-only estimate is included in Codex totals. No dated Codex activity is available to distribute it on the graph.</>}</p>}</div>
       </motion.div>
       <motion.div variants={item}>
         <h3>Totals</h3>
@@ -121,7 +124,7 @@ function Report({ s, snap, rescan }) {
       </motion.div>
       <motion.div variants={item}>
         {s.accountUsage?.codex
-          ? <p className="muted usage-coverage">Codex account lifetime: <b>{sh(s.accountUsage.codex.summary.lifetimeTokens)} tokens</b> · {s.accountUsage.codex.cached ? 'cached account report' : 'fetched from signed-in account'}. Cost and model breakdowns use local transcripts.</p>
+          ? <p className="muted usage-coverage">Codex account lifetime: <b>{sh(s.accountUsage.codex.summary.lifetimeTokens)} tokens</b> · {s.accountUsage.codex.cached ? 'cached account report' : 'fetched from signed-in account'}. Model and token-type costs use local transcripts; the graph also includes allocated account-only estimates.</p>
           : <p className="muted usage-coverage">Codex account lifetime unavailable for this sign-in; showing retained local history.</p>}
         {t.recoveredTokens ? <p className="muted usage-coverage">{sh(t.recoveredTokens)} older Claude tokens recovered from saved statistics. Their costs and token-type breakdown are unavailable.{t.undatedTokens ? ` ${sh(t.undatedTokens)} tokens have no recoverable day and appear only in totals.` : ''}</p> : null}
         <Heatmap days={s.dayTokens || {}} />
@@ -152,7 +155,7 @@ export default function Usage() {
       ]);
       if (id !== run.current) return;
       if (settings) setState({ cfg: { ...getState().cfg, ...settings } });
-      setState({ navStats: `${s.total.sessions} sessions · ${usd(s.total.cost)}` });
+      setState({ navStats: `${s.total.sessions} sessions · ${usd(s.total.lifetimeCostEstimate ?? s.total.cost)}` });
       setLocal({ phase: 'ready', s });
     } catch (error) {
       if (id === run.current) setLocal({ phase: 'error', message: error?.message || 'Usage history could not be loaded.' });
