@@ -45,7 +45,7 @@ export default function Composer() {
 
   const [text, setText] = useState(() => loadDraft(sid)), [pend, setPend] = useState(() => loadDraftFiles(sid)), [uploads, setUploads] = useState(0);
   const [items, setItems] = useState([]), [qEdit, setQEdit] = useState(null), [failed, setFailed] = useState([]);
-  const [queueBusy, setQueueBusy] = useState(true), [lightbox, setLightbox] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
   const [qHost, setQHost] = useState(null); // queued messages render at the end of the chat log, not above the composer
   useEffect(() => setQHost(document.getElementById('logQueue')), []);
   const [info, setInfo] = useState({}), [conns, setConns] = useState([]), [leadSel, setLeadSel] = useState(null), [mode, setModeState] = useState('edits');
@@ -282,7 +282,7 @@ export default function Composer() {
     }
     setState({ chatReplying: null, chatWaitFor: null });
     try {
-      await call(interrupt ? 'chat:interrupt-send' : 'chat:send', sid, t, files, { reply: reply && { from: reply.from, at: reply.at }, queue: queueBusy });
+      await call(interrupt ? 'chat:interrupt-send' : 'chat:send', sid, t, files, { reply: reply && { from: reply.from, at: reply.at }, queue: true });
     } catch (e) {
       try { localStorage.setItem(recoveryKey(sid), JSON.stringify([...failedDrafts(sid), { text: raw, files }])); } catch { /* full */ }
       if (live.current.sid === sid) {
@@ -325,7 +325,7 @@ export default function Composer() {
   const spendKeys = ['claude', 'codex', 'antigravity', 'auto'].flatMap((p) => [p, ...Object.keys(spend).filter((x) => x.startsWith(p + '@'))]) // 'claude@Alice' = tokens spent on a co-work partner's subscription
     .filter((k) => spend[k] || Object.keys(running).some((w) => w.split(':')[0] === k));
   const shared = spendKeys.some((k) => k.includes('@'));
-  const sending = busy && queueBusy;
+  const sending = busy;
 
   return (
     <>
@@ -445,8 +445,8 @@ export default function Composer() {
         </div>
         <div className="cb-tools">
           <button className="plus" id="plus" aria-label="Upload a file" onClick={() => fAny.current.click()}><Ico><path d="M12 5v14M5 12h14" /></Ico></button>
+          <div className="cb-opts">
           <button className="chip" id="modeChip" ref={anchors.mode} data-menu="mode" aria-haspopup="dialog" aria-expanded={menu === 'mode'} title="Filesystem and network access are always enabled" onClick={toggle('mode')}>{modeRow[1]}</button>
-          <label className="queue-toggle"><input type="checkbox" id="queueBusy" checked={queueBusy} onChange={(e) => setQueueBusy(e.target.checked)} />Queue while busy</label>
           <span className="grow" />
           {showPickers && (
             <>
@@ -457,6 +457,7 @@ export default function Composer() {
           <button className="pick" id="leadPick" ref={anchors.lead} data-menu="lead" data-provider={lead} aria-haspopup="menu" aria-expanded={menu === 'lead'} title="Who answers first" onClick={toggle('lead')}>
             <span className="lead-mark">{lead === 'spreader' ? <SpreaderIcon /> : <ProvLogo k={lead} />}</span><span>{leadName}</span><Chev />
           </button>
+          </div>
           <button className="ib" id="imgBtn" aria-label="Attach an image" onClick={() => fImg.current.click()}>
             <Ico><rect width="18" height="18" x="3" y="3" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21" /></Ico>
           </button>

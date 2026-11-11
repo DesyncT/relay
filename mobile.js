@@ -98,7 +98,7 @@ function createMobile(opts) {
     if (p === '/f') return file(res, opts.uploads, url.searchParams.get('p') ? path.relative(opts.uploads, path.resolve(url.searchParams.get('p'))) : '');
     if (p === '/' || p === '/index.html') {
       let html; try { html = fs.readFileSync(path.join(opts.root, 'index.html'), 'utf8'); } catch { return send(res, 500, 'text/plain', 'App not built'); }
-      html = html.replace('<head>', '<head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#0b0b0e"><link rel="manifest" href="/manifest.webmanifest"><script src="/m.js"></script>');
+      html = html.replace('<head>', '<head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#0b0b0e"><link rel="manifest" href="/manifest.webmanifest"><script src="/m.js"></script>');
       return send(res, 200, MIME['.html'], html);
     }
     return file(res, opts.root, decodeURIComponent(p).replace(/^\/+/, ''));

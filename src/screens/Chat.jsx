@@ -17,6 +17,8 @@ import '../styles/chatui.css';
 export default function Chat() {
   const chat = useChat();
   const panel = useStore(s => s.pnMode);
+  const waiting = useStore(s => s.chatWaitFor);
+  const state = chat.stoppable ? 'working' : waiting ? 'waiting' : 'idle'; // the phone header's status line
   const log = useRef(null);
   const [drag, setDrag] = useState(false);
   const { rows, openAsk } = useMemo(() => layoutItems(chat.items), [chat.items]);
@@ -42,8 +44,8 @@ export default function Chat() {
   useEffect(() => { if (panel) setSubsOpen(false); }, [panel]);
   return <>
     <div className="ch-head">
-      <button className="b ghost mobile-only" id="navToggle" aria-label="Open sessions" onClick={() => document.documentElement.classList.add('nav-open')}><svg className="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></button>
-      <div className="conversation-title"><AnimatePresence initial={false} mode="popLayout"><motion.h2 id="chName" title={chat.title || 'New session'} key={chat.sid + '|' + chat.title} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22, ease }}>{chat.title || 'New session'}</motion.h2></AnimatePresence></div>
+      <button className="mobile-only" id="navToggle" aria-label="Open sessions" onClick={() => document.documentElement.classList.add('nav-open')}><svg className="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></button>
+      <div className="conversation-title"><AnimatePresence initial={false} mode="popLayout"><motion.h2 id="chName" title={chat.title || 'New session'} key={chat.sid + '|' + chat.title} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22, ease }}>{chat.title || 'New session'}</motion.h2></AnimatePresence><span className="ch-state mobile-only" data-s={state} role="status"><i aria-hidden="true" />{state === 'working' ? 'Working' : state === 'waiting' ? 'Waiting for you' : 'Idle'}</span></div>
       <SkillChips /><Quota />
       <button className="b ghost" id="quickBtn" aria-label="Open actions" onClick={() => window.dispatchEvent(new CustomEvent('relay:palette', { detail: 'commands' }))}>Actions</button>
       <PanelButtons />

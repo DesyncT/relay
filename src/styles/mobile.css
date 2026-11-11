@@ -1,6 +1,8 @@
-/* Phone version: the same app laid out for one hand. Everything is scoped to html.mobile, which mobile-shim.js sets on a paired phone. */
+/* Phone version: the same app, laid out for one thumb. Scoped to html.mobile, which mobile-shim.js sets on a paired phone.
+   Rhythm is a 4px grid, touch targets are 44px, chrome stays quiet so the conversation carries the screen. */
 .mobile-only { display: none !important; }
-html.mobile .mobile-only { display: inline-flex !important; align-items: center; justify-content: center; }
+html.mobile .mobile-only { display: inline-flex !important; align-items: center; }
+.cb-opts { display: contents; } /* desktop: layout-neutral wrapper */
 #navScrim { display: none; }
 
 html.mobile { --tb-h: 0px; }
@@ -11,44 +13,95 @@ html.mobile #root { display: block; height: 100dvh; }
 html.mobile #root > main { padding: 0 !important; height: 100dvh; width: 100%; }
 html.mobile #chat.on { height: 100dvh; }
 
-/* sessions live in a slide-in drawer */
-html.mobile #root > nav { position: fixed; z-index: 70; inset: 0 auto 0 0; width: min(86vw, 340px); padding: calc(14px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom)); transform: translateX(-104%); transition: transform .3s cubic-bezier(.22, 1, .36, 1); overflow-y: auto; }
-html.mobile.nav-open #root > nav { transform: none; box-shadow: 12px 0 40px rgba(0, 0, 0, .45); }
+/* sessions live in a drawer: open it with the menu button or by swiping from the left edge */
+html.mobile #root > nav { position: fixed; z-index: 70; inset: 0 auto 0 0; width: 100%; padding: calc(60px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)); transform: translateX(-100%); transition: transform .3s cubic-bezier(.22, 1, .36, 1); overflow-y: auto; overscroll-behavior: contain; }
+html.mobile.nav-open #root > nav { transform: none; }
 html.mobile #root > nav > button[data-tab], html.mobile #root > nav .foot { display: none; }
-html.mobile #navScrim { display: block; position: fixed; inset: 0; z-index: 65; background: rgba(0, 0, 0, .5); opacity: 0; pointer-events: none; transition: opacity .25s; }
-html.mobile.nav-open #navScrim { opacity: 1; pointer-events: auto; }
 html.mobile #root > nav .sb { margin-top: 0; border-top: 0; }
-html.mobile .sb-row, html.mobile .sb-group-h { min-height: 44px; }
+html.mobile #root > nav .sb .sb-top { padding: 0 0 12px; }
+html.mobile #root > nav .sb .sb-top .sb-act { min-height: 44px; font-size: 14px; }
+html.mobile .sb-row { min-height: 48px; padding: 0 12px; font-size: 15px; }
+html.mobile .sb-group-h { min-height: 44px; }
+html.mobile #navScrim { display: block; position: fixed; inset: 0; z-index: 65; background: rgba(0, 0, 0, .55); opacity: 0; pointer-events: none; transition: opacity .25s; }
+html.mobile.nav-open #navScrim { opacity: 1; pointer-events: auto; }
 
-/* header: menu, title, stop */
-html.mobile #chat .ch-head { flex-wrap: nowrap; gap: 6px; padding: calc(8px + env(safe-area-inset-top)) 10px 8px; min-height: 0; }
+/* header: menu, title with a live status line, stop */
+html.mobile #chat .ch-head { flex-wrap: nowrap; align-items: center; gap: 4px; min-height: 56px; padding: calc(4px + env(safe-area-inset-top)) 8px 4px 4px; border-bottom: 1px solid var(--line); }
 html.mobile #chat .ch-head .skchips, html.mobile #chat .ch-head #quickBtn, html.mobile #chat .ch-head #subsBtn, html.mobile #chat .ch-head .pn-hb, html.mobile #chat .ch-head #quota { display: none !important; }
-html.mobile #chat .ch-head .conversation-title { flex: 1 1 auto !important; min-width: 0; max-width: none !important; }
-html.mobile #chat .ch-head h2 { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-html.mobile #navToggle { width: 40px; height: 40px; padding: 0; flex: none; }
-html.mobile #navToggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+html.mobile #navToggle { width: 44px; height: 44px; padding: 0; flex: none; justify-content: center; border: 0; border-radius: 12px; background: none; color: var(--text-2); }
+html.mobile #navToggle:active { background: var(--raised); }
+html.mobile #navToggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+html.mobile #chat .ch-head .conversation-title { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; text-align: left; gap: 0; flex: 1 1 auto !important; min-width: 0; max-width: none !important; }
+html.mobile #chat .ch-head h2 { font-size: 16px; line-height: 20px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-state { gap: 8px; font-size: 12px; line-height: 16px; color: var(--muted); }
+.ch-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
+.ch-state[data-s='working'] { color: var(--text-2); }
+.ch-state[data-s='working'] i { background: var(--ok, #3fb950); animation: chLive 1.6s ease-in-out infinite; } /* live: the agent is running right now */
+.ch-state[data-s='waiting'] { color: var(--text); }
+.ch-state[data-s='waiting'] i { background: var(--claude, #d97757); border-radius: 1px; transform: rotate(45deg); } /* diamond, so it differs from the round dot without colour */
+@keyframes chLive { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .ch-state i { animation: none !important; } }
+html.mobile #stop { height: 44px; padding: 0 16px; border-radius: 18px; flex: none; }
 html.mobile #chat .ch-body > aside { display: none !important; }
 
-/* conversation and composer */
-html.mobile #chat #log { padding: 14px 12px; }
-html.mobile #chat .msg .body { font-size: 15px; line-height: 22px; }
-html.mobile #chat .msg .acts { opacity: 1 !important; position: static !important; background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; margin-top: 2px; }
-html.mobile #chat .msg .acts .act { min-width: 36px; min-height: 36px; }
-html.mobile #chat.on .cbar { width: calc(100% - 16px) !important; margin: 0 8px calc(8px + env(safe-area-inset-bottom)) !important; }
-html.mobile #input { font-size: 16px; } /* 16px stops iOS from zooming the page on focus */
-html.mobile .cbar button, html.mobile .cbar .chip { min-height: 40px; }
-html.mobile #chat .cbar .cb-tools { flex-wrap: wrap; gap: 6px; }
-html.mobile #chat .conversation-start h2 { font-size: 24px; line-height: 30px; }
+/* conversation: the full width is for text */
+html.mobile #chat #log { padding: 16px 16px 8px; }
+html.mobile #chat #log > .msg, html.mobile #chat #log > .msg.grp { padding-left: 40px !important; margin: 0 0 20px; }
+html.mobile #chat #log > .msg.sys, html.mobile #chat #log > .msg.xcard { padding-left: 0 !important; }
+html.mobile #chat .msg.grp > .av { left: 0 !important; top: 0 !important; width: 28px; height: 28px; }
+html.mobile #chat .msg .hd { gap: 8px; min-height: 20px; margin-bottom: 2px; flex-wrap: wrap; }
+html.mobile #chat .msg .hd .rt-chip, html.mobile #chat .msg .hd .lt { display: none; } /* model badges are desktop detail */
+html.mobile #chat .msg .body { font-size: 15px; line-height: 24px; overflow-wrap: anywhere; }
+html.mobile #chat .msg .body pre { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+html.mobile #chat .msg .body table { display: block; max-width: 100%; overflow-x: auto; }
+html.mobile #chat .msg .body img { max-width: 100%; height: auto; }
+html.mobile #chat .msg.cont .t { display: none; }
+/* actions appear when a message is tapped, not as a bar under every message */
+html.mobile #chat .msg .acts { display: none; position: static !important; opacity: 1 !important; background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; margin-top: 4px; gap: 4px; }
+html.mobile #chat .msg.tap .acts { display: flex; }
+html.mobile #chat .msg .acts .act { min-width: 44px; min-height: 44px; }
+html.mobile #chat .msg .acts .u { font-size: 12px; align-self: center; margin-right: auto; }
+/* questions: big, full-width answers */
+html.mobile #chat .msg .opts { flex-direction: column; align-items: stretch; gap: 8px; margin-top: 12px; }
+html.mobile #chat .msg .opts .opt { width: 100%; min-height: 48px; padding: 12px 16px; border-radius: 12px; font-size: 15px; line-height: 20px; }
+html.mobile #chat .msg .opts .opt-own { flex: none; min-height: 48px; border-radius: 12px; font-size: 16px; }
+html.mobile #chat .msg .wait { font-size: 12px; margin-top: 8px; }
+html.mobile #chat .conversation-start h2 { font-size: 24px; line-height: 32px; }
 html.mobile #drop { display: none; }
 
-/* Settings -> Phone */
+/* composer: one row (attach, message, send) with the model options in a strip below */
+html.mobile #chat.on .cbar { display: grid !important; grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: 'rec rec' 'entry send' 'opts opts'; align-items: end; gap: 0 4px; width: auto !important; margin: 0 !important; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border: 0 !important; border-top: 1px solid var(--line) !important; border-radius: 0 !important; background: var(--bg) !important; box-shadow: none; }
+html.mobile #chat .cbar #spend, html.mobile #chat .cbar .composer-help, html.mobile #chat .cbar #imgBtn, html.mobile #chat .cbar .cb-tools .grow { display: none !important; }
+html.mobile #chat .cbar #sendRecovery { grid-area: rec; margin-bottom: 8px; }
+html.mobile #chat .cbar .composer-entry { grid-area: entry; min-width: 0; }
+html.mobile #chat .cbar .cb-tools { display: contents !important; }
+html.mobile #chat .cbar #plus { grid-area: entry; justify-self: start; align-self: end; z-index: 1; width: 44px; height: 44px; margin: 0 0 0 2px; border-radius: 50%; color: var(--text-2); } /* sits inside the message pill, like Discord */
+html.mobile #chat .cbar #send { grid-area: send; width: 44px !important; height: 44px !important; min-width: 44px; min-height: 44px; margin: 0; padding: 0; box-sizing: border-box; border-radius: 50%; }
+html.mobile #chat .cbar #send:disabled { background: var(--line-strong); color: var(--text-2); opacity: 1; }
+html.mobile #chat .cbar .composer-entry #input { min-height: 44px !important; max-height: 36dvh; padding: 10px 16px 10px 46px; font-size: 16px; line-height: 24px; border-radius: 22px; background: var(--raised); border: 1px solid var(--line-strong); }
+html.mobile #chat .cbar .cb-opts { grid-area: opts; display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 2px; margin: 4px 0 0; padding: 0; min-width: 0; }
+html.mobile #chat .cbar .cb-opts::-webkit-scrollbar { display: none; }
+html.mobile #chat .cbar .cb-opts > * { flex: none; min-height: 44px; font-size: 13px; }
+html.mobile .sb-anchor { z-index: 5; justify-content: flex-end; padding-right: 12px; }
+html.mobile #chat.on .sb-anchor #scrollBottom { width: 44px; height: 44px; bottom: 12px; border-radius: 50%; } /* right edge, clear of the answer buttons */
+
+/* connection pill (mobile-shim.js) */
+#mConn { position: fixed; z-index: 90; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translate(-50%, -16px); padding: 6px 16px; border-radius: 16px; background: var(--raised, #29292c); border: 1px solid var(--line-strong, #3a3a3e); color: var(--text, #eee); font: 13px/20px system-ui, sans-serif; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+#mConn.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* Settings -> Phone (desktop) */
 .ph-pair { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
 .ph-qr { width: 200px; height: 200px; padding: 8px; border-radius: 12px; background: #fff; flex: none; }
 .ph-qr svg { width: 100%; height: 100%; display: block; }
 .ph-url { font-family: var(--mono, monospace); word-break: break-all; }
-.ph-devs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.ph-devs li { display: flex; align-items: center; gap: 10px; }
+.ph-devs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ph-devs li { display: flex; align-items: center; gap: 12px; }
 .ph-name { flex: 1; display: flex; flex-direction: column; }
 .ph-name small { color: var(--text-2, var(--muted)); font-size: 12px; }
 .ph-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted, #888); flex: none; }
 .ph-dot.on { background: #3fb950; }
+
+/* full-width drawer: a close button replaces the scrim tap */
+#navClose { display: none; }
+html.mobile #navClose { display: flex; position: absolute; top: calc(8px + env(safe-area-inset-top)); right: 8px; z-index: 1; width: 44px; height: 44px; align-items: center; justify-content: center; border: 0; border-radius: 12px; background: none; color: var(--text-2); font-size: 22px; line-height: 1; }
+html.mobile #navClose:active { background: var(--raised); }
