@@ -76,7 +76,7 @@ html.mobile #chat .conversation-start h2 { font-size: 24px; line-height: 32px; }
 html.mobile #drop { display: none; }
 
 /* composer: one row (attach, message, send) with the model options in a strip below */
-html.mobile #chat.on .cbar { display: grid !important; grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: 'rec rec' 'entry send' 'opts opts'; align-items: end; gap: 0 4px; width: auto !important; margin: 0 !important; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border: 0 !important; border-top: 1px solid var(--line) !important; border-radius: 0 !important; background: var(--bg) !important; box-shadow: none; }
+html.mobile #chat.on .cbar { display: grid !important; grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: 'rec rec' 'entry send' 'opts opts'; align-items: end; gap: 0 4px; width: auto !important; margin: 0 !important; padding: 8px 8px calc(0px + env(safe-area-inset-bottom)); border: 0 !important; border-top: 1px solid var(--line) !important; border-radius: 0 !important; background: var(--bg) !important; box-shadow: none; }
 html.mobile #chat .cbar #spend, html.mobile #chat .cbar .composer-help, html.mobile #chat .cbar #imgBtn, html.mobile #chat .cbar .cb-tools .grow { display: none !important; }
 html.mobile #chat .cbar #sendRecovery { grid-area: rec; margin-bottom: 8px; }
 html.mobile #chat .cbar .composer-entry { grid-area: entry; min-width: 0; }
@@ -86,7 +86,7 @@ html.mobile #chat .cbar #send { grid-area: send; width: 44px !important; height:
 html.mobile #chat .cbar #send:disabled { background: var(--line-strong); color: var(--text-2); opacity: 1; }
 html.mobile #chat .cbar .composer-entry #input { min-height: 44px !important; max-height: 36dvh; padding: 10px 16px 10px 46px; font-size: 16px; line-height: 24px; border-radius: 22px; background: var(--raised); border: 1px solid var(--line-strong); }
 html.mobile #chat .cbar .composer-entry #input:placeholder-shown { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* long placeholders stay on one line */
-html.mobile #chat .cbar .cb-opts { grid-area: opts; display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 2px; margin: 4px 0 0; padding: 0; min-width: 0; }
+html.mobile #chat .cbar .cb-opts { grid-area: opts; display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 2px; margin: 0; padding: 0; min-width: 0; }
 html.mobile #chat .cbar .cb-opts::-webkit-scrollbar { display: none; }
 html.mobile #chat .cbar .cb-opts > * { flex: none; min-height: 44px; font-size: 13px; }
 html.mobile .sb-anchor { z-index: 5; justify-content: flex-end; padding-right: 12px; }
