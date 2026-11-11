@@ -1,58 +1,179 @@
+﻿<div align="center">
+
 # Relay
 
-A desktop app where AI coding agents (Claude Code, Codex, and any model you connect) work together in a Discord-style chat: they plan, @mention each other, split tasks, review each other's code, and show you the changes when you say "wrap up". It also tracks your token usage and cost.
+### Your coding agents. One workspace.
 
-## Install
+Bring Claude Code, Codex, and connected models into a desktop chat built around your projects. Describe a change, follow the conversation, and keep your tools and usage in view.
 
-Download the latest `Relay-Setup-x.y.z.exe` from [Releases](../../releases) and run it. Relay updates itself: when a new version is out, the bottom-left footer shows **Update available**.
+[**Download for Windows**](https://github.com/DesyncT/relay/releases/latest) · [Report a bug](https://github.com/DesyncT/relay/issues) · [Run from source](#run-from-source)
 
-## Agents and models
+</div>
 
-- **Claude Code** and **Codex**: install their CLIs (`npm i -g @anthropic-ai/claude-code`, `npm i -g @openai/codex`) and sign in once. Relay detects them automatically.
-- **Any other model**: Settings → Connected models → **Connect**. Relay auto-detects local servers (Ollama, LM Studio) and API keys already set in your environment, or you paste a key. Keys are stored encrypted on your machine and never leave it except to the provider you connected.
+![Relay workspace showing project sessions, an agent conversation, clickable answers, and model controls](docs/images/workspace.png)
 
-## Develop
+*Real app screenshots with demo data. Conversations, balances, and usage figures are illustrative.*
 
-EasyCode turns a request such as “fix” into one project-grounded question at a time. Pick a button or type an answer, review the proposed change and checks, then press **Fix it**. Auto settings do not answer these product questions or skip confirmation.
+## What you can do
 
-One worker runs at a time, using your configured worker model and effort within your task model limit. A failed check gets at most one targeted repair. Failed or missing verification remains blocked; retrying returns to a summary for confirmation. Stronger routes require an explicit choice. EasyCode uses isolated workspaces and checks the project baseline before applying a scoped patch; currently execution requires a Git project root. Interrupted work is retained for review rather than restarted automatically. Code mode keeps its existing CLI workflow.
+- **Work in context.** Organize projects and sessions in the sidebar, switch conversations, and queue messages while an agent is busy.
+- **Choose your agent.** Use Claude Code or Codex, pick a connected model, or let Spreader select a provider using availability and quota information.
+- **Keep tools close.** Open terminal, file, change, and browser panels alongside your conversation. Follow workers in the Subagents view.
+- **See your usage.** Compare provider activity, tokens, capacity, and estimated API costs over time.
+- **Make it yours.** Choose a theme, generate a palette with AI, or add an animated, image, or video background.
+- **Work together.** Link two Relay apps through Co-work and choose which provider subscriptions your partner may use.
 
-```bash
-npm install
+## Get started
+
+### 1. Install Relay
+
+Download the latest `Relay-Setup-x.y.z.exe` from [GitHub Releases](https://github.com/DesyncT/relay/releases/latest), run the installer, and choose where to install it.
+
+The packaged installer targets **Windows**. Relay checks for updates and shows **Update available** when a newer release is ready.
+
+### 2. Connect an agent
+
+For Claude Code or Codex, install the CLI you want, then launch it once and complete its sign-in flow:
+
+```sh
+# Claude Code
+npm install -g @anthropic-ai/claude-code
+claude
+
+# Codex
+npm install -g @openai/codex
+codex
+```
+
+You only need the provider you intend to use. Relay detects installed CLIs; open **Settings → Providers** to check their status or configure commands and arguments.
+
+For other models, open **Settings → Providers → Connected models**. Connect a local server such as Ollama or a supported API provider, then select it from the chat model menu. Provider access, subscriptions, and API charges are separate from installing Relay.
+
+### 3. Open a project and start a chat
+
+Click **Add project**, choose your project folder, and create a session. Pick **Code** or **EasyCode** in the title bar, select your agent and model, and describe what you want.
+
+Try a concrete request:
+
+```text
+Find why the sign-in form submits twice. Fix the cause and run the relevant checks.
+```
+
+```text
+Add search to the projects list. Keep the existing styling and show a useful empty state.
+```
+
+```text
+Explain how this app starts, where settings are stored, and which files I should edit first.
+```
+
+## Two ways to work
+
+| Mode | What to expect |
+| --- | --- |
+| **Code** | Talk directly to your selected CLI in the project. Relay resumes its native session and uses that CLI's installed tools, skills, project instructions, and configuration. |
+| **EasyCode** | Describe an outcome in plain language. The agent inspects the project, asks short questions when a product choice is missing, then implements and verifies the change. Spreader provides automatic provider selection and quota balancing. |
+
+The composer lets you choose the model, effort, and access mode. **Full access** leaves agent questions for you to answer. **Auto** uses voters for routine questions and brings important ones to you. **Super Auto** lets voters answer every question so runs can continue unattended.
+
+Agents can edit files and run commands with the access you configure. Use a version-controlled project so you can inspect and recover changes.
+
+## A closer look
+
+### Usage without the guesswork
+
+Track provider capacity, local session activity, token totals, and estimated API costs. Select a time range and switch between daily, weekly, and cumulative charts.
+
+![Relay Usage dashboard showing provider capacity, lifetime API estimates, and a daily cost chart](docs/images/usage.png)
+
+**Costs are estimates, not invoices.** Subscription capacity, locally recorded usage, and account-only token estimates can differ. Relay labels recovered or allocated estimates where applicable; your provider remains the source for actual billing.
+
+### A workspace that feels like yours
+
+Choose **Graphite**, **Paper**, **Midnight**, or the monospace **Terminal** preset. **Generate with AI** creates a theme you can preview before applying. Generated themes are checked for valid tokens and text contrast.
+
+Conversation backgrounds include ASCII waves, liquid currents, a starfield, a perspective grid, and an aurora, plus your own image or looping video. Background settings include motion, strength, and speed controls, with reduced-motion support.
+
+![Relay Themes screen showing background controls and Graphite and Paper theme previews](docs/images/themes.png)
+
+### Co-work with another person
+
+Open **Settings → Co-work** to create an invite or join your partner. Each person controls which provider subscriptions they share.
+
+- `/cowork share` invites your partner into the current chat and works with a project copy.
+- `/cowork on` lets Spreader use your partner's available subscription in that chat.
+- Review connection status and lent or borrowed usage in Co-work settings.
+
+On the same network, use the 9-digit code. Internet connections use the full invite, including the host address, and require a reachable network connection.
+
+## Shortcuts and chat commands
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+Shift+P` | Open the command palette |
+| `Ctrl+K` | Find and switch sessions |
+| `Ctrl+F` | Search the current conversation |
+| `Ctrl+L` | Focus the composer |
+| `Ctrl+N` | Create a session in the current project |
+| `Enter` / `Shift+Enter` | Send / insert a new line |
+
+The command palette also opens from **Actions** in the chat header. Use arrow keys to navigate, Enter to choose, and Escape to close.
+
+| Command | Action |
+| --- | --- |
+| `/export` | Save the active conversation as Markdown using a native Save dialog |
+| `/find` | Search the current conversation |
+| `/switch` | Open the session switcher |
+
+Exports include attachment names, not attachment contents.
+
+## Run from source
+
+Use a Node.js version compatible with Vite 8 (**20.19+ or 22.12+**) and npm. Install and authenticate your preferred agent CLI separately. The packaged release workflow is configured for Windows.
+
+```sh
+git clone https://github.com/DesyncT/relay.git
+cd relay
+npm ci
 npm start
 ```
 
-The renderer uses React and Framer Motion under `src/`. `npm start`, `npm run dist`, and `npm run release` build it with Vite first.
+`npm start` builds the React renderer with Vite, then launches Electron.
 
-Run `npm test` for the existing behavior checks and `npm run test:ui` for isolated React checks at 1280?800 and 860?760. UI checks use mock IPC and temporary data; screenshots are written to the system temporary directory. `npm run test:ui:legacy` retains the previous renderer checks while migration coverage is expanded.
+### Development commands
 
-Build the installer: `npm run dist`. Publish a release (needs `GH_TOKEN`): `npm run release`.
+| Command | Purpose |
+| --- | --- |
+| `npm run build:ui` | Build the renderer and copy its assets |
+| `npm test` | Run the main behavior checks |
+| `npm run test:ui` | Build and run isolated renderer checks at 1280 × 800 and 860 × 760 |
+| `npm run test:layout` | Check layouts across screens and save screenshots |
+| `npm run test:electron` | Check Electron workspace behavior |
+| `npm run dist` | Build the Windows installer without publishing |
+| `npm run release` | Build and publish a release; requires `GH_TOKEN` |
 
-## Keyboard shortcuts and chat tools
+UI checks use mock IPC and temporary data rather than your real chats. Their screenshots are saved to the system temporary directory.
 
-**Code** talks directly to your selected Codex or Claude Code CLI and resumes its native session. It uses that CLI's installed skills, project instructions, tools, and configuration. Relay does not add its requirements interview, forced shared skills, workers, or review workflow to Code chats. The first run may replay saved conversation history to establish a new CLI session.
+### Project map
 
-**EasyCode** is the guided workflow: clarify the request, build a checklist, and distribute workers across available Codex, Claude, and Gemini providers. Workers start with smaller models and switch providers after errors or unavailable credits. Failed reviews can move work to a stronger model. Failed checklist steps have **Retry** and **Try another model** controls; completed sibling tasks stay intact.
+| Path | Responsibility |
+| --- | --- |
+| `main.js` | Electron lifecycle, IPC, and agent execution |
+| `preload.js` | Bridge between Electron and the renderer |
+| `src/` | React screens, chat components, state, and styles |
+| `tools/` | Renderer harnesses, fixtures, and layout checks |
+| `assets/` | App icons, sounds, and shared visual assets |
+| `docs/` | Design notes, release notes, and README screenshots |
 
-Each checklist worker also appears in the Subagents panel with its model, result, and individual Stop/Retry controls. Retrying one failed worker does not wait for running siblings. Inconclusive reviews show **Needs verification** and try another available reviewer. Projects without an npm test script can use independent verification of their actual acceptance criteria; a failing test suite is still a failure.
+## Troubleshooting
 
-**Themes** includes Graphite, Paper, Midnight, and a square-corner monospace Terminal preset. **Generate with AI** uses an available provider to create colors, typography, corner radius, borders, and spacing density. Preview before applying; theme preferences are saved locally. Generated palettes must pass schema and text-contrast checks.
+- **Agent missing?** Launch its CLI in a terminal and complete sign-in. Check its command and arguments under **Settings → Providers**.
+- **No capacity left?** Check **Usage**, select another available provider, or use Spreader for automatic selection.
+- **Source app looks stale?** Restart with `npm start` so the renderer is rebuilt.
+- **Need to report a problem?** [Open an issue](https://github.com/DesyncT/relay/issues) with your Relay version, steps to reproduce, and expected behavior. Remove private chats, keys, and project details from screenshots or logs.
 
-- `Ctrl+Shift+P`: search actions in the command palette (also available from **Actions** in the chat header).
-- `Ctrl+K`: find and switch sessions by title or project.
-- `Ctrl+F`: search the current chat and jump to a message.
-- `Ctrl+L`: focus the message composer.
-- `Ctrl+N`: create a session in the current project.
-- `/export`: save a Markdown copy of the active chat with a native Save dialog. Attachment names are included; attachment contents are not copied.
-- `/find` and `/switch`: open chat search and the session switcher.
+## Credits and license
 
-Use Command instead of Ctrl on macOS. The palette supports arrow keys, Enter, and Escape.
+Created and maintained by [DesyncT](https://github.com/DesyncT), with AI-assisted implementation, debugging, and verification from Codex, directed by the maintainer.
 
-## Contributors
-
-- [DesyncT](https://github.com/DesyncT) — project author and maintainer.
-- Codex (OpenAI) — AI-assisted implementation, debugging, and verification, directed by the maintainer.
-
-## License
-
-MIT
+Released under the [MIT License](LICENSE).
