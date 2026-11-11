@@ -321,7 +321,7 @@ export default function Composer() {
   // ---------- render ----------
   const sendDisabled = !!uploads || (!text.trim() && !pend.length);
   const label = qEdit ? 'Edit queued message' : waitFor ? 'Type your answer' : 'Message ' + (info.title || 'Relay');
-  const placeholder = qEdit ? '' : (waitFor ? 'Type your answer' : label + '  ·  / for commands');
+  const placeholder = qEdit ? '' : (waitFor ? 'Type your answer' : window.__relayMobile ? 'Message' : label + '  ·  / for commands');
   const spendKeys = ['claude', 'codex', 'antigravity', 'auto'].flatMap((p) => [p, ...Object.keys(spend).filter((x) => x.startsWith(p + '@'))]) // 'claude@Alice' = tokens spent on a co-work partner's subscription
     .filter((k) => spend[k] || Object.keys(running).some((w) => w.split(':')[0] === k));
   const shared = spendKeys.some((k) => k.includes('@'));
