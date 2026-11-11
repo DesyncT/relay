@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage, Tray, Menu, Notification } = require('electron');
+const ipcHandlers = new Map(); { const h = ipcMain.handle.bind(ipcMain); ipcMain.handle = (ch, fn) => { ipcHandlers.set(ch, fn); return h(ch, fn); }; } // the phone bridge (mobile.js) calls these same handlers
 const {createAlerts,canNotifyComplete}=require('./notifications');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
@@ -16,6 +17,7 @@ const { providerArgs } = require('./permissions');
 const { normalPrompt, createProgressStream } = require('./normal-code');
 const { pickProvider, balanceFor, canKeepBalance } = require('./spreader');
 const { createCowork } = require('./cowork');
+const { createMobile } = require('./mobile');
 const { fixMojibake } = require('./mojibake');
 const ACCESS_NOTE = 'Text is UTF-8. In Windows PowerShell set [Console]::OutputEncoding = [Text.Encoding]::UTF8 first, read files with -Encoding UTF8, and fetch web pages with curl.exe (Invoke-WebRequest misreads them). Never copy garbled characters like â€™ or Â· into messages, files or requirements: write the real ones (’ ·). Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
@@ -83,7 +85,8 @@ const bothErr = () => Object.assign(new Error('all providers are out'), { bothDo
 const procs = new Map(); // id -> { id, label, child, started, cancelled }
 let nextId = 1;
 
-const send = (ch, data) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(ch, data); }; // every window; renderers filter by session
+let mobile = null; // phone access server (see below)
+const send = (ch, data) => { mobile?.emit(ch, data); for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(ch, data); }; // every window; renderers filter by session
 const procList = () => [...procs.values()].map(({ id, label, started, sid }) => ({ id, label, started, sid }));
 
 // Projects + sessions (sessions.js). Every chat is a session in a project folder; agents run with that folder as cwd.
@@ -197,7 +200,7 @@ function claudeRun(label, who, prompt, c = {}) {
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
   const chrome = !c.nativeCode && !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Code uses the CLI's own browser configuration.
   let shared = []; if ((c.easyCode || !c.nativeCode) && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // EasyCode gets design skills; Code keeps its own environment.
-  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly }), prompt, (l) => {
+  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly, textOnly:c.textOnly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
     if (e.type === 'error' && (e.message || e.error?.message)) errText = String(e.message || e.error?.message);
@@ -228,7 +231,7 @@ function codexRun(prompt, images, c = {}) {
   setStatus('codex', 'thinking');
   // --image takes many values; the = form keeps the trailing "-" as the stdin prompt
   const imgs = images.map((a) => '--image=' + q(a.path));
-  const args = providerArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', ...(!c.nativeCode ? ['--enable','image_generation'] : []), ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex', { readonly:c.readonly }).concat('-');
+  const args = providerArgs(['exec', ...(c.resumeId ? ['resume'] : []), '--json', ...(!c.nativeCode ? ['--enable','image_generation'] : []), ...(c.safeReview ? ['--skip-git-repo-check'] : (c.conn ? models.dropModel(splitArgs(settings.codexArgs)) : splitArgs(settings.codexArgs))), ...(c.route?.extra || []), ...imgs, ...(c.resumeId ? [c.resumeId] : [])], 'codex', { readonly:c.readonly, textOnly:c.textOnly }).concat('-');
   const runModel = modelFromArgs(args, c.route?.meta?.model || (readText(path.join(HOME, '.codex', 'config.toml')).match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || 'gpt-unknown');
   return run(c.sub ? 'codex (sub)' : 'codex (chat)', settings.codexCmd, args, prompt, (l) => {
     const e = json(l), it = e.item || {};
@@ -775,8 +778,8 @@ const saveSettings = () => writeText(SETTINGS_FILE, JSON.stringify(settings, nul
 const coworkFs = require('./cowork-fs');
 const COWORK_DIR = path.join(DATA, 'cowork'), UNDO_DIR = path.join(COWORK_DIR, 'undo'), ROOMS_DIR = path.join(COWORK_DIR, 'rooms'), SCRATCH_DIR = path.join(COWORK_DIR, 'scratch');
 let pendingRoom = null, change = null; // pendingRoom: invite sent/received but not accepted; change: partner edits being grouped for Undo
-const lendOf = (p) => settings.coworkLend?.[p] !== false; // per-provider switch for lending this user's own subscription; on until switched off
-const coworkState = () => ({ ...cowork.status(), lend: { claude: lendOf('claude'), codex: lendOf('codex') }, server: settings.coworkServer === true, room: room && { role: room.role, sid: room.sid, peerBusy: room.peerBusy }, pending: !!pendingRoom });
+const lendOf = (p) => p === 'claude' && settings.coworkLend?.[p] !== false; // only Claude can be locked to text-only; Codex is never lent // per-provider switch for lending this user's own subscription; on until switched off
+const coworkState = () => ({ ...cowork.status(), lend: { claude: lendOf('claude'), codex: false }, lendable: { claude: true, codex: false }, server: settings.coworkServer === true, room: room && { role: room.role, sid: room.sid, peerBusy: room.peerBusy }, pending: !!pendingRoom });
 const cowork = createCowork({
   name: () => prof().name,
   sharing: () => lendOf('claude') || lendOf('codex'),
@@ -791,7 +794,7 @@ const cowork = createCowork({
     if (isDown(provider)) throw new Error(`${provider} is not available on your partner's machine right now.`);
     fs.mkdirSync(SCRATCH_DIR, { recursive: true });
     const rd = routeFor(provider, 'coding');
-    const r = await PROV[provider](prompt, null, { cwd: SCRATCH_DIR, quiet: true, readonly: true, safeReview: true, nativeCode: true, route: rd, sub: 'cowork' });
+    const r = await PROV[provider](prompt, null, { cwd: SCRATCH_DIR, quiet: true, readonly: true, textOnly: true, safeReview: true, nativeCode: true, route: rd, sub: 'cowork' });
     return { text: r.text, usage: r.usage };
   },
 });
@@ -826,7 +829,7 @@ function unpackFiles(files) {
     writeText(file, buf); return { ...out, path: file, size: buf.length };
   }).filter(Boolean);
 }
-const packMsg = (m) => { const { attachments, ...rest } = m; return { ...rest, ...(attachments?.length && { attachments: packFiles(attachments) }), ...(m.from === 'user' && !m.author && { author: prof().name }) }; };
+const packMsg = (m) => { const { attachments, activity, files, ...rest } = m; return { ...rest, ...(attachments?.length && { attachments: packFiles(attachments) }), ...(m.from === 'user' && !m.author && { author: prof().name }) }; };
 function shareMsg(m) { toPeer({ t: 'msg', m: packMsg(m) }); }
 function syncBusy() { if (!room) return; const b = localBusy(room.sid); if (b !== room.lastBusy) { room.lastBusy = b; toPeer({ t: 'busy', busy: b }); } }
 function shareQueue(sid) { if (room?.sid === sid) toPeer({ t: 'queue', items: (userQueues.get(sid) || []).map((i) => ({ text: String(i.text || '').slice(0, 120), n: (i.files || []).length })) }); }
@@ -888,7 +891,7 @@ function startHostRoom() {
   }
   send('cowork:state', coworkState());
 }
-const MSG_KEYS = ['progress', 'sub', 'via', 'route', 'usage', 'activity', 'askUser', 'options', 'optionInfo', 'important', 'files', 'lead', 'muted', 'failure', 'providers', 'viaAuto', 'auto'];
+const MSG_KEYS = ['progress', 'sub', 'via', 'route', 'usage', 'askUser', 'options', 'optionInfo', 'important', 'lead', 'muted', 'failure', 'providers', 'viaAuto', 'auto'];
 const AGENT_FROM = /^(claude|codex|antigravity)(:[\w-]{1,30})?$/;
 function onRoomMessage(m, from) {
   if (m.t === 'room') return offerRoom(m, from);
@@ -957,7 +960,32 @@ ipcMain.handle('cowork:undo', (_e, id) => {
   post(ch.sid, 'system', `Undid ${r.restored.length} file${r.restored.length === 1 ? '' : 's'} from ${ch.author}'s changes${r.skipped.length ? ` (kept ${r.skipped.length} you changed since: ${r.skipped.slice(0, 3).join(', ')})` : ''}.`, null, null, { muted: true });
   return r;
 });
-app.on('before-quit', () => cowork.stop());
+app.on('before-quit', () => { cowork.stop(); mobile?.stop(); });
+
+// ---- phone access (mobile.js): the same app on a paired phone, served from this computer on the local network ----
+mobile = createMobile({
+  root: path.join(__dirname, 'renderer-dist'), uploads: UP,
+  invoke: async (ch, args) => { const fn = ipcHandlers.get(ch); if (!fn) throw new Error('Unknown request'); return fn({ sender: null }, ...args); },
+  approve: async ({ name, ip }) => (await dialog.showMessageBox({ type: 'question', buttons: ['Allow', 'Deny'], defaultId: 1, cancelId: 1, title: 'Phone access', message: `Allow ${name} to connect to Relay?`, detail: `It scanned your QR code (from ${ip}). Until you remove it in Settings → Phone it can chat with your agents, including letting them edit files on this computer.` })).response === 0,
+  load: () => settings.mobileDevices || [],
+  save: (list) => { settings.mobileDevices = list; saveSettings(); },
+  onChange: () => send('mobile:state', mobileState()),
+});
+const mobileState = () => ({ ...mobile.status(), approved: settings.mobileServer === true });
+ipcMain.handle('mobile:state', () => mobileState());
+// One-time approval to open the local web server; after that Start just opens it. Returns a fresh QR link.
+ipcMain.handle('mobile:start', async (e) => {
+  if (settings.mobileServer !== true) {
+    const r = await dialog.showMessageBox(BrowserWindow.fromWebContents(e.sender), { type: 'question', buttons: ['Yes, allow', 'No'], defaultId: 0, cancelId: 1, title: 'Phone access', message: 'Let Relay open a page for your phone on this network?', detail: 'Relay starts a small web server on your local network. A phone can only use it after scanning your QR code and you approving that device, and it can only chat (no settings, files or terminal). Use it on a Wi-Fi you trust. You can turn it off any time.' });
+    if (r.response !== 0) return mobileState();
+    settings.mobileServer = true;
+  }
+  settings.mobileOn = true; saveSettings();
+  await mobile.start(); return { ...mobileState(), pair: mobile.pair() };
+});
+ipcMain.handle('mobile:pair', () => ({ ...mobileState(), pair: mobile.pair() }));
+ipcMain.handle('mobile:revoke', (_e, id) => { mobile.revoke(String(id)); return mobileState(); });
+ipcMain.handle('mobile:stop', () => { settings.mobileOn = false; saveSettings(); mobile.stop(); return mobileState(); });
 const AV_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 function profileOut() {
   const p = prof();
@@ -1228,7 +1256,7 @@ ipcMain.handle('procs:kill', (_e, id) => { const p = procs.get(id); if (p) killP
 
 ipcMain.handle('limits:get', limitState);
 ipcMain.handle('limits:clear', (_e, which) => { for (const p of which ? [which] : AGENT_NAMES) if (p in down) down[p] = 0; bothPosted = 0; try { writeText(SETTINGS_FILE, JSON.stringify(settings, null, 2)); } catch {} send('limits:state', limitState()); return limitState(); }); // "Retry now" (spec: clears down.claude; codex expiry is by time)
-ipcMain.handle('settings:get', () => ({ ...settings, connections: undefined })); // connection keys stay in the main process
+ipcMain.handle('settings:get', () => ({ ...settings, connections: undefined, mobileDevices: undefined })); // connection keys stay in the main process
 ipcMain.handle('settings:limits', () => LIMITS);
 ipcMain.handle('settings:pickFolder', async () => { const r = await dialog.showOpenDialog({ properties: ['openDirectory'] }); return r.canceled ? null : r.filePaths[0] || null; });
 models.register(ipcMain, { get: () => settings, save: () => writeText(SETTINGS_FILE, JSON.stringify(settings, null, 2)), cmds: () => ({ claude: settings.claudeCmd, codex: settings.codexCmd, antigravity: settings.antigravityCmd }) });
@@ -1288,6 +1316,7 @@ function createWindow() {
 app.whenReady().then(() => {
   if (!hasSingleInstanceLock) return;
   require('./updater').init({ ipcMain, send, prepareInstall: () => saveAllResume('you') });
+  if (settings.mobileServer === true && settings.mobileOn === true) mobile.start().catch(() => {}); // it was on when Relay last closed
   models.detect({ claude: settings.claudeCmd, codex: settings.codexCmd, antigravity: settings.antigravityCmd }).then((d) => { for (const [k, ok] of Object.entries(d.cli)) if (!ok) missing.add(k); }).catch(() => {});
   createWindow().webContents.once('did-finish-load', () => setTimeout(resumeSessions, 1500)); // let the renderer settle, then restart interrupted work
 });

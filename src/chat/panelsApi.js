@@ -6,7 +6,7 @@ export const lsGet = (k, d) => { try { return localStorage.getItem(k) ?? d; } ca
 export const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 export const IMG = /\.(png|jpe?g|webp|gif|svg|bmp|ico)$/i;
 export const fmtSize = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
-export const fileUrl = (p) => 'file:///' + String(p).replace(/\\/g, '/').replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:');
+export const fileUrl = (p) => window.relayFileUrl ? window.relayFileUrl(p) : 'file:///' + String(p).replace(/\\/g, '/').replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:');
 
 const sid = () => getState().openSid;
 const bump = () => ({ pnRefresh: (getState().pnRefresh || 0) + 1 });

@@ -3,8 +3,8 @@
 // backup of everything the partner overwrites so each change set can be undone. Every incoming path is validated: relative only,
 // never inside .git / node_modules / agent-config folders, never secrets, never through a symlink, always inside the root.
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
-const SKIP_DIR = new Set(['.git', 'node_modules', '.claude', '.codex', '.agents', '.venv', 'venv', '__pycache__', '.next', '.cache']);
-const SECRET = /^(\.env(\..*)?|\.npmrc|\.netrc|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|key|pfx|p12|keystore)|credentials(\.json)?)$/i;
+const SKIP_DIR = new Set(['.git', 'node_modules', '.claude', '.codex', '.agents', '.venv', 'venv', '__pycache__', '.next', '.cache', '.ssh', '.aws', '.gnupg', '.kube', '.docker', '.azure']); // compared lower-case: Windows and macOS are case-insensitive
+const SECRET = /^(\.env(\..*)?|\.npmrc|\.pypirc|\.netrc|\.pgpass|\.htpasswd|\.git-credentials|\.dockercfg|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|key|pfx|p12|p8|jks|keystore|kdbx|tfstate|gpg|asc)|(.*[-_.])?(secrets?|credentials?|private[-_.]?keys?|api[-_.]?keys?|service[-_.]?accounts?)([-_.].*)?\.(json|ya?ml|toml|txt|ini|cfg|conf|properties|xml|env))$/i;
 const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i;
 const LIM = { file: 2 * 1024 * 1024, files: 4000, total: 100 * 1024 * 1024, batch: 2 * 1024 * 1024 };
 const hash = (b) => crypto.createHash('sha1').update(b).digest('hex');
@@ -15,7 +15,7 @@ function safeRel(p) {
   const s = p.replace(/\\/g, '/');
   if (s.startsWith('/') || /^[a-zA-Z]:/.test(s)) return null;
   const parts = s.split('/');
-  if (parts.some((x) => !x || x === '.' || x === '..' || x.includes(':') || /[. ]$/.test(x) || SKIP_DIR.has(x) || RESERVED.test(x))) return null;
+  if (parts.some((x) => !x || x === '.' || x === '..' || x.includes(':') || /[. ]$/.test(x) || /~\d/.test(x) || SKIP_DIR.has(x.toLowerCase()) || RESERVED.test(x))) return null;
   return SECRET.test(parts.at(-1)) ? null : parts.join('/');
 }
 const real = (p) => fs.realpathSync.native(p);
@@ -35,7 +35,7 @@ function walk(root, sub = '') {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       if (e.isSymbolicLink()) continue;
       const r = rel ? rel + '/' + e.name : e.name;
-      if (e.isDirectory()) { if (!SKIP_DIR.has(e.name)) rec(path.join(dir, e.name), r); continue; }
+      if (e.isDirectory()) { if (!SKIP_DIR.has(e.name.toLowerCase())) rec(path.join(dir, e.name), r); continue; }
       if (!e.isFile() || !safeRel(r)) continue;
       const size = fs.statSync(path.join(dir, e.name)).size;
       if (size > LIM.file) continue;
@@ -89,7 +89,7 @@ function createSync({ root, send, canWrite = () => true, allowSnap = false }) {
       if (watcher) return;
       watcher = fs.watch(root, { recursive: true }, (_ev, name) => {
         const rel = name ? String(name).replace(/\\/g, '/') : null;
-        if (rel && !safeRel(rel) && rel.split('/').some((x) => SKIP_DIR.has(x))) return; // node_modules churn etc.
+        if (rel && !safeRel(rel) && rel.split('/').some((x) => SKIP_DIR.has(x.toLowerCase()))) return; // node_modules churn etc.
         pending.add(rel); clearTimeout(timer); timer = setTimeout(drain, 300);
       });
       watcher.on('error', () => {});

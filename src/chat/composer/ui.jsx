@@ -23,7 +23,7 @@ export const SpreaderIcon = () => (
 );
 
 export const isImg = (a) => a?.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(a?.name || '');
-export const fileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/'));
+export const fileUrl = (p) => window.relayFileUrl ? window.relayFileUrl(p) : encodeURI('file:///' + p.replace(/\\/g, '/'));
 export const fsize = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
 export const ftok = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
 export const fcost = (c) => '$' + (c < 0.1 ? c.toFixed(3) : c.toFixed(2));

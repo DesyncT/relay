@@ -3,7 +3,7 @@ export const ftok = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n
 export const fcost = (c) => '$' + (c < 0.1 ? c.toFixed(3) : c.toFixed(2));
 export const fsize = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
 export const isImg = (a) => a?.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(a?.name || '');
-export const fileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/'));
+export const fileUrl = (p) => globalThis.window?.relayFileUrl ? window.relayFileUrl(p) : encodeURI('file:///' + p.replace(/\\/g, '/'));
 export const hm = (at) => new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: false });
 export const stamp = (at) => { // Discord style: Today at 12:04 / Yesterday at 9:15 / 11/02/2026 9:15
   const day = (x) => new Date(x).setHours(0, 0, 0, 0), diff = Math.round((day(Date.now()) - day(at)) / 864e5);

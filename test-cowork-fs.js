@@ -5,7 +5,9 @@ const { safeRel, createSync, saveChange, undoChange, hash } = require('./cowork-
 
 // paths that must never be written or read
 for (const bad of ['../x', 'a/../../x', '/etc/passwd', 'C:\\Windows\\x', 'C:/x', '.git/config', 'a/.git/hooks/pre-commit', 'node_modules/x/y.js', '.claude/settings.json', '.codex/config.toml',
-  '.env', 'cfg/.env.local', 'id_rsa', 'k/server.pem', 'a//b', 'a/./b', 'con.txt', 'x/aux', 'trail.', 'file:stream', '', 'a\u0000b', 5]) assert.equal(safeRel(bad), null, String(bad));
+  '.env', 'cfg/.env.local', 'id_rsa', 'k/server.pem', 'a//b', 'a/./b', 'con.txt', 'x/aux', 'trail.', 'file:stream', '', 'a\u0000b', 5,
+  // case tricks and Windows short names must not slip past the folder blocklist; common secret files are never synced
+  '.GIT/config', 'Node_Modules/x/a.js', '.Claude/settings.json', '.CODEX/x', 'GIT~1/hooks/pre-commit', 'CLAUDE~1/settings.json', 'secrets.yml', 'config/credentials.json', 'service-account.json', '.aws/credentials', 'app/.SSH/id_rsa', 'x.tfstate', 'k.P8']) assert.equal(safeRel(bad), null, String(bad));
 assert.equal(safeRel('src\\app\\main.js'), 'src/app/main.js'); assert.equal(safeRel('README.md'), 'README.md');
 
 const tmp = (n) => fs.mkdtempSync(path.join(os.tmpdir(), 'relay-' + n + '-'));

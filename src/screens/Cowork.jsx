@@ -24,11 +24,11 @@ export default function Cowork() {
       <div className="cw-lend" role="group" aria-label={`Which of my subscriptions ${them} may use`}>
         {PROVS.map(([k, n]) => (
           <label className="set-prov-l" key={k}>
-            <input type="checkbox" checked={st.lend?.[k] !== false} onChange={(e) => act('cowork:lend', k, e.target.checked)} /> Let {them} use my {n}
+            <input type="checkbox" disabled={st.lendable?.[k] === false} checked={st.lend?.[k] !== false && st.lendable?.[k] !== false} onChange={(e) => act('cowork:lend', k, e.target.checked)} /> Let {them} use my {n}{st.lendable?.[k] === false ? ' (not available: it cannot be limited to text only yet)' : ''}
           </label>
         ))}
       </div>
-      <p className="hint">Off means that provider is never offered or run for your partner. Their runs only see the chat, never your files (shared chats work on a project copy instead).</p>
+      <p className="hint">Off means that provider is never offered or run for your partner. A lent turn runs with no tools at all (no files, no commands, no connected services), so your partner only gets text back. Shared chats work on a project copy instead.</p>
 
       {linked && (
         <>

@@ -8,6 +8,7 @@ import CommandPalette from './components/CommandPalette.jsx';
 import Boot from './components/Boot.jsx';
 import ChatBackground from './components/shell/ChatBackground.jsx';
 import { openSession } from './chat/chatStore.js';
+import './styles/mobile.css';
 
 export default function App() {
   const tab = useStore((s) => s.tab);
@@ -27,7 +28,7 @@ export default function App() {
         if (profile) setState({ profile });
         const cfg = await call('settings:get').catch(() => ({})) || {};
         setState({ cfg: { ...getState().cfg, ...cfg } });
-        const last = cfg.lastTab || 'usage';
+        const last = window.__relayMobile ? 'chat' : cfg.lastTab || 'usage'; // the phone is chat-only
         const act = await call('sessions:getActive');
         await openSession(act, last === 'chat' && !!act);
         if (last !== 'chat' && last !== 'usage' && (SCREENS[last] || SCREENS[TAB_HOME[last]])) setState({ tab: last });
@@ -43,6 +44,7 @@ export default function App() {
       <Boot ready={ready} />
       <Titlebar />
       <Nav />
+      <div id="navScrim" />
       <main ref={main}>
         <section key={TAB_HOME[tab] || tab} id={tab} className="on">
           <Screen />

@@ -15,13 +15,16 @@ function fullAccessArgs(args, provider) {
   result.push(provider === 'codex' ? '--dangerously-bypass-approvals-and-sandbox' : '--dangerously-skip-permissions');
   return result;
 }
-function providerArgs(args, provider, { readonly = false } = {}) {
-  if (!readonly) return fullAccessArgs(args, provider);
+function providerArgs(args, provider, { readonly = false, textOnly = false } = {}) {
+  if (!readonly && !textOnly) return fullAccessArgs(args, provider);
   // Reuse the sanitizer to discard conflicting sandbox, permission and approval flags,
   // then replace its full-access tail with the provider's native read-only mode.
   const result = fullAccessArgs(args, provider).filter(arg => arg !== '--dangerously-skip-permissions' && arg !== '--dangerously-bypass-approvals-and-sandbox');
   if (provider === 'codex') result.push('--sandbox', 'read-only', '-c', 'approval_policy=never');
   else result.push('--permission-mode', 'plan');
+  // textOnly (turns lent to a co-work partner): the model gets no tools at all, so it cannot read files or env vars, run commands or call
+  // connected services (MCP) on this computer. Read-only alone still lets it read any file. The literal "" is an empty argument for the shell.
+  if (textOnly) result.push(...(provider === 'codex' ? ['-c', 'features.shell_tool=false', '-c', 'mcp_servers={}'] : ['--tools', '""', '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', '""']));
   return result;
 }
 module.exports = { fullAccessArgs, providerArgs };
