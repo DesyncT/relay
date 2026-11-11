@@ -56,6 +56,17 @@ export function makeCmds(ctx) {
         const r = cfg.routes?.[a]?.[p]; return <Line key={a + p} a={`${a} · ${p}`} b={r ? `${r.model} · ${r.effort}` : '-'} />;
       })), <div key="b"><button onClick={goTab('rules')}>Open Rules to change</button></div>);
     } },
+    { n: 'cowork', a: 'share|unshare|on|off', d: 'Co-work: share this chat and project, or use your partner’s subscription here', run: async (x) => {
+      const st = await call('cowork:state');
+      if (/^share$/i.test(x)) { try { const r = await call('cowork:share-chat', ctx.sid); if (r.pending) card('Invite sent. The shared chat starts when ' + (r.peer?.name || 'your partner') + ' accepts.'); } catch (e) { card(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); } return; }
+      if (/^unshare$/i.test(x)) { await call('cowork:unshare'); return; }
+      const now = (await call('chat:info', ctx.sid)).cowork;
+      const on = /^on$/i.test(x) ? true : /^off$/i.test(x) ? false : !now;
+      if (on && st.state !== 'linked') return card('Not linked yet. Settings → Co-work: create a code or enter your partner’s first.');
+      if (on && !st.peer?.lends?.length) return card(st.peer.name + ' is not sharing any subscription right now. They can allow it in Settings → Co-work.');
+      await call('chat:cowork', ctx.sid, on); ctx.reloadInfo?.();
+      card(on ? 'Co-work is on for this chat. The Spreader can use ' + st.peer.name + '’s subscriptions.' : 'Co-work is off for this chat.');
+    } },
     { n: 'rules', d: 'Open Rules', run: goTab('rules') },
     { n: 'agents', d: 'Open Subagents', run: goTab('agents') },
     { n: 'settings', d: 'Open Settings', run: goTab('settings') },

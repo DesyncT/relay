@@ -230,6 +230,15 @@ function FailureCard({ m }) {
   );
 }
 
+// Undo for a partner's batch of file changes (shared chat)
+function UndoButton({ id }) {
+  const [state, setSt] = useState('');
+  return <button type="button" className="b ghost cw-undo" disabled={state === 'busy' || state === 'done'} onClick={async () => {
+    setSt('busy');
+    try { const r = await call('cowork:undo', id); setSt('done'); notify(`Undid ${r.restored.length} file${r.restored.length === 1 ? '' : 's'}`); } catch (e) { setSt(''); notify(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+  }}>{state === 'done' ? 'Undone' : state === 'busy' ? 'Undoing…' : 'Undo'}</button>;
+}
+
 // ---- one row of the log ----
 // Conversation text must paint at full opacity, including newly received messages.
 const rowMotion = () => ({ initial: false });
@@ -252,7 +261,7 @@ function Row({ row, isOpen }) {
     );
   }
   if (row.kind === 'failure') return <motion.div data-mid={row.id} {...mo}><FailureCard m={m} /></motion.div>;
-  if (row.kind === 'sys') return <motion.div className={'msg sys' + (m.muted ? ' muted' : '')} data-mid={row.id} {...mo}><Ico d="M5 12h14M13 6l6 6-6 6" /><span>{m.text}</span></motion.div>;
+  if (row.kind === 'sys') return <motion.div className={'msg sys' + (m.muted ? ' muted' : '')} data-mid={row.id} {...mo}><Ico d="M5 12h14M13 6l6 6-6 6" /><span>{m.text}</span>{m.coworkUndo && <UndoButton id={m.coworkUndo} />}</motion.div>;
   if (row.kind === 'batch') return <motion.div className="msg review-context-row" data-mid={row.id} {...mo}><ReviewContext context={m.reviewBatch} inferred={row.inferred} profile={profile} /></motion.div>;
   if (row.kind === 'judge') return <motion.div className="msg judge-row" data-mid={row.id} {...mo}><Judge m={m} profile={profile} /></motion.div>;
   if (row.kind === 'auto') return <motion.div className="msg approval-row dim" data-mid={row.id} {...mo}><AutoBody m={m} profile={profile} isOpen={isOpen} live={row.live} row={row} /><Actions m={m} /></motion.div>;
@@ -278,7 +287,7 @@ function Row({ row, isOpen }) {
           {r && <div className="reply" onClick={() => jump(r)}><Avatar from={r.from} sm via={r.via} provider={messageProvider(r)} /><b style={{ color: nameColor(visibleSpeaker(r)) }}>{disp(visibleSpeaker(r), profile)}</b><span>{r.text.replace(/\s+/g, ' ')}</span></div>}
           <Avatar from={m.from} via={m.via} provider={messageProvider(m)} />
           <div className="hd">
-            <b className={'nm' + (m.from === 'user' ? ' u' : '')} style={{ color: nameColor(speaker) }}>{disp(speaker, profile)}</b>
+            <b className={'nm' + (m.from === 'user' ? ' u' : '')} style={{ color: nameColor(speaker) }}>{m.from === 'user' && m.author ? m.author : disp(speaker, profile)}</b>
             <RtBadge model={m.route?.model || m.usage?.model} effort={m.route?.effort} />
             {m.lead && <span className="lt">lead</span>}{m.sub && <span className="lt">sub: {m.sub}</span>}{m.viaAuto && <span className="lt">via auto</span>}
             {t}

@@ -27,3 +27,5 @@ html.theme-fading *, html.theme-fading *::before, html.theme-fading *::after { t
 .theme-choice { position: relative; }
 .theme-ring { position: absolute; top: -5px; left: -5px; right: -5px; height: 176px; border: 2px solid var(--claude); border-radius: calc(var(--app-radius) + 4px); pointer-events: none; }
 .theme-choice[aria-pressed="true"] .theme-preview { outline: 0; }
+.cw-code { font: 600 28px/1.1 var(--mono, monospace); letter-spacing: .08em; padding: 10px 14px; border-radius: 10px; background: var(--raised, transparent); border: 1px solid var(--line, rgba(255,255,255,.12)); user-select: all; width: fit-content; }
+.cw-stats { display: flex; flex-direction: column; gap: 2px; }

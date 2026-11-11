@@ -15,6 +15,7 @@ const models = require('./models');
 const { providerArgs } = require('./permissions');
 const { normalPrompt, createProgressStream } = require('./normal-code');
 const { pickProvider, balanceFor, canKeepBalance } = require('./spreader');
+const { createCowork } = require('./cowork');
 const { fixMojibake } = require('./mojibake');
 const ACCESS_NOTE = 'Text is UTF-8. In Windows PowerShell set [Console]::OutputEncoding = [Text.Encoding]::UTF8 first, read files with -Encoding UTF8, and fetch web pages with curl.exe (Invoke-WebRequest misreads them). Never copy garbled characters like â€™ or Â· into messages, files or requirements: write the real ones (’ ·). Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
@@ -329,7 +330,7 @@ async function ensureAntigravityProxy(allowInstall = false) {
 function addSpend(sid, provider, usage) {
   const s = sessOf(sid); if (!s || !usage) return;
   // a chat from before the ledger starts from what its messages recorded, so the total never drops
-  const base = s.spend || (s.messages || []).reduce((t, m) => { if (!m.usage) return t; const k = m.via || String(m.from).split(':')[0]; return { ...t, [k]:addUsage(t[k], m.usage) }; }, {});
+  const base = s.spend || (s.messages || []).reduce((t, m) => { if (!m.usage) return t; const k = (m.via || String(m.from).split(':')[0]) + (m.peer ? '@' + m.peer : ''); return { ...t, [k]:addUsage(t[k], m.usage) }; }, {});
   const spend = { ...base, [provider]:addUsage(base[provider], usage) };
   try { store.updateSession(sid, { spend }); } catch { return; }
   send('spend:update', { sid, spend });
@@ -366,6 +367,11 @@ const standIn = (seat) => `You're standing in for @${seat} (its provider is unav
 // Runs one seat turn on whichever provider is up. A limit error marks that provider down and retries on fallback.
 // Returns the run result plus { prov, rd } (the provider that really ran, its routing meta).
 async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
+  if (c.spread && RT(sid).remote) { // the Spreader picked the co-work partner's subscription for this turn
+    RT(sid).remote = false;
+    try { return await remoteRun(sid, seat, mkPrompt); }
+    catch (e) { if (e.cancelled) throw e; post(sid, 'system', `Co-work partner could not run this turn (${e.message}). Running it on your own subscription instead.`, null, null, { muted: true }); }
+  }
   for (let i = 0; ; i++) {
     const enhanced = supercodeOn(sid);
     // Normal chats always run on the provider you picked (no silent swaps), like using Claude Code / Codex directly
@@ -466,11 +472,14 @@ const alerts=createAlerts({
 function notifyQuestion(data){alerts.notify('question',data);}
 function clearQuestionAlert(){alerts.clear();}
 
+let room = null; // shared chat room (see the co-work section below)
 function post(sid, from, text, replyTo, attachments, extra) {
   text = fixMojibake(text);
   const m = { from, text, at: Date.now(), ...(replyTo && { replyTo }), ...(attachments?.length && { attachments }), ...extra };
   try { store.appendMessage(sid, m); } catch { return m; } // session deleted mid-run
   send('chat:msg', { ...m, sessionId: sid }); // the renderer shows it only if that session is open
+  if (room && sid === room.sid && !extra?.remote) shareMsg(m);
+  if (extra?.remote) return m; // a partner's message: no alerts here
   if (extra?.askUser) {
     notifyQuestion({ from, text, sid });
   } else if (extra?.failure) {
@@ -515,7 +524,7 @@ async function ask(sid, who, trigger, isLead) {
       }});
       if (ep !== rt.epoch) return {next:[]};
       const asked=(easyModeOn(sid)||/\[ask-user/i.test(result.text))?parseTurn(result.text,result.prov || who):null, from=result.prov || who;
-      const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,result.attachments,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(asked?.askUser && {askUser:true,options:asked.options || []})});
+      const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,result.attachments,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(result.peer && {peer:result.peer}),...(asked?.askUser && {askUser:true,options:asked.options || []})});
       if (result.usage) send('agent:usage',{sid,who,...result.usage});
       return {next:[],msg,ended:true};
     } catch (error) {
@@ -600,7 +609,7 @@ const subsOf = (sid) => {
   if (!subsFixed.has(sid)) { subsFixed.add(sid); for (const r of s.subs) if (subLive(r)) { r.status = 'stopped'; r.ended = Date.now(); } } // left over from a previous app run
   return s.subs;
 };
-const subPush = (r) => { send('subagent:update', { ...r }); try { store.updateSession(r.sid, { subs: subsOf(r.sid) }); } catch {} };
+const subPush = (r) => { send('subagent:update', { ...r }); syncBusy(); try { store.updateSession(r.sid, { subs: subsOf(r.sid) }); } catch {} };
 function spawnSubs(sid, owner, list) {
   const now = Date.now();
   for (const { title, task } of list) {
@@ -671,7 +680,7 @@ ipcMain.handle('subagents:stop', (_e, id) => {
 
 // sidebar spinner: which chats have an agent running right now
 const workingIds = () => [...new Set([...[...rts].filter(([, rt]) => (rt.selecting || Object.values(rt.lanes).some((l) => l.busy))).map(([sid]) => sid)])];
-const sendWorking = () => send('sessions:working', workingIds());
+const sendWorking = () => { send('sessions:working', workingIds()); syncBusy(); };
 ipcMain.handle('sessions:working', () => workingIds());
 
 async function pump(sid, who) {
@@ -735,7 +744,7 @@ ipcMain.handle('chat:export', async (event, sid) => {
 // per-session settings the chat header needs: title, lead (falls back to the global default), project
 ipcMain.handle('chat:info', (_e, sid) => {
   const s = store.getSession(sid), p = store.listProjects().find((x) => x.id === s.projectId);
-  return { spend: s.spend || null, reqs: s.reqs || null, supercode:false, easyMode:easyModeOn(sid), chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
+  return { shared: room?.sid === sid ? room.role : null, cowork: !!s.cowork, spend: s.spend || null, reqs: s.reqs || null, supercode:false, easyMode:easyModeOn(sid), chatModels:s.chatModels || {}, chatEffort:s.chatEffort || 'low', mode: modeOf(sid), bypass: bypass.has(sid), title: s.title, lead: s.lead || settings.lead || 'claude', project: p && { name: p.name, path: p.path } };
 });
 // End task: stop the agents, drop the requirements and close the task (know-how stays), so the next message starts fresh
 ipcMain.handle('chat:endTask', (_e, sid) => {
@@ -760,6 +769,195 @@ ipcMain.handle('chat:clear', (_e, sid) => { interruptSession(sid); stopSubs(sid)
 const PROFILE_DIR = path.join(DATA, 'profile');
 const prof = () => ({ name: 'you', avatar: '', ...settings.profile });
 const saveSettings = () => writeText(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+
+// Co-work: link with a partner's Relay (cowork.js). Turns borrowed with /cowork on run here read-only in an empty folder; a shared chat
+// room mirrors one chat and its project between both machines (cowork-fs.js): each person's AI works on their own machine.
+const coworkFs = require('./cowork-fs');
+const COWORK_DIR = path.join(DATA, 'cowork'), UNDO_DIR = path.join(COWORK_DIR, 'undo'), ROOMS_DIR = path.join(COWORK_DIR, 'rooms'), SCRATCH_DIR = path.join(COWORK_DIR, 'scratch');
+let pendingRoom = null, change = null; // pendingRoom: invite sent/received but not accepted; change: partner edits being grouped for Undo
+const lendOf = (p) => settings.coworkLend?.[p] !== false; // per-provider switch for lending this user's own subscription; on until switched off
+const coworkState = () => ({ ...cowork.status(), lend: { claude: lendOf('claude'), codex: lendOf('codex') }, server: settings.coworkServer === true, room: room && { role: room.role, sid: room.sid, peerBusy: room.peerBusy }, pending: !!pendingRoom });
+const cowork = createCowork({
+  name: () => prof().name,
+  sharing: () => lendOf('claude') || lendOf('codex'),
+  lends: (p) => lendOf(p),
+  quota: () => require('./quota').readQuota().catch(() => ({})),
+  onChange: () => { if (room && !cowork.linked()) endRoom(false); send('cowork:state', coworkState()); },
+  onMessage: (m, from) => onRoomMessage(m, from),
+  recent: () => settings.coworkRecent || [],
+  onJoined: (addr) => { settings.coworkRecent = [addr, ...(settings.coworkRecent || []).filter((x) => x !== addr)].slice(0, 3); saveSettings(); },
+  publicAddr: () => settings.coworkPublic || '',
+  async serve(provider, prompt) {
+    if (isDown(provider)) throw new Error(`${provider} is not available on your partner's machine right now.`);
+    fs.mkdirSync(SCRATCH_DIR, { recursive: true });
+    const rd = routeFor(provider, 'coding');
+    const r = await PROV[provider](prompt, null, { cwd: SCRATCH_DIR, quiet: true, readonly: true, safeReview: true, nativeCode: true, route: rd, sub: 'cowork' });
+    return { text: r.text, usage: r.usage };
+  },
+});
+const REMOTE_NOTE = "You are answering for a teammate whose project files you cannot see or edit. Work only from the conversation below and reply in text (code in fenced blocks); never claim you changed their files.\n\n";
+async function remoteRun(sid, seat, mkPrompt) {
+  const user = cowork.peerName(), rd = routeFor(seat, 'coding');
+  const r = await cowork.request(seat, REMOTE_NOTE + mkPrompt(false, { resumed: false }));
+  addSpend(sid, `${seat}@${user}`, r.usage); // shown per user in the chat's spend strip
+  send('agent:usage', { sid, who: seat, ...r.usage });
+  return { text: r.text, said: [], attachments: [], activity: [], usage: r.usage, prov: seat, rd, peer: user };
+}
+
+// ---- shared chat room ----
+const toPeer = (o) => { try { cowork.send(o); } catch {} };
+function packFiles(files) { // images and files travel inside the message (5 MB each, 8 MB per message)
+  let budget = 8e6;
+  return (files || []).slice(0, 10).map((a) => {
+    const o = { name: a.name, size: a.size, type: a.type, previewUrl: a.previewUrl };
+    try { if (a.path && inUploads(a.path)) { const st = fs.statSync(a.path); if (st.size <= 5e6 && st.size * 1.4 < budget) { o.b64 = fs.readFileSync(a.path).toString('base64'); budget -= o.b64.length; } } } catch {}
+    return o;
+  });
+}
+function unpackFiles(files) {
+  fs.mkdirSync(UP, { recursive: true });
+  return (Array.isArray(files) ? files : []).slice(0, 10).map((a) => {
+    if (!a || typeof a !== 'object') return null;
+    const name = path.basename(String(a.name || 'file')).slice(0, 120) || 'file', out = { name, size: +a.size || 0, type: String(a.type || 'application/octet-stream').slice(0, 100) };
+    if (typeof a.previewUrl === 'string' && /^data:image\//.test(a.previewUrl) && a.previewUrl.length < 4e5) out.previewUrl = a.previewUrl;
+    if (typeof a.b64 !== 'string') return out;
+    const buf = Buffer.from(a.b64, 'base64'); if (buf.length > 5e6) return null;
+    const file = path.join(UP, `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${name.replace(/[^\w.-]+/g, '_').slice(-80)}`);
+    writeText(file, buf); return { ...out, path: file, size: buf.length };
+  }).filter(Boolean);
+}
+const packMsg = (m) => { const { attachments, ...rest } = m; return { ...rest, ...(attachments?.length && { attachments: packFiles(attachments) }), ...(m.from === 'user' && !m.author && { author: prof().name }) }; };
+function shareMsg(m) { toPeer({ t: 'msg', m: packMsg(m) }); }
+function syncBusy() { if (!room) return; const b = localBusy(room.sid); if (b !== room.lastBusy) { room.lastBusy = b; toPeer({ t: 'busy', busy: b }); } }
+function shareQueue(sid) { if (room?.sid === sid) toPeer({ t: 'queue', items: (userQueues.get(sid) || []).map((i) => ({ text: String(i.text || '').slice(0, 120), n: (i.files || []).length })) }); }
+
+// Partner edits arrive continuously; group them into one change set (4 s quiet) so the chat shows one Undo per burst of work.
+function noteChange(applied) {
+  change ||= { sid: room.sid, author: cowork.peerName() || 'partner', entries: new Map(), timer: null };
+  for (const e of applied) { const old = change.entries.get(e.rel); change.entries.set(e.rel, old ? { ...old, after: e.after } : e); }
+  clearTimeout(change.timer); change.timer = setTimeout(closeChange, 4000);
+}
+function closeChange() {
+  if (!change) return;
+  const c = change; change = null; clearTimeout(c.timer);
+  const entries = [...c.entries.values()], id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  try { coworkFs.saveChange(UNDO_DIR, id, { author: c.author, sid: c.sid, at: Date.now() }, entries); } catch { return; }
+  const names = entries.map((e) => e.rel), list = names.slice(0, 4).join(', ') + (names.length > 4 ? ` and ${names.length - 4} more` : '');
+  post(c.sid, 'system', `${c.author}'s AI changed ${names.length} file${names.length === 1 ? '' : 's'}: ${list}`, null, null, { coworkUndo: id, remote: true });
+}
+function endRoom(notify) {
+  pendingRoom = null;
+  if (!room) return send('cowork:state', coworkState());
+  closeChange(); room.sync.close();
+  const r = room; room = null;
+  if (notify) toPeer({ t: 'room-end' });
+  post(r.sid, 'system', 'Shared chat ended. This chat is no longer synced.', null, null, { muted: true, remote: true });
+  send('cowork:state', coworkState());
+}
+// Guest side: the host invited us. Ask first, then keep a disposable copy of the project in our own data folder.
+async function offerRoom(m, from) {
+  if (room || pendingRoom || typeof m.rid !== 'string') return toPeer({ t: 'room-no' });
+  const title = String(m.title || 'Shared chat').slice(0, 80), proj = String(m.project || 'project').slice(0, 60);
+  pendingRoom = { guest: true };
+  const r = await dialog.showMessageBox({ type: 'question', buttons: ['Join', 'Decline'], defaultId: 0, cancelId: 1, title: 'Shared chat', message: `${from} wants to share a chat with you`, detail: `"${title}" in ${proj}. A copy of the project (without .git, node_modules and secret files) is stored on this computer and your AI works on that copy. Every file change either of you makes is synced to the other, and messages, typing, images and queued messages are shared.` });
+  pendingRoom = null;
+  if (r.response !== 0 || !cowork.linked()) return toPeer({ t: 'room-no' });
+  try {
+    const key = `${from}|${m.rid}`, root = path.join(ROOMS_DIR, require('crypto').createHash('sha1').update(key).digest('hex').slice(0, 16));
+    fs.mkdirSync(root, { recursive: true });
+    const project = store.addProject(root, `${proj} (shared by ${from})`);
+    let sid = store.listSessions().map((s) => s.id).find((id) => sessOf(id)?.coworkRoom === key);
+    if (sid) store.clearSession(sid); else { sid = store.createSession(project.id, title).id; store.updateSession(sid, { coworkRoom: key }); }
+    room = { role: 'guest', sid, root, peerBusy: false, lastBusy: false, sync: coworkFs.createSync({ root, send: toPeer, allowSnap: true }) };
+    toPeer({ t: 'room-ok' });
+    send('cowork:state', coworkState());
+  } catch (e) { toPeer({ t: 'room-no' }); }
+}
+// Host side: the guest accepted. Send the project copy, the recent chat, then start watching for edits.
+function startHostRoom() {
+  const { sid } = pendingRoom; pendingRoom = null;
+  try {
+    room = { role: 'host', sid, root: cwdFor(sid), peerBusy: false, lastBusy: false, sync: coworkFs.createSync({ root: cwdFor(sid), send: toPeer }) };
+    room.sync.snapshot();
+    for (const m of (sessOf(sid)?.messages || []).slice(-100)) toPeer({ t: 'msg', hist: true, m: packMsg(m) });
+    room.sync.watch(); syncBusy(); shareQueue(sid);
+    post(sid, 'system', `Shared with ${cowork.peerName()}. Their AI edits your files directly; each batch of changes appears here with an Undo button.`, null, null, { muted: true });
+  } catch (e) {
+    toPeer({ t: 'room-end' }); try { room?.sync.close(); } catch {} room = null;
+    post(sid, 'system', `Could not share this chat: ${e.message}`, null, null, { muted: true, remote: true });
+  }
+  send('cowork:state', coworkState());
+}
+const MSG_KEYS = ['progress', 'sub', 'via', 'route', 'usage', 'activity', 'askUser', 'options', 'optionInfo', 'important', 'files', 'lead', 'muted', 'failure', 'providers', 'viaAuto', 'auto'];
+const AGENT_FROM = /^(claude|codex|antigravity)(:[\w-]{1,30})?$/;
+function onRoomMessage(m, from) {
+  if (m.t === 'room') return offerRoom(m, from);
+  if (m.t === 'room-ok' && pendingRoom && !pendingRoom.guest) return startHostRoom();
+  if (m.t === 'room-no' && pendingRoom && !pendingRoom.guest) { const sid = pendingRoom.sid; pendingRoom = null; post(sid, 'system', `${from} declined the shared chat.`, null, null, { muted: true, remote: true }); return send('cowork:state', coworkState()); }
+  if (!room) return;
+  if (m.t === 'msg') {
+    const x = m.m;
+    if (!x || typeof x !== 'object' || typeof x.from !== 'string' || !(x.from === 'user' || x.from === 'system' || x.from === 'auto' || AGENT_FROM.test(x.from))) return;
+    const agent = AGENT_FROM.test(x.from), extra = { remote: true };
+    for (const k of MSG_KEYS) if (x[k] !== undefined) extra[k] = x[k];
+    if (typeof x.at === 'number') extra.at = x.at;
+    if (x.from === 'user') extra.author = from;
+    if (agent) { extra.peer = from; if (x.usage && typeof x.usage === 'object' && !m.hist) addSpend(room.sid, `${x.from.split(':')[0]}@${from}`, x.usage); }
+    const reply = x.replyTo && typeof x.replyTo === 'object' ? { from: String(x.replyTo.from || ''), at: +x.replyTo.at || 0, text: String(x.replyTo.text || '').slice(0, 200) } : null;
+    return post(room.sid, x.from, String(x.text || '').slice(0, 1e5), reply, unpackFiles(x.attachments), extra);
+  }
+  if (m.t === 'fs') {
+    if (m.error) post(room.sid, 'system', `Sync problem on ${from}'s side: ${String(m.error).slice(0, 200)}`, null, null, { muted: true, remote: true });
+    const applied = room.sync.apply(m);
+    if (m.snapEnd && room.role === 'guest') room.sync.watch();
+    if (room.role === 'host' && applied.length) noteChange(applied);
+  } else if (m.t === 'typing') send('cowork:typing', { sid: room.sid, name: from });
+  else if (m.t === 'busy') { room.peerBusy = !!m.busy; send('cowork:state', coworkState()); if (!room.peerBusy) drainUserQueue(room.sid); }
+  else if (m.t === 'queue') send('cowork:peerQueue', { sid: room.sid, name: from, items: (Array.isArray(m.items) ? m.items : []).slice(0, 10).map((i) => ({ text: String(i?.text || '').slice(0, 120), n: +i?.n || 0 })) });
+  else if (m.t === 'room-end') endRoom(false);
+}
+
+ipcMain.handle('cowork:state', () => coworkState());
+// One-time approval: the built-in listener only ever starts after the user clicks Yes here.
+ipcMain.handle('cowork:host', async (e) => {
+  if (settings.coworkServer !== true) {
+    const r = await dialog.showMessageBox(BrowserWindow.fromWebContents(e.sender), { type: 'question', buttons: ['Yes, allow', 'No'], defaultId: 0, cancelId: 1, title: 'Co-work', message: 'Allow Relay to accept co-work connections on this computer?', detail: 'Relay starts a small built-in server so a partner with your 9-digit code can link with you. Only someone with the current code can connect, everything is encrypted, and five wrong guesses retire the code. You can stop it any time.' });
+    if (r.response !== 0) return coworkState();
+    settings.coworkServer = true; saveSettings();
+  }
+  await cowork.host(); return coworkState();
+});
+ipcMain.handle('cowork:reset', async () => { await cowork.reset(); return coworkState(); });
+ipcMain.handle('chat:cowork', (_e, sid, on) => { store.updateSession(sid, { cowork: !!on }); return !!on; });
+ipcMain.handle('cowork:join', async (_e, code) => { await cowork.join(code); return coworkState(); });
+ipcMain.handle('cowork:stop', () => { endRoom(true); cowork.stop(); return coworkState(); });
+ipcMain.handle('cowork:leave', () => { endRoom(true); cowork.leave(); return coworkState(); });
+ipcMain.handle('cowork:lend', (_e, provider, on) => {
+  if (provider !== 'claude' && provider !== 'codex') throw new Error('Unknown provider');
+  settings.coworkLend = { ...settings.coworkLend, [provider]: !!on }; saveSettings(); cowork.sharingChanged(); send('cowork:state', coworkState()); return coworkState();
+});
+ipcMain.handle('cowork:typing', (_e, sid) => { if (room?.sid === sid) toPeer({ t: 'typing' }); });
+ipcMain.handle('cowork:unshare', () => { endRoom(true); return coworkState(); });
+ipcMain.handle('cowork:share-chat', async (e, sid) => {
+  if (!cowork.linked()) throw new Error('Link with your partner first (Settings → Co-work).');
+  if (room || pendingRoom) throw new Error('A chat is already shared. Use /cowork unshare first.');
+  const p = cwdFor(sid), name = cowork.peerName();
+  const r = await dialog.showMessageBox(BrowserWindow.fromWebContents(e.sender), { type: 'warning', buttons: ['Share and allow edits', 'Cancel'], defaultId: 1, cancelId: 1, title: 'Share this chat', message: `Let ${name} work in this chat and edit your project files?`, detail: `A copy of "${path.basename(p)}" (without .git, node_modules and secret files like .env or keys) is sent to ${name}. Their AI, using their own subscription, works on that copy and every change is applied to your files straight away. Each batch of changes is posted in the chat with an Undo button. Stop any time with /cowork unshare.` });
+  if (r.response !== 0) return coworkState();
+  pendingRoom = { sid };
+  toPeer({ t: 'room', rid: sid, title: sessOf(sid)?.title, project: path.basename(p) });
+  setTimeout(() => { if (pendingRoom?.sid === sid) { pendingRoom = null; post(sid, 'system', `${name} did not answer the shared chat invite.`, null, null, { muted: true, remote: true }); send('cowork:state', coworkState()); } }, 60000).unref?.();
+  send('cowork:state', coworkState()); return coworkState();
+});
+ipcMain.handle('cowork:undo', (_e, id) => {
+  const ch = readJSON(path.join(UNDO_DIR, String(id).replace(/[^\w-]/g, ''), 'change.json'), null);
+  if (!ch) throw new Error('That change is no longer available.');
+  const r = coworkFs.undoChange(UNDO_DIR, id, cwdFor(ch.sid));
+  if (room?.sid === ch.sid) room.sync.push(r.restored);
+  post(ch.sid, 'system', `Undid ${r.restored.length} file${r.restored.length === 1 ? '' : 's'} from ${ch.author}'s changes${r.skipped.length ? ` (kept ${r.skipped.length} you changed since: ${r.skipped.slice(0, 3).join(', ')})` : ''}.`, null, null, { muted: true });
+  return r;
+});
+app.on('before-quit', () => cowork.stop());
 const AV_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 function profileOut() {
   const p = prof();
@@ -809,8 +1007,9 @@ const userQueues = {
   delete: (sid) => store.updateSession(sid, { queuedMessages: [] }),
 };
 const drainingUserQueue = new Set();
-const queueUpdate = (sid) => send('chat:queue', { sid, items: (userQueues.get(sid) || []) });
-const chatBusy = (sid) => RT(sid).selecting || Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive);
+const queueUpdate = (sid) => { send('chat:queue', { sid, items: (userQueues.get(sid) || []) }); shareQueue(sid); };
+const chatBusy = (sid) => localBusy(sid) || (room?.sid === sid && room.peerBusy); // in a shared room only one person's AI works at a time
+const localBusy = (sid) => RT(sid).selecting || Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive);
 function drainUserQueue(sid) {
   if (quitting || restoringSessions || drainingUserQueue.has(sid)) return;
   const q = userQueues.get(sid);
@@ -832,6 +1031,8 @@ async function spreadTo(sid) {
   const sess = sessOf(sid), avail = AGENT_NAMES.filter((p) => !isDown(p));
   const prev = sess?.messages?.findLast((x) => AGENT_NAMES.includes(x.from));
   const quota = await require('./quota').readQuota({fresh:true}).catch(() => ({}));
+  const theirs = sess?.cowork ? cowork.peerQuota() : null; // per chat: /cowork on // the co-work partner's subscriptions compete as extra providers: peer:claude, peer:codex
+  for (const k of ['claude', 'codex']) if (theirs?.[k]) { quota['peer:' + k] = theirs[k]; avail.push('peer:' + k); }
   // Keep question context unless that provider has exhausted a reported limit.
   if (prev?.askUser && avail.includes(prev.from) && pickProvider(quota,[prev.from])) return prev.from;
   const p = pickProvider(quota, avail, sess?.spreadLast, sess?.spreadBalance);
@@ -839,7 +1040,8 @@ async function spreadTo(sid) {
   const balance = sess?.spreadBalance;
   const keep = p === sess?.spreadLast && canKeepBalance(quota,p,balance);
   try { store.updateSession(sid, { spreadLast: p, spreadBalance: keep ? balance : balanceFor(quota,avail,p) }); } catch {}
-  return p;
+  RT(sid).remote = p.startsWith('peer:');
+  return p.replace(/^peer:/, '');
 }
 function enqueueSpreader(sid,trigger) {
   const rt=RT(sid), epoch=rt.epoch; rt.selecting=true; rt.selectionTrigger=trigger; saveResume(sid); sendWorking();

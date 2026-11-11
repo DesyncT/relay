@@ -12,7 +12,7 @@
     "start": "npm run build:ui && electron .",
     "check": "node usage.js",
     "test:images": "node test-generated-images.js",
-    "test": "node test-code-mode.js && node test-mojibake.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-question-controls.js && node test-resume-queue.js && node test-workflow-modes.js && node spreader.js && node test-spreader-steps.js && node test-quota.js && node test-usage-history.js && node test-account-usage.js && node test-easycode-design.js && node test-cli-installation.js && node test-error-handling-and-alerts.js && node test-alerts.js",
+    "test": "node srp.js && node test-cowork.js && node test-cowork-fs.js && node test-code-mode.js && node test-mojibake.js && node test-theme-generator.js && node test-chat-export.js && node test-prompt-caching.js && node test-provider-permissions.js && node test-question-controls.js && node test-resume-queue.js && node test-workflow-modes.js && node spreader.js && node test-spreader-steps.js && node test-quota.js && node test-usage-history.js && node test-account-usage.js && node test-easycode-design.js && node test-cli-installation.js && node test-error-handling-and-alerts.js && node test-alerts.js",
     "test:ui": "node tools/test-chat-helpers.cjs && npm run build:ui && node tools/test-react.cjs",
     "test:electron": "electron test-electron-workspaces.js",
     "dist": "npm run build:ui && electron-builder --win --publish never",

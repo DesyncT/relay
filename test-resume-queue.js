@@ -24,7 +24,7 @@ const userQueues = { get:() => queued, set:(_sid, items) => { queued.splice(0, q
 const requirementCoordinators = new Map();
 const requirementRetries = new Set();
 const context = {
-  quitting:false,restoringSessions:false,easyBusy:new Set(),RT:() => rt, userQueues, requirementCoordinators, requirementRetries, subsOf:() => [], subLive:() => false, saveResume:() => {},
+  room:null,shareQueue:()=>{},syncBusy:()=>{},quitting:false,restoringSessions:false,easyBusy:new Set(),RT:() => rt, userQueues, requirementCoordinators, requirementRetries, subsOf:() => [], subLive:() => false, saveResume:() => {},
   pump:(_sid, _who) => { const trigger = lane.next.trigger; lane.next = null; lane.busy = true; events.push(trigger.text); },
   send:() => {}, queueUpdate:() => {}, dispatchUser:(_sid, item) => events.push(item.text),
 };
@@ -52,7 +52,7 @@ assert.equal(queued.length,1);lane.busy=false;context.drainUserQueue('session');
 // A restarted renderer asks for its queue before background restoration completes.
 const restoringLane={busy:false,next:null}, startupQueue=[{text:'must wait for restored turn'}], startupEvents=[];
 const startupContext={
-  quitting:false,restoringSessions:true,RT:()=>({lanes:{claude:restoringLane}}),subsOf:()=>[],subLive:()=>false,
+  room:null,shareQueue:()=>{},syncBusy:()=>{},quitting:false,restoringSessions:true,RT:()=>({lanes:{claude:restoringLane}}),subsOf:()=>[],subLive:()=>false,
   userQueues:{get:()=>startupQueue,set:(_sid,items)=>startupQueue.splice(0,startupQueue.length,...items)},
   send:()=>{},queueUpdate:()=>{},dispatchUser:(_sid,item)=>startupEvents.push(item.text),
 };

@@ -52,6 +52,7 @@ export default function Composer() {
   const [menu, setMenu] = useState(null), [kb, setKb] = useState(false);
   const [slashSel, setSlashSel] = useState(0), [slashOff, setSlashOff] = useState(false), [skills, setSkills] = useState({ sid: null, list: [] });
   const [spend, setSpend] = useState({}), [running, setRunning] = useState({});
+  const [typing, setTyping] = useState(null), [peerQ, setPeerQ] = useState({ items: [] }), [cw, setCw] = useState(null), typeSent = useRef(0), typeTimer = useRef(0); // shared chat: partner typing, their queue, their AI working
   const inputRef = useRef(null), fAny = useRef(null), fImg = useRef(null);
   const anchors = { lead: useRef(null), mode: useRef(null), model: useRef(null), effort: useRef(null) };
 
@@ -69,7 +70,7 @@ export default function Composer() {
       if (i?.spend) setSpend(JSON.parse(JSON.stringify(i.spend)));
       else call('chat:history', id).then((msgs) => {
         const sum = {};
-        for (const m of msgs || []) if (m.usage) { const a = sum[m.via || String(m.from).split(':')[0]] ||= { tokens: 0, cost: 0 }; a.tokens += m.usage.tokens; a.cost += m.usage.cost; }
+        for (const m of msgs || []) if (m.usage) { const a = sum[(m.via || String(m.from).split(':')[0]) + (m.peer ? '@' + m.peer : '')] ||= { tokens: 0, cost: 0 }; a.tokens += m.usage.tokens; a.cost += m.usage.cost; }
         if (live.current.sid === id) setSpend(sum);
       }).catch(() => {});
     }
@@ -78,7 +79,7 @@ export default function Composer() {
 
   useEffect(() => {
     setText(loadDraft(sid)); setPend(loadDraftFiles(sid)); setFailed(sid ? failedDrafts(sid) : []);
-    setQEdit(null); setItems([]); setInfo({}); setSpend({}); setRunning({}); setMenu(null); setSlashOff(false);
+    setQEdit(null); setItems([]); setInfo({}); setSpend({}); setRunning({}); setMenu(null); setSlashOff(false); setTyping(null); setPeerQ({ items: [] });
     setState({ chatReplying: null });
     let dead = false;
     if (sid) { loadInfo(sid, true); call('chat:queue', sid).then((q) => { if (!dead && live.current.sid === sid) setItems(q || []); }).catch(() => {}); }
@@ -115,6 +116,10 @@ export default function Composer() {
   const refreshCfg = useCallback(() => call('settings:get').then((s) => { setState({ cfg: s }); }).catch(() => {}), []);
   useEffect(() => { refreshCfg(); call('models:list').then((c) => setConns(c || [])).catch(() => {}); }, [refreshCfg]);
   useIpcEvent('chat:queue', (d) => { if (d.sid === sid) setItems(d.items || []); });
+  useEffect(() => { call('cowork:state').then(setCw).catch(() => {}); }, []);
+  useIpcEvent('cowork:state', setCw);
+  useIpcEvent('cowork:typing', (d) => { if (d.sid !== sid) return; setTyping(d.name); clearTimeout(typeTimer.current); typeTimer.current = setTimeout(() => setTyping(null), 4000); });
+  useIpcEvent('cowork:peerQueue', (d) => { if (d.sid === sid) setPeerQ({ name: d.name, items: d.items || [] }); });
   useIpcEvent('chat:mode', (d) => { if (d.sid === sid) setModeState(MODES.some((m) => m[0] === d.mode) ? d.mode : 'edits'); });
   useIpcEvent('spend:update', (d) => { if (d.sid === sid) setSpend(JSON.parse(JSON.stringify(d.spend || {}))); });
   useIpcEvent('agent:status', (d) => { if (d.sid === sid) setRunning((r) => { const n = { ...r }; if (d.status) n[d.who] = 1; else delete n[d.who]; return n; }); });
@@ -317,7 +322,9 @@ export default function Composer() {
   const sendDisabled = !!uploads || (!text.trim() && !pend.length);
   const label = qEdit ? 'Edit queued message' : waitFor ? 'Type your answer' : 'Message ' + (info.title || 'Relay');
   const placeholder = qEdit ? '' : (waitFor ? 'Type your answer' : label + '  ·  / for commands');
-  const spendKeys = ['claude', 'codex', 'antigravity', 'auto'].filter((k) => spend[k] || Object.keys(running).some((w) => w.split(':')[0] === k));
+  const spendKeys = ['claude', 'codex', 'antigravity', 'auto'].flatMap((p) => [p, ...Object.keys(spend).filter((x) => x.startsWith(p + '@'))]) // 'claude@Alice' = tokens spent on a co-work partner's subscription
+    .filter((k) => spend[k] || Object.keys(running).some((w) => w.split(':')[0] === k));
+  const shared = spendKeys.some((k) => k.includes('@'));
   const sending = busy && queueBusy;
 
   return (
@@ -328,15 +335,15 @@ export default function Composer() {
         <div id="spend" aria-label="Current chat session usage totals">
           {spendKeys.length > 0 && <span className="spend-caption">This chat ·</span>}
           {spendKeys.flatMap((k, i) => {
-            const a = spend[k] || { tokens: 0, cost: 0, input: 0, output: 0, cached: 0, model: '' };
+            const a = spend[k] || { tokens: 0, cost: 0, input: 0, output: 0, cached: 0, model: '' }, bk = k.split('@')[0];
             const ft = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n || 0));
-            const tip = `This chat only, across all turns. ${k === 'claude' ? 'Cost reported by the CLI.' : 'Cost estimated from configured API rates.'} Not lifetime account spend or a subscription bill.\n${a.model || k}\ninput ${ft(a.input)} · output ${ft(a.output)} · cached ${ft(a.cached)}${a.cost > 0 ? `\nest. cost $${a.cost < 0.1 ? a.cost.toFixed(3) : a.cost.toFixed(2)}` : ''}`;
+            const tip = `This chat only, across all turns. ${bk === 'claude' ? 'Cost reported by the CLI.' : 'Cost estimated from configured API rates.'} Not lifetime account spend or a subscription bill.\n${a.model || k}\ninput ${ft(a.input)} · output ${ft(a.output)} · cached ${ft(a.cached)}${a.cost > 0 ? `\nest. cost $${a.cost < 0.1 ? a.cost.toFixed(3) : a.cost.toFixed(2)}` : ''}`;
             const run = Object.keys(running).some((w) => w.split(':')[0] === k);
             return [
               ...(i ? [<span key={'d' + k}>·</span>] : []),
-              <span key={k} className="sp" data-k={k} title={tip}>
-                {k === 'auto' ? <Ico><path d="M13 2 3 14h9l-1 8 10-12h-9z" /></Ico> : <ProvLogo k={k} />}
-                <b>{k}</b><Tween tokens={a.tokens || 0} cost={a.cost || 0} />{run && 'running'}
+              <span key={k} className="sp" data-k={bk} title={tip}>
+                {k === 'auto' ? <Ico><path d="M13 2 3 14h9l-1 8 10-12h-9z" /></Ico> : <ProvLogo k={bk} />}
+                <b>{k.includes('@') ? k.replace('@', ' · ') : shared && k !== 'auto' ? k + ' · you' : k}</b><Tween tokens={a.tokens || 0} cost={a.cost || 0} />{run && 'running'}
               </span>,
             ];
           })}
@@ -408,10 +415,18 @@ export default function Composer() {
           )}
         </AnimatePresence>
 
+        {(typing || peerQ.items.length > 0 || (cw?.room?.sid === sid && cw.room.peerBusy)) && (
+          <div className="cw-line" role="status">
+            {cw?.room?.sid === sid && cw.room.peerBusy && <span>{cw.peer?.name || 'Your partner'}'s AI is working. Your messages queue until it finishes.</span>}
+            {typing && <span>{typing} is typing…</span>}
+            {peerQ.items.length > 0 && <span title={peerQ.items.map((i) => i.text || `${i.n} attachment${i.n === 1 ? '' : 's'}`).join('\n')}>{peerQ.name} has {peerQ.items.length} queued: “{peerQ.items[0].text || 'attachment'}”</span>}
+          </div>
+        )}
+
         <div className="composer-entry">
         <textarea id="input" ref={inputRef} rows={1} spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off"
           value={text} placeholder={placeholder} aria-label={label}
-          onChange={(e) => { setText(e.target.value); setSlashSel(0); setSlashOff(false); }} onKeyDown={onKeyDown} onPaste={onPaste} />
+          onChange={(e) => { setText(e.target.value); setSlashSel(0); setSlashOff(false); if (info.shared && Date.now() - typeSent.current > 2500) { typeSent.current = Date.now(); call('cowork:typing', sid).catch(() => {}); } }} onKeyDown={onKeyDown} onPaste={onPaste} />
 
         <div id="pend">
           <AnimatePresence initial={false} mode="popLayout">

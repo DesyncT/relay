@@ -10,3 +10,6 @@
 #slash .mi > .slash-hi { position: absolute; inset: 0; z-index: 0; background: var(--raised); border-radius: 8px; }
 #sendRecovery button, #queueEditBar button { transition: background-color .15s var(--ease); }
 #queueEditBar button:disabled, #sendRecovery button:disabled { opacity: .5; cursor: default; }
+.cw-line { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 4px 6px; font-size: 12px; line-height: 16px; color: var(--text-2, var(--muted)); }
+.cw-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.msg.sys .cw-undo { margin-left: 8px; padding: 2px 10px; font: 12px/16px var(--sans, inherit); white-space: nowrap; }

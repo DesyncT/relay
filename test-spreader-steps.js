@@ -38,7 +38,8 @@ const fs = require('node:fs'), vm = require('node:vm');
 const source = fs.readFileSync(require.resolve('./main'),'utf8');
 const session = {messages:[],spreadLast:'codex'};
 let currentQuota = {codex:q(24),claude:q(100)};
-const context = {sessOf:()=>session,AGENT_NAMES:available,isDown:()=>false,pickProvider,balanceFor,canKeepBalance,
+let peerQuota = null; const rt = {};
+const context = {sessOf:()=>session,cowork:{peerQuota:()=>peerQuota},RT:()=>rt,AGENT_NAMES:available,isDown:()=>false,pickProvider,balanceFor,canKeepBalance,
   require:()=>({readQuota:async()=>currentQuota}),store:{updateSession:(_sid,patch)=>Object.assign(session,patch)}};
 vm.runInNewContext(source.slice(source.indexOf('async function spreadTo('),source.indexOf('function enqueueSpreader(')),context);
 (async()=>{
@@ -57,5 +58,12 @@ vm.runInNewContext(source.slice(source.indexOf('async function spreadTo('),sourc
   session.messages = [];
   currentQuota = {codex:q(0),claude:q(0)};
   await assert.rejects(()=>context.spreadTo('session'),/No provider currently has quota/);
+  // a co-work partner with far more quota takes the turn: same seat name, but flagged to run remotely
+  session.cowork = false; session.spreadLast = 'claude'; delete session.spreadBalance; currentQuota = {codex:q(40),claude:q(40)}; peerQuota = {codex:q(95)};
+  await context.spreadTo('session'); assert.equal(rt.remote,false,'Chats that did not opt in never use the partner');
+  session.cowork = true; session.spreadLast = 'claude'; delete session.spreadBalance; currentQuota = {codex:q(40),claude:q(40)}; peerQuota = {codex:q(95)};
+  assert.equal(await context.spreadTo('session'),'codex'); assert.equal(rt.remote,true,'Partner subscription chosen');
+  peerQuota = null; currentQuota = {codex:q(90),claude:q(40)};
+  assert.equal(await context.spreadTo('session'),'codex'); assert.equal(rt.remote,false,'Own subscription runs locally');
   console.log('Spreader dispatcher target continuity checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

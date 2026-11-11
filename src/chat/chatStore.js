@@ -97,8 +97,8 @@ export function layoutItems(items) {
     const o = { ...it, kind: 'msg' };
     if (m.from === 'system') { prev = null; o.kind = m.failure || FAIL.test(m.text || '') ? 'failure' : 'sys'; }
     else {
-      o.cont = !!(prev && prev.sub === m.sub && prev.from === m.from && prev.via === m.via && prev.pk === providerKey(m) && m.at - prev.at < 3e5 && !m.replyTo);
-      prev = { sub: m.sub, from: m.from, via: m.via, at: m.at, auto: m.auto, pk: providerKey(m) };
+      o.cont = !!(prev && prev.sub === m.sub && prev.from === m.from && prev.author === m.author && prev.via === m.via && prev.pk === providerKey(m) && m.at - prev.at < 3e5 && !m.replyTo);
+      prev = { sub: m.sub, from: m.from, author: m.author, via: m.via, at: m.at, auto: m.auto, pk: providerKey(m) };
     }
     if (m.from === 'auto') { o.kind = 'auto'; openAsk = m.auto === 'agree' ? null : it.id; }
     else if (m.askUser) openAsk = it.id;

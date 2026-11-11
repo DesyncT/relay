@@ -5,6 +5,7 @@ import { useStore, setState } from '../store.js';
 import { spring, fadeUp } from '../motion.js';
 import { ALL_PROVIDERS, Logo, useAuth, AuthChip, ConnectedModels, useUpdates, UpdateCard, UPD_LABEL } from '../components/settings/parts.jsx';
 import Themes from './Themes.jsx';
+import Cowork from './Cowork.jsx';
 import '../styles/settings.css';
 
 const CLI_FIELDS = ALL_PROVIDERS.flatMap(([k]) => [k + 'Cmd', k + 'Args']);
@@ -227,7 +228,7 @@ export default function Settings() {
         <div className="set-main">
           {vals && (
             <>
-              {vis.profile && <div id="set-profile"><Profile /></div>}
+              {vis.profile && <div id="set-profile"><Profile /><Cowork /></div>}
               <div id="settingsForm" ref={form} style={{ display: 'contents' }}>
                 {vis.providers && (
                   <Sec id="providers" title="Providers" sub="Which agents Relay may run, and extra models you connect">
