@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { call } from './api.js';
+import { call, useIpcEvent } from './api.js';
 import { getState, setState, useStore } from './store.js';
 import { SCREENS } from './screens/index.js';
 import Nav, { TAB_HOME } from './components/Nav.jsx';
@@ -14,6 +14,7 @@ export default function App() {
   const tab = useStore((s) => s.tab);
   const [ready, setReady] = useState(false);
   const started = useRef(false);
+  useIpcEvent('window:fullscreen', (on) => document.documentElement.classList.toggle('is-fullscreen', !!on));
   const main = useRef(null);
   useLayoutEffect(() => { if (main.current) main.current.scrollTop = 0; }, [tab]);
   const Screen = SCREENS[tab] || SCREENS[TAB_HOME[tab]] || SCREENS.usage;
