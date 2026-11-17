@@ -12,7 +12,7 @@ function Qr({ text }) {
 
 // Chat from a phone on the same network: scan, approve the device here, done. The phone shows the same app, live.
 export default function Phone() {
-  const [st, setSt] = useState(null), [pair, setPair] = useState(null), [err, setErr] = useState(''), [busy, setBusy] = useState(false), [now, setNow] = useState(Date.now());
+  const [st, setSt] = useState(null), [pair, setPair] = useState(null), [err, setErr] = useState(''), [busy, setBusy] = useState(false), [now, setNow] = useState(Date.now()), [edit, setEdit] = useState(null);
   useEffect(() => { call('mobile:state').then(setSt).catch(() => {}); }, []);
   useIpcEvent('mobile:state', setSt);
   useEffect(() => { if (!pair) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [pair]);
@@ -56,8 +56,19 @@ export default function Phone() {
             {st.devices.map((d) => (
               <li key={d.id}>
                 <span className={'ph-dot' + (d.online ? ' on' : '')} title={d.online ? 'Connected now' : 'Not connected'} aria-hidden="true" />
-                <span className="ph-name">{d.name}<small>{d.online ? 'Connected' : 'Last seen ' + ago(d.last)}</small></span>
-                <button type="button" className="b ghost" aria-label={'Remove ' + d.name} onClick={() => run('mobile:revoke', d.id)}>Remove</button>
+                {edit?.id === d.id ? (
+                  <form className="ph-name ph-edit" onSubmit={(e) => { e.preventDefault(); if (edit.name.trim()) { run('mobile:rename', d.id, edit.name); setEdit(null); } }}>
+                    <input autoFocus value={edit.name} maxLength={40} aria-label="Phone name" onChange={(e) => setEdit({ id: d.id, name: e.target.value })} onKeyDown={(e) => e.key === 'Escape' && setEdit(null)} />
+                    <button type="submit" className="b" disabled={!edit.name.trim()}>Save</button>
+                    <button type="button" className="b ghost" onClick={() => setEdit(null)}>Cancel</button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="ph-name">{d.name}<small>{d.online ? 'Connected' : 'Last seen ' + ago(d.last)}</small></span>
+                    <button type="button" className="b ghost" aria-label={'Rename ' + d.name} onClick={() => setEdit({ id: d.id, name: d.name })}>Rename</button>
+                    <button type="button" className="b ghost" aria-label={'Remove ' + d.name} onClick={() => run('mobile:revoke', d.id)}>Remove</button>
+                  </>
+                )}
               </li>
             ))}
           </ul>

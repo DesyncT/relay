@@ -50,6 +50,7 @@ export default function Nav() {
           <Icon>{icon}</Icon><span>{label}</span>
         </button>
       ))}
+      <div className="workspace-label">Workspace</div>
       <Sidebar />
       <div className="foot" id="navFoot"><span id="navStats">{stats}</span><UpdatePill /></div>
     </nav>

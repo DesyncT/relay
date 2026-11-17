@@ -124,6 +124,7 @@ function createMobile(opts) {
       for (const [h, e] of pairs) if (e < Date.now()) pairs.delete(h);
       return { url: `http://${ip()}:${port}/?pair=${tok}`, expires: Date.now() + PAIR_TTL };
     },
+    rename(id, name) { const d = devices.find((x) => x.id === id); if (!d) throw new Error('Phone not found.'); name = String(name || '').trim().slice(0, 40); if (!name) throw new Error('Give the phone a name.'); d.name = name; persist(); },
     revoke(id) { devices = devices.filter((d) => d.id !== id); for (const c of [...clients]) if (c.id === id) { try { c.res.end(); } catch {} clients.delete(c); } persist(); },
     emit(ch, data) {
       if (!clients.size || !EVENT_OK.test(ch)) return;

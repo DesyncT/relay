@@ -24,7 +24,7 @@ export default function Chat() {
   const { rows, openAsk } = useMemo(() => layoutItems(chat.items), [chat.items]);
   useLayoutEffect(() => {
     setLogEl(log.current); if (chat.items.length) scrollLogToBottom(); else if (log.current) log.current.scrollTop = 0;
-    if (chat.epoch > 1) log.current?.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'cubic-bezier(.22,1,.36,1)' });
+    if (chat.epoch > 1 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) log.current?.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'cubic-bezier(.22,1,.36,1)' });
     return () => setLogEl(null);
   }, [chat.epoch]);
   useEffect(() => { // Composer toggles .drag on #chat while files are dragged over it

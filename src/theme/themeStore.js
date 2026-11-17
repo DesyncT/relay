@@ -3,6 +3,7 @@ export const STORAGE_KEY = 'relay.theme.v1';
 export const TOKEN_MAP = { deep: 'deep', bg: 'bg', card: 'card', raised: 'raised', text: 'text', text2: 'text-2', muted: 'muted', line: 'line', lineStrong: 'line-strong', accent: 'claude', codex: 'codex', negative: 'negative' };
 const P = (name, description, style, font, c) => ({ name, description, style, font, colors: Object.fromEntries(Object.keys(TOKEN_MAP).map((k, i) => [k, c[i]])), radius: style === 'square' ? 0 : 8, borderWidth: 1, density: 'comfortable' });
 export const PRESETS = {
+  acrylic: { ...P('Acrylic', 'Dark smoked glass, luminous edges, and clear depth.', 'rounded', 'sans', ['#10151d', '#151c26', '#26303d', '#323e4e', '#f1f6ff', '#c6d2e4', '#afbdd1', '#3b495c', '#55667d', '#87b7ff', '#9bdcc6', '#ff8f9b']), radius: 12 },
   graphite: P('Graphite', 'Quiet charcoal. The Relay original.', 'rounded', 'sans', ['#111112', '#181819', '#1e1e20', '#29292c', '#ededee', '#b5b5bc', '#96969e', '#303033', '#444449', '#e5997c', '#dedee3', '#f16b70']),
   paper: P('Paper', 'Warm white, ink, and a softer contrast.', 'rounded', 'sans', ['#e9e7e2', '#f6f4ef', '#ffffff', '#e5e2da', '#222321', '#51544e', '#62665e', '#d5d3cb', '#b5b7ad', '#9c432c', '#46554b', '#b52d36']),
   midnight: P('Midnight', 'Deep blue with a restrained lavender accent.', 'rounded', 'sans', ['#11141e', '#171b29', '#1d2333', '#2a3247', '#edf0fa', '#bcc5db', '#a0aecb', '#343e56', '#4c5c7b', '#b4a6e8', '#b9d5e4', '#f68a95']),
@@ -30,7 +31,7 @@ export function validate(value) {
   }
   return { name: value.name.trim(), font: value.font, radius: value.radius, borderWidth: value.borderWidth, density: value.density, colors };
 }
-let selected = 'graphite', custom = null;
+let selected = 'acrylic', custom = null;
 export const getSelected = () => selected;
 export const getCustom = () => custom;
 export function applyTheme(theme, id) {
@@ -44,17 +45,16 @@ export function applyTheme(theme, id) {
   set('--app-control-height', theme.density === 'compact' ? '30px' : '36px');
   set('--app-density-space', theme.density === 'compact' ? '16px' : '24px');
   root.dataset.themeFont = theme.font;
-  root.style.colorScheme = lum(theme.colors.bg) > 0.179 ? 'light' : 'dark';
+  // Chromium paints an opaque canvas for a root light/dark color scheme.
+  // Keep the window canvas transparent; scope native form styling to the body.
+  root.style.colorScheme = 'normal';
+  if (document.body) document.body.style.colorScheme = lum(theme.colors.bg) > 0.179 ? 'light' : 'dark';
   if (document.body) document.body.dataset.theme = id;
   selected = id;
 }
 // Called once before first render so the saved theme paints without a flash.
 export function applyStoredTheme() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved?.id === 'custom' && (custom = validate(saved.theme))) applyTheme(custom, 'custom');
-    else if (PRESETS[saved?.id]) applyTheme(PRESETS[saved.id], saved.id);
-  } catch (_) { /* corrupt storage: keep default */ }
+  applyTheme(PRESETS.acrylic, 'acrylic');
 }
 // Apply + persist. Returns false when storage failed. Briefly tags <html> so colors crossfade.
 export function persistTheme(theme, id) {

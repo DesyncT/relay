@@ -38,7 +38,7 @@ function series(all, days, accountCostDays, tools, mode) { // points: {i: day in
   });
   return out;
 }
-const FX = { fontSize: 13, fill: '#85858b', fontFamily: 'inherit' };
+const FX = { fontSize: 13, fill: 'var(--text-2)', fontFamily: 'inherit' };
 
 export default function Chart({ days, tools, accountCostDays = {} }) {
   const box = useRef(null), tipRef = useRef(null);
@@ -85,7 +85,7 @@ export default function Chart({ days, tools, accountCostDays = {} }) {
         <AnimatePresence initial={false}>
           <motion.g key={mode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
             {[0, 1, 2, 3, 4].map((t) => (
-              <g key={t}><line x1={L} x2={W - R} y1={y(step * t)} y2={y(step * t)} stroke="#1f1f1f" /><text x={L - 12} y={y(step * t) + 4} {...FX} textAnchor="end">{t ? usd(step * t) : '0'}</text></g>
+              <g key={t}><line x1={L} x2={W - R} y1={y(step * t)} y2={y(step * t)} stroke="var(--usage-grid)" /><text x={L - 12} y={y(step * t) + 4} {...FX} textAnchor="end">{t ? usd(step * t) : '0'}</text></g>
             ))}
             {[...tools].reverse().map((tool, k) => {
               const line = pts.length > 1 ? mono(pts.map((p) => [x(p.i), y(p.v[tool])])) : '', c = ucol(tool), gid = `cg-${tool.replace(/\W/g, '')}`;
@@ -102,7 +102,7 @@ export default function Chart({ days, tools, accountCostDays = {} }) {
           </motion.g>
         </AnimatePresence>
         {hp && tools.map(tool => <circle key={tool} cx={x(hp.i)} cy={y(hp.v[tool])} r="4" fill={ucol(tool)} stroke="var(--bg)" strokeWidth="2" />)}
-        {hover && <line y1={T} y2={T + ph} x1={x(hover.i)} x2={x(hover.i)} stroke="#444" />}
+        {hover && <line y1={T} y2={T + ph} x1={x(hover.i)} x2={x(hover.i)} stroke="var(--text-2)" />}
       </svg>}
       {hp && (
         <motion.div className="u-tip" ref={tipRef} style={{ display: 'block', left: 0, top: 56, x: sx, animation: 'none' }}>

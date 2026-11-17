@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage, Tray, Menu, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage, nativeTheme, Tray, Menu, Notification } = require('electron');
 const ipcHandlers = new Map(); { const h = ipcMain.handle.bind(ipcMain); ipcMain.handle = (ch, fn) => { ipcHandlers.set(ch, fn); return h(ch, fn); }; } // the phone bridge (mobile.js) calls these same handlers
 const {createAlerts,canNotifyComplete}=require('./notifications');
 const { spawn, execFile } = require('child_process');
@@ -22,7 +22,9 @@ const { fixMojibake } = require('./mojibake');
 const ACCESS_NOTE = 'Text is UTF-8. In Windows PowerShell set [Console]::OutputEncoding = [Text.Encoding]::UTF8 first, read files with -Encoding UTF8, and fetch web pages with curl.exe (Invoke-WebRequest misreads them). Never copy garbled characters like â€™ or Â· into messages, files or requirements: write the real ones (’ ·). Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
+nativeTheme.themeSource = 'dark'; // Dark native acrylic instead of Windows' milky light material.
 { const old = path.join(app.getPath('appData'), 'jarvis'); app.setPath('userData', !app.isPackaged ? (process.env.RELAY_TEST_DATA_DIR || path.join(app.getPath('appData'), 'Relay-dev')) : require('fs').existsSync(old) ? old : path.join(app.getPath('appData'), 'Relay')); } // npm start gets its own data folder and instance lock so it runs beside the installed Relay; installs from before the rename keep their data folder
+
 
 const HOME = os.homedir();
 const DATA = app.getPath('userData');
@@ -960,7 +962,23 @@ ipcMain.handle('cowork:undo', (_e, id) => {
   post(ch.sid, 'system', `Undid ${r.restored.length} file${r.restored.length === 1 ? '' : 's'} from ${ch.author}'s changes${r.skipped.length ? ` (kept ${r.skipped.length} you changed since: ${r.skipped.slice(0, 3).join(', ')})` : ''}.`, null, null, { muted: true });
   return r;
 });
-app.on('before-quit', () => { cowork.stop(); mobile?.stop(); });
+app.on('before-quit', () => { cowork.stop(); mobile?.stop(); mcpServer?.stop(); });
+
+// ---- MCP server (mcp.js): other tools connect to Relay over localhost to start sessions, send messages and read chats ----
+const { createMcp } = require('./mcp');
+let mcpServer = null;
+const mcpState = () => ({ running: !!mcpServer && mcpServer.status().running, url: mcpServer ? mcpServer.status().url : `http://127.0.0.1:${settings.mcpPort || 7717}/mcp`, token: settings.mcpToken || '', port: settings.mcpPort || 7717, tools: mcpServer ? mcpServer.tools : [] });
+async function startMcp() {
+  if (!settings.mcpToken) { settings.mcpToken = require('crypto').randomBytes(24).toString('base64url'); saveSettings(); }
+  mcpServer = mcpServer || createMcp({ port: settings.mcpPort || 7717, token: settings.mcpToken, version: app.getVersion(), invoke: async (ch, args) => { const fn = ipcHandlers.get(ch); if (!fn) throw new Error('Unknown request'); return fn({ sender: null }, ...args); } });
+  await mcpServer.start();
+  send('mcp:state', mcpState());
+}
+ipcMain.handle('mcp:state', () => mcpState());
+ipcMain.handle('mcp:start', async () => { settings.mcpOn = true; saveSettings(); await startMcp(); return mcpState(); });
+ipcMain.handle('mcp:stop', () => { settings.mcpOn = false; saveSettings(); mcpServer?.stop(); send('mcp:state', mcpState()); return mcpState(); });
+ipcMain.handle('mcp:rotate', async () => { settings.mcpToken = require('crypto').randomBytes(24).toString('base64url'); saveSettings(); if (mcpServer) { mcpServer.stop(); mcpServer = null; if (settings.mcpOn) await startMcp(); } return mcpState(); });
+if (settings.mcpOn) app.whenReady().then(() => startMcp().catch((e) => console.error('MCP server failed to start:', e.message)));
 
 // ---- phone access (mobile.js): the same app on a paired phone, served from this computer on the local network ----
 mobile = createMobile({
@@ -984,6 +1002,7 @@ ipcMain.handle('mobile:start', async (e) => {
   await mobile.start(); return { ...mobileState(), pair: mobile.pair() };
 });
 ipcMain.handle('mobile:pair', () => ({ ...mobileState(), pair: mobile.pair() }));
+ipcMain.handle('mobile:rename', (_e, id, name) => { mobile.rename(String(id), name); return mobileState(); });
 ipcMain.handle('mobile:revoke', (_e, id) => { mobile.revoke(String(id)); return mobileState(); });
 ipcMain.handle('mobile:stop', () => { settings.mobileOn = false; saveSettings(); mobile.stop(); return mobileState(); });
 const AV_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
@@ -1090,7 +1109,7 @@ function dispatchUser(sid, { text, files, reply }) {
       enqueueSpreader(sid,m);
       return;
     }
-    enqueue(sid,AGENT_NAMES.includes(selected) ? selected : 'codex',m,null,true);
+    enqueue(sid,AGENT_NAMES.includes(selected) ? selected : 'codex',m,null,true,{user:true});
     return;
   }
 }
@@ -1286,8 +1305,9 @@ ipcMain.handle('settings:save', (_e, s) => { settings = { ...DEFAULTS, ...settin
 function createWindow() {
   const w = new BrowserWindow({
     icon: path.join(__dirname, 'assets', 'relay.ico'),
-    width: 1400, height: 900, backgroundColor: '#000000', title: 'Relay',
-    titleBarStyle: 'hidden', titleBarOverlay: { color: '#0f0f10', symbolColor: '#a1a1a6', height: 40 },
+    width: 1400, height: 900, minWidth: 760, minHeight: 600, backgroundColor: '#00000000', title: 'Relay',
+    ...(process.platform === 'win32' ? { backgroundMaterial: 'acrylic' } : {}),
+    titleBarStyle: 'hidden', titleBarOverlay: { color: '#00000000', symbolColor: '#d5dfef', height: 54 },
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, webviewTag: true },
   });
   // closing the last window hides Relay to the tray (agents keep working); the tray's Exit quits for real

@@ -78,6 +78,7 @@ const cookieOf = (r) => /rm=([\w-]+)/.exec(r.headers['set-cookie']?.[0] || '')?.
   assert.equal((await f(path.join(tmp, 'secret.txt'))).status, 404); assert.equal((await f(path.join(uploads, '..', 'secret.txt'))).status, 404); assert.equal((await f('C:\\Windows\\win.ini')).status, 404);
 
   // revoking a device cuts it off at once
+  m.rename(m.status().devices[0].id, '  Kitchen iPad  '); assert.equal(m.status().devices[0].name, 'Kitchen iPad'); assert.throws(() => m.rename(m.status().devices[0].id, ' '), /name/); assert.throws(() => m.rename('nope', 'x'), /not found/);
   m.revoke(m.status().devices[0].id); assert.equal((await req(port, '/', { headers: H })).status, 401); assert.equal(saved.length, 0);
 
   // repeated bad pairing attempts are throttled

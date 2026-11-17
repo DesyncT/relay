@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { setState, useStore } from '../../store.js';
 import { spring } from '../../motion.js';
 
-const PAIRS = [[['rules', 'Rules'], ['skills', 'Skills']], [['settings', 'Settings'], ['themes', 'Themes']]];
+const PAIRS = [[['rules', 'Rules'], ['skills', 'Skills']], [['settings', 'Settings'], ['themes', 'Background']]];
 
 // Rules<->Skills and Settings<->Themes switcher above the page (legacy renderTabPair).
 export default function TabPair() {

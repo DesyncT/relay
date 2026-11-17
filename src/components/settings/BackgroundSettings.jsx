@@ -29,22 +29,25 @@ export default function BackgroundSettings() {
       else {const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(file)});save({effect:'wallpaper',image:data,imageName:file.name});}
     } catch {setStatus('Could not save this file. Try another file.');} finally {setBusy(false);}
   };
+  const animated = ['ascii','liquid','stars','grid','aurora'].includes(prefs.effect);
+  const motionEnabled = animated || prefs.effect === 'video';
   return <section className="background-controls" aria-labelledby="backgroundHeading">
-    <div className="background-controls-heading"><div><h3 id="backgroundHeading">Conversation background</h3><p>Effects stay behind your messages. Your theme and background are saved separately.</p></div>
-      <label><input type="checkbox" checked={prefs.paused} onChange={e=>save({paused:e.target.checked})} /> Pause motion</label></div>
+    <div className="background-controls-heading"><div><h3 id="backgroundHeading">Conversation background</h3><p>Choose an effect or your own media. Changes save automatically.</p></div>
+      <label><input type="checkbox" disabled={!motionEnabled} checked={prefs.paused} onChange={e=>save({paused:e.target.checked})} /> Pause motion</label></div>
     <div className="background-options" role="group" aria-label="Choose a background">
       {EFFECTS.map(([effect,label])=><button type="button" key={effect} data-effect={effect} aria-pressed={prefs.effect===effect} onClick={()=>save({effect})}>{label}</button>)}
     </div>
     <div className="background-adjustments">
-      <label htmlFor="backgroundStrength">Strength <output>{prefs.strength}%</output><input id="backgroundStrength" type="range" min="10" max="70" step="5" value={prefs.strength} onChange={e=>save({strength:Number(e.target.value)})} /></label>
-      <label htmlFor="backgroundSpeed">Speed <output>{prefs.speed}%</output><input id="backgroundSpeed" type="range" min="10" max="100" step="5" value={prefs.speed} onChange={e=>save({speed:Number(e.target.value)})} /></label>
-      <label><input type="checkbox" checked={prefs.interactive} onChange={e=>save({interactive:e.target.checked})} /> Follow the pointer</label>
+      <label htmlFor="backgroundStrength">Strength <output>{prefs.strength}%</output><input id="backgroundStrength" type="range" disabled={prefs.effect === 'off'} min="10" max="70" step="5" value={prefs.strength} onChange={e=>save({strength:Number(e.target.value)})} /></label>
+      <label htmlFor="backgroundSpeed">Speed <output>{prefs.speed}%</output><input id="backgroundSpeed" type="range" disabled={!animated || prefs.paused} min="10" max="100" step="5" value={prefs.speed} onChange={e=>save({speed:Number(e.target.value)})} /></label>
+      <label><input type="checkbox" disabled={!animated} checked={prefs.interactive} onChange={e=>save({interactive:e.target.checked})} /> Follow the pointer</label>
     </div>
     <div className="background-file"><span>{prefs.effect==='video' ? prefs.videoName || 'Choose a video loop' : prefs.imageName || (prefs.image ? 'Saved image' : 'Use your own image or video')}</span>
       <button type="button" className="b" disabled={busy} onClick={()=>input.current.click()}>{busy?'Saving file…':'Choose file'}</button>
       <button type="button" className="b ghost" disabled={busy||(!prefs.image&&!prefs.hasVideo)} onClick={async()=>{try {if(prefs.hasVideo) await saveVideo(null);save({effect:'off',image:'',imageName:'',hasVideo:false,videoName:'',mediaVersion:Date.now()});}catch{setStatus('Could not remove the saved video.');}}}>Remove media</button>
       <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" onChange={choose} hidden />
     </div>
-    <p className="background-save-status" role="status">{status || 'Images up to 2 MB. Video loops up to 50 MB. Reduced motion is respected.'}</p>
+    <p className="background-help">Images up to 2 MB ? Video loops up to 50 MB. Reduced motion is respected.</p>
+    <p className="background-save-status" role="status">{status}</p>
   </section>;
 }

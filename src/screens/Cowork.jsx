@@ -17,56 +17,74 @@ export default function Cowork() {
   const them = st.peer?.name || 'my partner', linked = st.state === 'linked';
   return (
     <div className="panel form" id="set-cowork">
-      <h3>Co-work</h3>
-      <p className="hint">Link two Relays directly with a 9-digit code (encrypted, nothing goes through anyone else). Type <b>/cowork share</b> in a chat to work in it together, or <b>/cowork on</b> to let the Spreader also use your partner's subscription there.</p>
-
-      <h4>My subscriptions</h4>
-      <div className="cw-lend" role="group" aria-label={`Which of my subscriptions ${them} may use`}>
-        {PROVS.map(([k, n]) => (
-          <label className="set-prov-l" key={k}>
-            <input type="checkbox" disabled={st.lendable?.[k] === false} checked={st.lend?.[k] !== false && st.lendable?.[k] !== false} onChange={(e) => act('cowork:lend', k, e.target.checked)} /> Let {them} use my {n}{st.lendable?.[k] === false ? ' (not available: it cannot be limited to text only yet)' : ''}
-          </label>
-        ))}
+      <div className="cw-head">
+        <h3>Co-work</h3>
+        <p className="hint">Link two Relays directly with a 9-digit code. Everything is encrypted and nothing goes through anyone else.</p>
       </div>
-      <p className="hint">Off means that provider is never offered or run for your partner. A lent turn runs with no tools at all (no files, no commands, no connected services), so your partner only gets text back. Shared chats work on a project copy instead.</p>
+
+      <div className="cw-sec" aria-labelledby="cw-subs">
+        <h4 id="cw-subs">My subscriptions</h4>
+        <p className="hint">Choose what {them} may run on your account. A lent turn has no tools, so they only get text back.</p>
+        <div className="cw-rows" role="group" aria-label={`Which of my subscriptions ${them} may use`}>
+          {PROVS.map(([k, n]) => {
+            const off = st.lendable?.[k] === false;
+            return (
+              <label className={'cw-row' + (off ? ' off' : '')} key={k}>
+                <span className="cw-row-l"><b>{n}</b><span className="hint">{off ? 'Not available yet. It cannot be limited to text only.' : `Let ${them} use my ${n}`}</span></span>
+                <input type="checkbox" role="switch" disabled={off} checked={st.lend?.[k] !== false && !off} onChange={(e) => act('cowork:lend', k, e.target.checked)} />
+              </label>
+            );
+          })}
+        </div>
+      </div>
 
       {linked && (
-        <>
-          <h4>Linked with {st.peer.name}</h4>
+        <div className="cw-sec" aria-labelledby="cw-linked">
+          <h4 id="cw-linked">Linked with {st.peer.name}</h4>
           <p role="status" className="hint">
             {st.peer.lends?.length ? `${st.peer.name} lets you use their ${st.peer.lends.map((k) => PROVS.find((p) => p[0] === k)?.[1] || k).join(' and ')}.` : `${st.peer.name} is not sharing any subscription right now.`}
             {st.room ? ` Shared chat is live (${st.room.role === 'host' ? 'your project' : 'their project copy'}).` : st.pending ? ' Shared chat invite is waiting for an answer.' : ''}
           </p>
-          <div className="cw-stats hint"><span>Lent to {st.peer.name}: {fmt(st.lent)}</span><span>Borrowed from {st.peer.name}: {fmt(st.borrowed)}</span></div>
+          <div className="cw-stats"><span><i>Lent</i>{fmt(st.lent)}</span><span><i>Borrowed</i>{fmt(st.borrowed)}</span></div>
           <div className="row-actions">
             {st.room && <button type="button" className="b ghost" onClick={() => act('cowork:unshare')}>End shared chat</button>}
             <button type="button" className="b ghost" onClick={() => act('cowork:leave')}>Disconnect</button>
           </div>
-        </>
+        </div>
       )}
 
       {st.hosting ? (
-        <>
-          <h4>Your code</h4>
+        <div className="cw-sec" aria-labelledby="cw-your">
+          <h4 id="cw-your">Your code</h4>
           <div className="cw-code" aria-label="Your 9-digit co-work code">{st.code}</div>
-          <p className="hint">Send it to your partner. On the same network that is all they need; over the internet send the full invite, which includes your address ({st.address}). Five wrong guesses retire the code.</p>
+          <p className="hint">Send it to your partner. On the same network that is all they need. Over the internet send the full invite, which includes your address ({st.address}). Five wrong guesses retire the code.</p>
           <div className="row-actions">
             <button type="button" className="b" onClick={() => copy('code', st.code)}>{copied === 'code' ? 'Copied' : 'Copy code'}</button>
             <button type="button" className="b" onClick={() => copy('invite', st.invite)}>{copied === 'invite' ? 'Copied' : 'Copy invite'}</button>
             <button type="button" className="b ghost" onClick={() => act('cowork:reset')}>New code</button>
             <button type="button" className="b ghost" onClick={() => act('cowork:stop')}>Stop server</button>
           </div>
-        </>
+        </div>
       ) : !linked && (
-        <>
-          <h4>Connect</h4>
-          <div className="row-actions"><button type="button" className="b" disabled={busy} onClick={() => act('cowork:host')}>{st.server ? 'Create a code' : 'Allow and create a code'}</button></div>
-          <label htmlFor="cw-join">or enter your partner's code</label>
-          <input id="cw-join" value={code} placeholder="123-456-789" spellCheck={false} autoComplete="off" onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && code.trim() && act('cowork:join', code)} />
-          <div className="row-actions"><button type="button" className="b" disabled={busy || !code.trim()} onClick={() => act('cowork:join', code)}>{busy ? 'Connecting…' : 'Join'}</button></div>
-        </>
+        <div className="cw-sec" aria-labelledby="cw-connect">
+          <h4 id="cw-connect">Connect</h4>
+          <div className="cw-connect">
+            <div className="cw-opt">
+              <span className="cw-row-l"><b>Share a code</b><span className="hint">Create a code your partner enters on their side.</span></span>
+              <button type="button" className="b" disabled={busy} onClick={() => act('cowork:host')}>{st.server ? 'Create a code' : 'Allow and create a code'}</button>
+            </div>
+            <div className="cw-opt">
+              <label className="cw-row-l" htmlFor="cw-join"><b>Join a partner</b><span className="hint">Enter the 9-digit code they sent you.</span></label>
+              <div className="cw-join">
+                <input id="cw-join" value={code} placeholder="123-456-789" spellCheck={false} autoComplete="off" inputMode="numeric" onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && code.trim() && act('cowork:join', code)} />
+                <button type="button" className="b" disabled={busy || !code.trim()} onClick={() => act('cowork:join', code)}>{busy ? 'Connecting…' : 'Join'}</button>
+              </div>
+            </div>
+          </div>
+          <p className="hint">In a chat, type <b>/cowork share</b> to work in it together, or <b>/cowork on</b> to let the Spreader also use your partner's subscription.</p>
+        </div>
       )}
-      {err && <p role="alert" className="hint" style={{ color: 'var(--danger, #e5484d)' }}>{err}</p>}
+      {err && <p role="alert" className="hint cw-err">{err}</p>}
     </div>
   );
 }

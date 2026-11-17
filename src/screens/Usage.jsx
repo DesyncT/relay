@@ -11,8 +11,8 @@ import { CountUp, ToolIcon, ModelIcon, usd, sh, pct, dayLabel, ucol } from '../c
 import '../styles/usage.css';
 
 const INFO = 'API-price estimate from retained local transcripts, not a subscription bill. Account-only tokens have no cost records; the lifetime line prices them at your average local Codex rate. Unknown prices and missing costs are excluded; chat CLI-reported cost can use a different calculation.';
-const TYPE_KEYS = [['input', 'Input', '#6b6b6b'], ['cacheRead', 'Cache read', '#3a3a3a'], ['cacheWrite', 'Cache write', '#bdbdbd'], ['output', 'Output', '#ffffff']];
-const SPEED_KEYS = [['standard', 'Standard', '#3a3a3a'], ['fast', 'Fast', '#9a9a9a']];
+const TYPE_KEYS = [['input', 'Input', 'var(--usage-input)'], ['cacheRead', 'Cache read', 'var(--usage-cache)'], ['cacheWrite', 'Cache write', 'var(--usage-write)'], ['output', 'Output', 'var(--text)']];
+const SPEED_KEYS = [['standard', 'Standard', 'var(--usage-cache)'], ['fast', 'Fast', 'var(--usage-input)']];
 
 function Bar({ keys, o }) {
   const sum = keys.reduce((n, [k]) => n + o[k], 0) || 1;

@@ -7,6 +7,7 @@ import { ALL_PROVIDERS, Logo, useAuth, AuthChip, ConnectedModels, useUpdates, Up
 import Themes from './Themes.jsx';
 import Cowork from './Cowork.jsx';
 import Phone from './Phone.jsx';
+import Mcp from './Mcp.jsx';
 import '../styles/settings.css';
 
 const CLI_FIELDS = ALL_PROVIDERS.flatMap(([k]) => [k + 'Cmd', k + 'Args']);
@@ -32,7 +33,7 @@ const initVals = (s, limits) => ({
 function TabPair({ view, setView }) {
   return (
     <div className="tabpair" id="tabpair">
-      {[['settings', 'Settings'], ['themes', 'Themes']].map(([id, n]) => (
+      {[['settings', 'Settings'], ['themes', 'Background']].map(([id, n]) => (
         <button key={id} type="button" className={id === view ? 'on' : ''} onClick={() => setView(id)}>
           {id === view && <motion.span  className="tp-ind" transition={spring} />}
           <span>{n}</span>
@@ -229,7 +230,7 @@ export default function Settings() {
         <div className="set-main">
           {vals && (
             <>
-              {vis.profile && <div id="set-profile"><Profile /><Cowork /><Phone /></div>}
+              {vis.profile && <div id="set-profile"><Profile /><Cowork /><Phone /><Mcp /></div>}
               <div id="settingsForm" ref={form} style={{ display: 'contents' }}>
                 {vis.providers && (
                   <Sec id="providers" title="Providers" sub="Which agents Relay may run, and extra models you connect">

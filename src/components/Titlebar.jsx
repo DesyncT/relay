@@ -3,7 +3,7 @@ import { call, useIpcEvent } from '../api.js';
 import { getState, setState, useStore } from '../store.js';
 import { Icon } from './icons.jsx';
 
-export const TAB_LABEL = { usage: 'Usage', agents: 'Subagents', rules: 'Rules', skills: 'Skills', settings: 'Settings', themes: 'Themes' };
+export const TAB_LABEL = { usage: 'Usage', agents: 'Subagents', rules: 'Rules', skills: 'Skills', settings: 'Settings', themes: 'Background' };
 const readChat = () => window.ActiveChat || null;
 
 export default function Titlebar() {
@@ -12,6 +12,7 @@ export default function Titlebar() {
   const [chat, setChat] = useState(readChat);
   const [procs, setProcs] = useState([]);
   const [just, setJust] = useState(false);
+
 
   useEffect(() => {
     document.body.classList.add('tb');

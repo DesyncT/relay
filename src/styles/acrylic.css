@@ -1,0 +1,341 @@
+/* Dark sculpted glass. Native acrylic supplies the real desktop blur. */
+:root {
+  --tb-h:56px; --sidebar-w:252px;
+  --glass:color-mix(in srgb,var(--bg) 8%,transparent);
+  --glass-pane:color-mix(in srgb,var(--card) 16%,transparent);
+  --glass-control:color-mix(in srgb,var(--raised) 34%,transparent);
+  --glass-rim:color-mix(in srgb,var(--text) 24%,transparent);
+  --glass-side:color-mix(in srgb,var(--text) 8%,transparent);
+  --glass-black:#000;
+  --glass-shadow:0 20px 44px color-mix(in srgb,var(--glass-black) 40%,transparent),0 4px 10px color-mix(in srgb,var(--glass-black) 22%,transparent);
+  --glass-edge:inset 0 1px 0 var(--glass-rim),inset 1px 0 0 var(--glass-side),inset 0 -1px 0 color-mix(in srgb,var(--glass-black) 35%,transparent);
+  --glass-sheen:linear-gradient(145deg,color-mix(in srgb,var(--text) 5%,transparent),transparent 32%,transparent 70%,color-mix(in srgb,var(--text) 3%,transparent));
+  --glass-select:color-mix(in srgb,var(--claude) 17%,var(--glass-pane));
+  --scene-font:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",sans-serif;
+}
+html,body { background:transparent; }
+body.tb { padding-top:var(--tb-h); }
+#root { padding:4px 16px 16px; gap:12px; background:transparent; }
+:root[data-relay-theme] #tb { height:var(--tb-h); padding:0 156px 0 24px; gap:0; background:transparent; border:0; backdrop-filter:none; box-shadow:none; }
+#tb .tb-brand { width:calc(var(--sidebar-w) - 10px); flex:none; gap:9px; font-size:14px; font-weight:600; letter-spacing:-.02em; }
+#tb .tb-brand img { width:20px; height:20px; border-radius:6px !important; }
+.brand-note { font-size:10px; color:var(--text-2); font-weight:500; margin-left:3px; }
+#tb .tb-sep { display:none; }
+#tb .tb-title { padding-left:12px; font-size:13px; font-weight:550; color:var(--text); }
+#tb .tb-actions { align-items:center; gap:8px; }
+#tb .workflow-toggle { padding:3px; border:0; border-radius:11px; background:color-mix(in srgb,var(--deep) 40%,transparent); box-shadow:inset 0 2px 5px color-mix(in srgb,var(--glass-black) 25%,transparent),0 1px 0 var(--glass-side); }
+#tb .workflow-toggle button { border-radius:8px; font-size:11px; }
+#tb .workflow-toggle button[aria-checked="true"] { color:var(--text); background:var(--glass-control); box-shadow:var(--glass-edge),0 3px 7px color-mix(in srgb,var(--glass-black) 25%,transparent); }
+#root > nav { width:calc(var(--sidebar-w) - 28px); padding:18px 11px 12px; border:0; border-radius:24px; background:var(--glass-sheen),color-mix(in srgb,var(--deep) 5%,transparent); box-shadow:var(--glass-edge),var(--glass-shadow); gap:5px; }
+#root > nav > .workspace-label { order:-2; padding:0 10px 10px; color:var(--text-2); font-size:11px; font-weight:600; }
+#root > nav > .sb { order:-1; margin:0 0 16px; padding:0; border:0; gap:14px; }
+#root > nav > button { flex:none; height:38px; padding:0 12px; border-radius:11px; font-size:13px; font-weight:500; }
+#root > nav > button svg { width:17px; height:17px; color:var(--text-2); }
+#root > nav > button:hover,#root > nav .sb .sb-row:hover { background:var(--glass-pane); }
+#root > nav > button.on,#root > nav .sb .sb-row.on { background:var(--glass-select); color:var(--text); box-shadow:var(--glass-edge),0 4px 8px color-mix(in srgb,var(--glass-black) 15%,transparent); }
+#root > nav > button.on svg { color:var(--claude); }
+#root > nav .foot { margin-top:12px; padding:12px 10px 0; font:11px/20px var(--scene-font); border-color:var(--glass-side); }
+#root > nav .sb .sb-top { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; padding:0; border-bottom:0; }
+#root > nav .sb .sb-top .sb-act { height:34px; justify-content:center; padding:0 8px; font-size:11px; background:var(--glass-control); border:0; box-shadow:var(--glass-edge),0 4px 8px color-mix(in srgb,var(--glass-black) 15%,transparent); }
+#root > nav .sb .sb-top .sb-act:first-child { height:40px; margin:0 0 3px; font-size:12px; background:linear-gradient(color-mix(in srgb,var(--text) 5%,transparent),transparent),color-mix(in srgb,var(--claude) 25%,var(--glass-control)); color:var(--text); }
+#root > nav .sb .sb-top .sb-act:first-child svg { color:var(--claude); }
+#root > nav .sb .sb-row { min-height:36px; margin:3px 0; border-radius:10px; padding-top:7px; padding-bottom:7px; }
+#root > nav .sb .sb-title { font-size:12px; }
+#root > nav .sb .sb-group { margin-top:10px; }
+#root > nav .sb .sb-empty { padding:18px 10px; font-size:12px; line-height:21px; color:var(--text-2); }
+#root > main { min-width:0; border:0; padding:30px; border-radius:26px; background:var(--glass-sheen),var(--glass); box-shadow:var(--glass-edge),var(--glass-shadow); }
+#root > main:has(#chat.on) { padding:0; }
+#root > main:has(#usage.on) { background:var(--glass-sheen),var(--glass); }
+#root .page-head { padding-bottom:20px; margin-bottom:24px; border-bottom:1px solid var(--glass-side); }
+#root .page-head h2 { font-size:26px; font-weight:600; letter-spacing:-.03em; }
+#root .page-head p { color:var(--text-2); font-size:13px; line-height:21px; }
+#root .panel { border:0; background:var(--glass-sheen),var(--glass-pane); box-shadow:var(--glass-edge),0 12px 24px color-mix(in srgb,var(--glass-black) 22%,transparent); }
+:root[data-relay-theme] #root .panel { border-radius:20px !important; }
+#root .b { min-height:36px; padding:0 18px; background:var(--glass-sheen),var(--glass-control); box-shadow:var(--glass-edge),0 3px 8px color-mix(in srgb,var(--glass-black) 18%,transparent); border-color:transparent !important; }
+#root input:not([type="checkbox"]):not([type="range"]),#root select { background:color-mix(in srgb,var(--deep) 24%,transparent); color:var(--text); box-shadow:inset 0 2px 5px color-mix(in srgb,var(--glass-black) 20%,transparent),0 1px 0 var(--glass-side); }
+#root .set-nav { background:transparent; }
+#root .sn-item { border-radius:10px; }
+#root .tabpair { padding:4px; border-radius:13px; background:color-mix(in srgb,var(--deep) 35%,transparent); box-shadow:inset 0 2px 5px color-mix(in srgb,var(--glass-black) 20%,transparent),0 1px 0 var(--glass-side); }
+#root .tabpair button { border-radius:9px; }
+#root .tabpair button.on { background:var(--glass-control); box-shadow:var(--glass-edge),0 3px 7px color-mix(in srgb,var(--glass-black) 20%,transparent); }
+#chat.on .ch-head { min-height:66px; padding:16px 28px; border-radius:26px 26px 0 0; border-bottom:1px solid var(--glass-side); background:transparent; box-shadow:inset 0 1px 0 var(--glass-rim); }
+#chat .ch-head .conversation-title h2 { font-size:14px; font-weight:600; }
+#chat .ch-head #quickBtn { background:var(--glass-control); border:0; box-shadow:var(--glass-edge); }
+#chat .ch-main,#chat #log { background:transparent; }
+#chat #log { padding:30px max(28px,calc((100cqw - 780px)/2)); }
+#chat #log > .msg,#chat #log > .msg.grp { margin-bottom:28px; }
+#chat #log > .msg .body { font-size:14px; line-height:25px; }
+#chat #log .av { width:30px; height:30px; border-radius:10px; box-shadow:var(--glass-edge),0 4px 8px color-mix(in srgb,var(--glass-black) 20%,transparent); }
+#chat #log .msg .opt { min-height:42px; padding:8px 16px; border-color:var(--glass-side); background:var(--glass-sheen),var(--glass-pane); box-shadow:var(--glass-edge),0 5px 12px color-mix(in srgb,var(--glass-black) 15%,transparent); }
+#chat #log .msg .opt:hover { background-color:var(--glass-control); }
+#chat.on .cbar { width:calc(100% - 56px); max-width:800px; margin:8px auto 24px !important; border:0; border-radius:24px; background:var(--glass-sheen),color-mix(in srgb,var(--card) 22%,transparent); box-shadow:var(--glass-edge),0 22px 40px color-mix(in srgb,var(--glass-black) 40%,transparent),0 4px 10px color-mix(in srgb,var(--glass-black) 25%,transparent); }
+#chat.on .cbar:focus-within { box-shadow:var(--glass-edge),0 0 0 1px color-mix(in srgb,var(--claude) 60%,transparent),0 22px 40px color-mix(in srgb,var(--glass-black) 40%,transparent); }
+#chat .cbar textarea { background:transparent; padding:18px 18px 10px; }
+#chat .cbar .composer-help { color:var(--text-2); border-color:var(--glass-side); }
+#chat .cbar .send:not(:disabled) { background:var(--claude); color:var(--deep); border-radius:11px; box-shadow:inset 0 1px 0 var(--glass-rim),0 5px 12px color-mix(in srgb,var(--glass-black) 30%,transparent); }
+#chat .conversation-start { max-width:650px; padding:24px; }
+#chat .conversation-start h2 { font-size:36px; line-height:44px; font-weight:550; letter-spacing:-.035em; }
+#chat .start-actions button { background:var(--glass-control); border:0; box-shadow:var(--glass-edge),0 4px 10px color-mix(in srgb,var(--glass-black) 20%,transparent); }
+#chat .ch-body > aside { background:var(--glass-pane); border-left:1px solid var(--glass-side); }
+#quickActions,.sb-menu,.pick-menu,.modal { background:var(--card); box-shadow:var(--glass-edge),var(--glass-shadow); }
+#usage .u-big { font-size:40px; font-weight:550; letter-spacing:-.04em; }
+#usage .u-top { gap:24px; }
+#usage .u-tool { padding:18px 0; }
+#usage .u-range button.on { background:var(--glass-control); box-shadow:var(--glass-edge),0 3px 7px color-mix(in srgb,var(--glass-black) 20%,transparent); }
+#tb button:focus-visible,#root button:focus-visible,#root [tabindex]:focus-visible { outline:2px solid var(--claude); outline-offset:3px; }
+button:disabled { cursor:default; }
+::selection { background:var(--glass-select); color:var(--text); }
+::-webkit-scrollbar-thumb { background:color-mix(in srgb,var(--text-2) 30%,transparent); border-radius:8px; }
+::-webkit-scrollbar-thumb:hover { background:var(--muted); }
+@media (max-width:1050px) {
+  :root { --sidebar-w:218px; }
+  #root > main { padding:24px; }
+  #root > nav { padding:16px 10px 12px; }
+  #tb .tb-actions { gap:4px; }
+  #chat .ch-head { padding:12px 18px; flex-wrap:wrap; }
+  #chat .ch-head #quota { gap:8px; }
+  #chat #log { padding:24px; }
+  #chat.on .cbar { width:calc(100% - 40px); }
+}
+@media (max-width:780px) {
+  :root { --sidebar-w:190px; }
+  #root { gap:8px; padding:2px 10px 10px; }
+  #root > nav { width:calc(var(--sidebar-w) - 20px); }
+  #root > main { padding:20px; border-radius:22px; }
+  #tb .tb-brand { width:calc(var(--sidebar-w) - 16px); font-size:12px; }
+  #tb .tb-title { max-width:150px; padding-left:0; }
+  #tb .brand-note { display:none; }
+  #tb .workflow-toggle button { padding:0 7px; }
+  #tbScan { display:none !important; }
+  #chat .conversation-start h2 { font-size:28px; line-height:36px; }
+}
+@media (prefers-reduced-transparency:reduce) {
+  #root,:root[data-relay-theme] #tb,#root > nav { background:var(--deep); }
+  #root > main { background:var(--bg); }
+  #root .panel,#chat.on .ch-head,#chat.on .cbar { background:var(--card); }
+}
+
+/* Motion: hover lift, press squash, springy primaries, entrance fades. */
+:root { --spring:cubic-bezier(.22,1,.36,1); --swift:cubic-bezier(.2,.8,.2,1); }
+#tb button,#root .b,#root > nav > button,#root > nav .sb .sb-row,#root > nav .sb .sb-act,#root .sn-item,#root .tabpair button,#tb .workflow-toggle button,#chat .start-actions button,#chat #log .msg .opt,#chat .cbar .send,#chat .ch-head #quickBtn,#usage .u-range button,#root .set-mode,#scrollBottom,.sb-menu button,#quickActions button {
+  transition:transform .22s var(--spring),box-shadow .22s var(--swift),background-color .18s var(--swift),color .18s var(--swift),opacity .18s var(--swift),filter .18s var(--swift);
+}
+#root .b:hover,#chat .start-actions button:hover,#chat #log .msg .opt:hover,#root > nav .sb .sb-act:hover,#chat .ch-head #quickBtn:hover,#scrollBottom:hover { transform:translateY(-1px); box-shadow:var(--glass-edge),0 4px 12px color-mix(in srgb,var(--glass-black) 16%,transparent); }
+#root > nav > button:hover,#root > nav .sb .sb-row:hover,#root .sn-item:hover { transform:translateX(2px); }
+#root .b:active,#tb button:active,#root > nav > button:active,#root > nav .sb .sb-row:active,#root > nav .sb .sb-act:active,#root .sn-item:active,#root .tabpair button:active,#tb .workflow-toggle button:active,#chat .start-actions button:active,#chat #log .msg .opt:active,#chat .ch-head #quickBtn:active,#usage .u-range button:active,#root .set-mode:active,#scrollBottom:active,.sb-menu button:active,#quickActions button:active { transform:scale(.97); transition-duration:.08s; box-shadow:var(--glass-edge); }
+#chat .cbar .send:not(:disabled):hover { transform:translateY(-1px) scale(1.04); filter:brightness(1.08); box-shadow:inset 0 1px 0 var(--glass-rim),0 4px 12px color-mix(in srgb,var(--claude) 28%,transparent); }
+#chat .cbar .send:not(:disabled):active { transform:scale(.92); filter:brightness(.95); transition-duration:.08s; }
+#chat .cbar .send svg,#root .b svg,#scrollBottom svg { transition:transform .22s var(--spring); }
+#chat .cbar .send:not(:disabled):hover svg { transform:translate(1px,-1px); }
+#chat.on .cbar { transition:box-shadow .25s var(--swift),transform .25s var(--swift); }
+#chat.on .cbar:focus-within { transform:translateY(-2px); }
+/* Shine sweep across the primary "Add project" and selected items on hover. */
+#root > nav .sb .sb-top .sb-act:first-child,#chat .cbar .send:not(:disabled) { position:relative; overflow:hidden; isolation:isolate; }
+#root > nav .sb .sb-top .sb-act:first-child::after,#chat .cbar .send:not(:disabled)::after { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(110deg,transparent 30%,color-mix(in srgb,var(--text) 22%,transparent) 50%,transparent 70%); transform:translateX(-120%); transition:transform .6s var(--swift); pointer-events:none; }
+#root > nav .sb .sb-top .sb-act:first-child:hover::after,#chat .cbar .send:not(:disabled):hover::after { transform:translateX(120%); }
+/* Entrances. */
+@keyframes rl-rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes rl-pop { from { opacity:0; transform:scale(.96) translateY(6px); } to { opacity:1; transform:none; } }
+@keyframes rl-slide { from { transform:translateY(8px); } to { transform:none; } }
+#chat #log > .msg { animation:rl-slide .3s var(--swift) both; }
+#root > main > section.on:not(#chat),#root .set-sec,#root .panel { animation:rl-rise .32s var(--swift) both; }
+#root .set-sec:nth-child(2) { animation-delay:.05s; } #root .set-sec:nth-child(3) { animation-delay:.1s; } #root .set-sec:nth-child(4) { animation-delay:.15s; }
+#quickActions,.sb-menu,.pick-menu,.modal { animation:rl-pop .18s var(--spring) both; transform-origin:top; }
+#chat .conversation-start h2 { animation:rl-rise .45s var(--swift) both; }
+#chat .start-actions button:nth-child(1) { animation:rl-rise .4s var(--swift) .08s both; } #chat .start-actions button:nth-child(2) { animation:rl-rise .4s var(--swift) .14s both; } #chat .start-actions button:nth-child(3) { animation:rl-rise .4s var(--swift) .2s both; }
+#root > nav .sb .sb-row.on,#root > nav > button.on,#root .tabpair button.on,#tb .workflow-toggle button[aria-checked="true"] { animation:rl-pop .22s var(--spring) both; }
+#root .set-mode:has(input:checked) { transform:translateY(-1px); box-shadow:var(--glass-edge),0 4px 12px color-mix(in srgb,var(--glass-black) 14%,transparent),0 0 0 1px color-mix(in srgb,var(--claude) 50%,transparent); }
+#root input:not([type="checkbox"]):not([type="range"]),#root select,#chat .cbar textarea { transition:box-shadow .2s var(--swift),background-color .2s var(--swift); }
+#root input:not([type="checkbox"]):not([type="range"]):focus,#root select:focus { box-shadow:inset 0 2px 5px color-mix(in srgb,var(--glass-black) 20%,transparent),0 0 0 1px color-mix(in srgb,var(--claude) 55%,transparent),0 0 0 4px color-mix(in srgb,var(--claude) 15%,transparent); }
+#scrollBottom { animation:rl-pop .25s var(--spring) both; }
+::-webkit-scrollbar-thumb { transition:background-color .2s var(--swift); }
+
+
+/* Concentric radii: inner = outer - padding, so nested corners share a center. */
+:root { --r-xl:28px; --r-lg:22px; --r-md:14px; --r-sm:10px; --r-xs:7px; }
+#root > nav { padding:18px 11px 12px; border-radius:var(--r-xl); }                /* 28 - 11 = 17 → rows 16 */
+#root > nav > button,#root > nav .sb .sb-row { border-radius:16px; }
+#root > nav .sb .sb-top .sb-act { border-radius:16px; }
+#root > nav .sb .sb-top .sb-act:first-child { border-radius:16px; }
+#root > nav .sb .sb-row { padding:9px 14px; }
+#root > nav > button { padding:0 14px; }
+#root > main { padding:30px; border-radius:var(--r-xl); }                           /* 28 - 30 → inner clamps at 12 min; cards use 22 with 24px pad */
+#root > main:has(#chat.on) { padding:0; }
+#chat.on .ch-head { border-radius:var(--r-xl) var(--r-xl) 0 0; }
+:root[data-relay-theme] #root .panel,#root .set-sec { padding:28px; border-radius:var(--r-lg) !important; }
+#root .set-provs { border-radius:var(--r-md); }                                     /* 22 - 24 clamps → 14 */
+#root .set-prov:first-child { border-radius:var(--r-md) var(--r-md) 0 0; } #root .set-prov:last-child { border-radius:0 0 var(--r-md) var(--r-md); }
+#root .set-mode { padding:18px 20px; border-radius:var(--r-md); }
+#root .set-bar { border-radius:var(--r-lg); }
+#root .b,#root input:not([type="checkbox"]):not([type="range"]),#root select,#chat .start-actions button,#chat #log .msg .opt,#chat .ch-head #quickBtn { border-radius:var(--r-sm); }
+#root .tabpair { padding:4px; border-radius:var(--r-md); } #root .tabpair button { border-radius:var(--r-sm); }  /* 14 - 4 = 10 */
+#tb .workflow-toggle { padding:3px; border-radius:var(--r-sm); } #tb .workflow-toggle button { border-radius:var(--r-xs); }  /* 10 - 3 = 7 */
+#root .sn-item { border-radius:var(--r-sm); }
+#usage .u-range { padding:3px; border-radius:var(--r-sm); } #usage .u-range button { border-radius:var(--r-xs); }
+#chat #log .av { border-radius:var(--r-sm); }
+#chat #log .body pre,#chat #log .ar-diff,#chat #log .fcard { border-radius:var(--r-md); }
+#chat #log .fcard-box { border-radius:var(--r-sm); }
+#chat #log .acts { padding:3px; border-radius:var(--r-sm); } #chat #log .act { border-radius:var(--r-xs); }
+#chat .seg { padding:2px; border-radius:var(--r-sm); } #chat .seg button { border-radius:8px; }
+/* Composer: 22 outer, 12 textarea inset → 10 chips, pills for the round send. */
+#chat.on .cbar { border-radius:var(--r-xl); }
+#chat .cbar textarea,#chat .cbar .composer-entry #input { padding:20px 26px 10px; min-height:60px; }
+#chat .cbar .composer-entry { padding-top:4px; }
+#chat .cbar .composer-entry #pend { padding:4px 26px; }
+#chat .cbar .cb-tools { padding:4px 18px 14px; gap:6px; min-height:40px; }
+#chat .cbar .chip,#chat .cbar .pick,#chat .cbar .plus,#chat .cbar .ib { border-radius:var(--r-sm); }
+#chat .cbar .send:not(:disabled),#chat .cbar .send { border-radius:var(--r-sm); }
+#chat .cbar .composer-help { margin:0; border-radius:0 0 var(--r-lg) var(--r-lg); padding:11px 26px 12px; font-size:11px; background:color-mix(in srgb,var(--deep) 10%,transparent); }
+#chat .cbar .q-send { border-radius:var(--r-xs); } #chat .cbar .q-thumb { border-radius:var(--r-xs); }
+#quickActions,.sb-menu,.pick-menu { padding:6px; border-radius:var(--r-md); } #quickActions button,.sb-menu button,.pick-menu button,.pick-menu [role="option"],.pick-menu li { border-radius:8px; }  /* 14 - 6 = 8 */
+.modal { border-radius:var(--r-lg); }
+#pop { border-radius:var(--r-md); }
+#chat .ch-body > aside { border-radius:0 var(--r-xl) var(--r-xl) 0; }
+#scrollBottom { border-radius:50%; }
+#root .lim,#root .conn-row { border-radius:var(--r-md) !important; }
+#usage .u-tip { border-radius:var(--r-sm); }
+/* Skeletons: translucent glass with a sheen sweep instead of flat card tones. */
+@keyframes rl-sheen { from { background-position:200% 0; } to { background-position:-200% 0; } }
+#root .sk { border-radius:var(--r-sm); background:linear-gradient(100deg,color-mix(in srgb,var(--text) 5%,transparent) 20%,color-mix(in srgb,var(--text) 14%,transparent) 50%,color-mix(in srgb,var(--text) 5%,transparent) 80%); background-size:200% 100%; box-shadow:var(--glass-edge); animation:rl-sheen 1.6s var(--swift) infinite; }
+#root .sk.chart { border-radius:var(--r-md); }
+#chat .cbar #spend { min-height:32px; padding:6px 20px 4px; border-radius:var(--r-xl) var(--r-xl) 0 0; background:color-mix(in srgb,var(--deep) 16%,transparent); box-shadow:inset 0 1px 0 var(--glass-rim); color:var(--text-2); font-size:12px; }
+#chat .cbar #spend .sp b { color:var(--text); font-weight:600; }
+/* Typing line: one glass pill carrying the name, model chip, verb and timer. */
+#chat #busy { height:38px; padding-top:4px; }
+#chat .cu-line { height:30px; padding:0 12px 0 6px; gap:7px; border-radius:999px; background:var(--glass-sheen),var(--glass-control); box-shadow:var(--glass-edge),0 4px 10px color-mix(in srgb,var(--glass-black) 22%,transparent); font-size:12.5px; }
+#chat .cu-row { gap:7px; }
+#chat .cu-mark { width:20px; height:20px; }
+#chat .cu-line .nm,#chat .cu-row > span:first-of-type { font-weight:600; }
+#chat .cu-is { color:var(--text-2); }
+#chat .cu-word span { color:var(--text); }
+#chat .rt-chip { gap:0; padding:0; border:0; border-radius:999px; overflow:hidden; background:color-mix(in srgb,var(--deep) 40%,transparent); box-shadow:inset 0 1px 2px color-mix(in srgb,var(--glass-black) 35%,transparent),0 1px 0 var(--glass-side); font:500 11px/18px var(--scene-font); color:var(--text); }
+#chat .rt-chip .rt-model { padding:0 8px 0 9px; }
+#chat .rt-chip .rt-effort { padding:0 9px 0 8px; border:0; color:var(--text-2); background:color-mix(in srgb,var(--text) 6%,transparent); }
+#chat .cu-time { margin-left:2px; padding:0 8px; height:18px; border-radius:999px; border:0; background:color-mix(in srgb,var(--deep) 40%,transparent); color:var(--text-2); box-shadow:inset 0 1px 2px color-mix(in srgb,var(--glass-black) 35%,transparent),0 1px 0 var(--glass-side); font:500 11px/18px var(--mono); }
+
+
+/* Control sizing: one height scale, side padding = half the height on text buttons, icon buttons are square. */
+:root { --ctl-sm:30px; --ctl-md:36px; --ctl-lg:40px; }
+#root .b { height:var(--ctl-md); min-height:var(--ctl-md); padding:0 18px; gap:8px; font-size:13px; }
+#root .b.ghost { background:var(--glass-sheen),var(--glass-control); box-shadow:var(--glass-edge),0 3px 8px color-mix(in srgb,var(--glass-black) 18%,transparent); color:var(--text); }
+#chat .ch-head #quickBtn,#chat .ch-head #subsBtn { height:var(--ctl-sm); min-height:var(--ctl-sm); padding:0 15px; font-size:12px; border:0; }
+#chat .ch-head .pn-hb { width:var(--ctl-sm); height:var(--ctl-sm); border-radius:var(--r-sm); }
+#chat .ch-head .pn-hb-ind { border-radius:var(--r-sm); background:var(--glass-control); box-shadow:var(--glass-edge); }
+#tb .tb-actions button { width:var(--ctl-sm); height:var(--ctl-sm); border-radius:var(--r-sm); }
+#tb .workflow-toggle button { height:26px; padding:0 13px; }
+#root > nav > button { height:var(--ctl-lg); padding:0 14px; }
+#root > nav .sb .sb-top .sb-act { height:var(--ctl-md); padding:0 14px; }
+#root > nav .sb .sb-top .sb-act:first-child { height:var(--ctl-lg); padding:0 16px; }
+#root .tabpair button,#usage .u-range button { height:28px; padding:0 14px; }
+#root .sn-item { min-height:var(--ctl-md); padding:0 14px; }
+#chat .start-actions button { height:var(--ctl-md); padding:0 18px; }
+#chat #log .msg .opt { min-height:var(--ctl-md); padding:7px 18px; }
+#chat .cbar .chip,#chat .cbar .pick { height:32px; padding:0 12px; }
+#chat .cbar .plus,#chat .cbar .ib,#chat .cbar .send { width:32px; height:32px; }
+#scrollBottom { width:40px; height:40px; }
+
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; animation:none !important; } }
+html.mobile #root { padding:0; background:var(--bg); }
+html.mobile #root > main { border-radius:0; box-shadow:none; border:0; }
+html.mobile #root > nav { border-radius:0; background:var(--deep); }
+html.mobile .workspace-label { display:none; }
+
+/* Settings and subpanels use the same glass as the workspace, with clearer grouping. */
+#root .set-wrap { grid-template-columns:148px minmax(0,1fr); gap:24px; align-items:start; }
+#root .set-main { max-width:1000px; gap:24px; }
+#root #set-profile { display:grid; gap:24px; }
+#root .set-sec { padding:24px; border:0; border-radius:22px; background:var(--glass-sheen),var(--glass-pane); box-shadow:var(--glass-edge),0 14px 28px color-mix(in srgb,var(--glass-black) 22%,transparent); }
+#root .set-sh { gap:16px; margin-bottom:20px; }
+#root .set-sh h3 { font-size:17px; line-height:24px; font-weight:600; letter-spacing:-.015em; }
+#root .set-sh p { margin-top:5px; max-width:60ch; font-size:13px; line-height:21px; color:var(--text-2); }
+#root .set-row { grid-template-columns:minmax(140px,.55fr) minmax(0,1.4fr); gap:20px; padding:20px 0; border-color:var(--glass-side); }
+#root .set-row:last-child { padding-bottom:0; }
+#root .set-lb { font-weight:550; line-height:20px; }
+#root .set-l .hint { margin-top:5px; font-size:12px; line-height:19px; color:var(--text-2); max-width:42ch; }
+#root #set-providers .set-row,#root .set-row:has(.set-modes),#root .set-row:has(.set-cli) { grid-template-columns:minmax(0,1fr); gap:14px; }
+#root #set-providers .set-l .hint { max-width:65ch; }
+#root .set-provs { display:grid; grid-template-columns:minmax(0,1fr); gap:0; border-radius:14px; background:color-mix(in srgb,var(--deep) 12%,transparent); }
+#root .set-prov { min-height:60px; height:auto; padding:14px 18px; gap:16px; border:0; border-bottom:1px solid var(--glass-side); border-radius:0; background:transparent; flex-wrap:wrap; }
+#root .set-prov:last-child { border-bottom:0; }
+#root .set-prov-l { flex:1; gap:10px; min-width:140px; font-weight:500; }
+#root .auth-chip { gap:8px; flex-wrap:wrap; justify-content:flex-end; color:var(--text-2); line-height:20px; }
+#root .set-modes { gap:12px; }
+#root .set-mode { min-height:122px; padding:16px; gap:10px; background:var(--glass-sheen),color-mix(in srgb,var(--deep) 16%,transparent); border:1px solid var(--glass-side); box-shadow:var(--glass-edge),0 5px 12px color-mix(in srgb,var(--glass-black) 12%,transparent); }
+#root .set-mode b { font-size:13px; line-height:20px; font-weight:600; }
+#root .set-mode span { color:var(--text-2); line-height:19px; font-size:12px; }
+#root .set-mode:has(input:checked) { background:var(--glass-select); border-color:var(--claude); }
+#root .set-cli { grid-template-columns:132px minmax(120px,.7fr) minmax(0,1fr); gap:12px; }
+#root .set-cli input { width:100%; min-width:0; }
+#root .lim,#root .conn-row { border-color:var(--glass-side) !important; background:var(--glass-sheen),var(--glass-pane); box-shadow:var(--glass-edge); }
+#root .lim { padding:16px; gap:8px; }
+#root .set-bar { background:color-mix(in srgb,var(--card) 78%,transparent); backdrop-filter:blur(18px); border:0; box-shadow:var(--glass-edge),var(--glass-shadow); border-radius:16px; }
+@media (max-width:1100px) { #root .set-wrap { grid-template-columns:124px minmax(0,1fr); gap:18px; } #root .set-sec { padding:22px; } }
+@media (max-width:960px) { #root .set-wrap { grid-template-columns:minmax(0,1fr); } #root .set-row { grid-template-columns:minmax(0,1fr); gap:12px; } #root .set-modes { grid-template-columns:repeat(3,minmax(0,1fr)); } #root .set-cli { grid-template-columns:108px minmax(0,1fr) minmax(0,1fr); } }
+@media (max-width:720px) { #root .set-sec { padding:18px; } #root .set-modes { grid-template-columns:minmax(0,1fr); } #root .set-mode { min-height:0; } #root .set-cli { grid-template-columns:minmax(0,1fr); } #root .set-cli-h { display:none; } #root .set-cli-n { margin-top:10px; } }
+@media (prefers-reduced-transparency:reduce) { #root .set-sec,#root .lim,#root .conn-row,#root .set-bar { background:var(--card); backdrop-filter:none; } }
+
+@media (max-width:1050px) { #root > nav .sb .sb-top .sb-act { gap:6px; font-size:10px; } }
+/* Secondary work surfaces share the glass material and comfortable reading rhythm. */
+#root #routing .rt,#root .ag-list .card,#root .proc,#root .sk-card { background:var(--glass-sheen),var(--glass-pane); border-color:var(--glass-side); box-shadow:var(--glass-edge),0 8px 20px color-mix(in srgb,var(--glass-black) 18%,transparent); }
+#root #routing .rt { border-radius:18px; overflow:hidden; }
+#root .rt-head { padding:18px 20px; border-color:var(--glass-side); }
+#root .rt-grid > div { padding:16px 20px; border-color:var(--glass-side); }
+#root .rt-foot { padding:12px 20px; }
+#root #rulesList { gap:24px; }
+#root #rulesList .panel { padding:24px; min-width:0; }
+#root .rule-head { align-items:flex-start; gap:16px; margin-bottom:16px; }
+#root .rule-head > div:first-child { min-width:0; }
+#root .rule-head p { overflow-wrap:anywhere; line-height:19px; }
+#root #rulesList textarea { width:100%; min-height:200px; resize:vertical; padding:16px; line-height:22px; background:color-mix(in srgb,var(--deep) 24%,transparent); border-color:var(--glass-side); }
+#root #usage details[open] { background:var(--glass-pane); border-color:var(--glass-side); padding:18px; border-radius:14px; }
+#root #usage .u-seg { background:color-mix(in srgb,var(--deep) 24%,transparent); border-color:var(--glass-side); padding:4px; }
+#root #usage .u-seg button.on { background:var(--glass-control); box-shadow:var(--glass-edge); }
+#root #usage .u-tool { border-color:var(--glass-side); }
+#root #chat .pn { background:var(--glass-sheen),var(--glass-pane); border-color:var(--glass-side); box-shadow:inset 1px 0 0 var(--glass-side); }
+#root .pn-bar { min-height:52px; height:auto; padding:10px 16px; border-color:var(--glass-side); gap:10px; }
+#root .pn-log { padding:16px; line-height:20px; word-break:normal; overflow-wrap:anywhere; }
+#root .pn-list { padding:10px; }
+#root .pn-row { min-height:36px; height:auto; padding:8px 10px; }
+#root .pn-in { min-height:48px; height:auto; padding:8px 16px; background:color-mix(in srgb,var(--deep) 20%,transparent); border-color:var(--glass-side); }
+#root .pn-diff,#root .pn-md pre { background:color-mix(in srgb,var(--deep) 28%,transparent); border-color:var(--glass-side); line-height:20px; }
+#root .pn-view,#root .pn-view .pn-empty { background:transparent; }
+#root .pn-empty { padding:32px 24px; font-size:13px; line-height:21px; color:var(--text-2); }
+#root .pn-btn,#root .pn-chip { background:var(--glass-control); box-shadow:var(--glass-edge); }
+#root .pn-b:focus-visible,#root .pn-chip:focus-visible { outline:2px solid var(--claude); outline-offset:2px; }
+@media (max-width:960px) { #root #rulesList .panel { padding:20px; } #root .rt-head,#root .rt-grid > div { padding:14px 16px; } }
+@media (prefers-reduced-transparency:reduce) { #root #routing .rt,#root .ag-list .card,#root .proc,#root .sk-card,#root #chat .pn,#root #rulesList textarea,#root .pn-diff { background:var(--card); } }
+/* One shadow per surface: thin highlights define controls without stacked dark halos. */
+:root { --glass-shadow:0 10px 26px color-mix(in srgb,var(--glass-black) 22%,transparent); --glass-edge:inset 0 1px 0 color-mix(in srgb,var(--text) 14%,transparent); }
+#root > nav,#root > main { box-shadow:var(--glass-edge),var(--glass-shadow); }
+#root .panel,#root .set-sec,#root .proc,#root .sk-card,#root #routing .rt { box-shadow:var(--glass-edge); }
+#root .b,#root > nav .sb .sb-top .sb-act,#root > nav > button.on,#root > nav .sb .sb-row.on,#root .set-mode,#chat #log .msg .opt { box-shadow:var(--glass-edge); }
+#chat.on .cbar { box-shadow:var(--glass-edge),0 8px 22px color-mix(in srgb,var(--glass-black) 25%,transparent); }
+#chat.on .cbar:focus-within { box-shadow:var(--glass-edge),0 0 0 1px var(--claude),0 8px 22px color-mix(in srgb,var(--glass-black) 25%,transparent); }
+#root .background-controls { max-width:1000px; margin:0; padding:28px; border:0; border-radius:22px; background:var(--glass-sheen),var(--glass-pane); box-shadow:var(--glass-edge); }
+#root .background-controls-heading { gap:24px; align-items:center; }
+#root .background-controls h3 { font-size:17px; font-weight:600; margin:0 0 8px; }
+#root .background-controls-heading > label { flex:none; padding:8px 12px; border-radius:10px; background:var(--glass-pane); }
+#root .background-options { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:26px 0; }
+#root .background-options button { min-height:48px; padding:12px; border:1px solid var(--glass-side); background:var(--glass-pane); color:var(--text-2); border-radius:12px; }
+#root .background-options button[aria-pressed=true] { border-color:var(--claude); background:var(--glass-select); color:var(--text); }
+#root .background-options button:hover { background:var(--glass-control); }
+#root .background-adjustments { display:grid; grid-template-columns:1fr 1fr; gap:22px 28px; padding:22px 0; border-top:1px solid var(--glass-side); }
+#root .background-adjustments > label:has(input[type=checkbox]) { grid-column:1/-1; }
+#root .background-adjustments output { font-variant-numeric:tabular-nums; color:var(--text); }
+#root .background-controls label:has(input:disabled) { opacity:.5; }
+#root .background-controls input:disabled { cursor:default; }
+#root .background-file { padding-top:22px; gap:10px; border-color:var(--glass-side); }
+#root .background-help { margin-top:14px; color:var(--muted); }
+#root .background-save-status { min-height:32px; padding-top:12px; color:var(--claude); }
+@media (max-width:960px) { #root .background-controls { padding:22px; } #root .background-options { grid-template-columns:repeat(2,minmax(0,1fr)); } #root .background-controls-heading { align-items:flex-start; } }
+@media (max-width:620px) { #root .background-adjustments { grid-template-columns:1fr; } #root .background-file > span { flex-basis:100%; } }
+@media (prefers-reduced-transparency:reduce) { #root .background-controls { background:var(--card); } }
+/* Data needs stable contrast even over a bright desktop. */
+:root { --usage-grid:color-mix(in srgb,var(--text-2) 27%,transparent); --usage-input:#9bbfee; --usage-cache:#7d9fbc; --usage-write:#b6dfcf; }
+#root > main:has(#usage.on) { background:var(--glass-sheen),color-mix(in srgb,var(--deep) 72%,transparent); }
+#root #usage { --muted:#c1cddd; --text-2:#d2dceb; }
+#root #usage .u-lim { border-color:var(--usage-grid); }
+#root #usage .u-meter { background:color-mix(in srgb,var(--text-2) 22%,var(--deep)); }
+#root #usage .provider-share { background:var(--usage-grid); }
+#root #usage .u-leg,#root #usage .u-note,#root #usage .muted { color:var(--text-2); }
+#tb .tb-brand img { width:24px; height:24px; border-radius:7px !important; }

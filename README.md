@@ -106,6 +106,12 @@ Open **Settings → Co-work** to create an invite or join your partner. Each per
 
 On the same network, use the 9-digit code. Internet connections use the full invite, including the host address, and require a reachable network connection.
 
+### Drive Relay from other tools (MCP)
+
+Relay can act as an MCP server. Turn it on in Settings → MCP server, then copy the Claude Code command or the JSON config into any MCP client. It listens on localhost only and every request needs the token shown there.
+
+Tools: `list_projects`, `list_sessions`, `start_session`, `send_message` (optionally waits for the agents' replies), `read_chat`, `session_status`.
+
 ## Shortcuts and chat commands
 
 | Shortcut | Action |

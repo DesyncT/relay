@@ -68,7 +68,7 @@ function Row({ s, active, working, pinned, menu, editing, setEditing, onPin }) {
   };
   const title = (pinned ? 'Pinned · ' : '') + s.title + '\nF2 to rename · Alt+↑/↓ to reorder';
   return (
-    <motion.div ref={ref} layout="position" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8, transition: { duration: 0.12 } }} transition={spring}
+    <motion.div ref={ref} layout="position" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -18, minHeight: 0, overflow: 'hidden', height: 0, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0, transition: { duration: 0.2, ease } }} transition={spring}
       className={'sb-row' + (active ? ' on' : '') + (pinned ? ' sb-pinned' : '') + (mark ? ' drop-' + mark.side : '')}
       data-id={s.id} tabIndex={0} role="button" aria-pressed={active} title={title}
       onClick={() => S.open(s.id)} onKeyDown={keys}
@@ -101,7 +101,7 @@ function Group({ p, tree, working, pins, menu, editing, setEditing, onPin, expan
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') arrowNav(e, hRef.current);
   };
   return (
-    <motion.div ref={gRef} layout="position" transition={spring} className={'sb-group' + (mark ? ' drop-' + mark.side : '')}>
+    <motion.div ref={gRef} layout="position" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0, marginTop: 0, transition: { duration: 0.2, ease } }} transition={spring} className={'sb-group' + (mark ? ' drop-' + mark.side : '')}>
       <div ref={hRef} className={'sb-group-h' + (p.collapsed ? ' collapsed' : '')} tabIndex={0} role="button" aria-expanded={!p.collapsed}
         title={p.path + '\nAlt+↑/↓ to reorder'} data-pid={p.id} onClick={() => S.toggleCollapsed(p)} onKeyDown={keys}
         onContextMenu={(e) => { e.preventDefault(); menu(e.currentTarget, items, { x: e.clientX, y: e.clientY }); }}>
@@ -217,9 +217,9 @@ export default function Sidebar() {
           ? <Search key="s" onClose={() => setSearching(false)} />
           : (
             <motion.div key="l" className="sb-list" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
-              {groups.length
+              <AnimatePresence initial={false}>{groups.length
                 ? groups.map((g) => <Group key={g.id} p={g} tree={tree} working={working} pins={pins} menu={showMenu} editing={editing} setEditing={setEditing} onPin={onPin} expanded={expanded} toggleExpanded={toggleExpanded} />)
-                : <div className="sb-none sb-empty">Add a project folder to start a session</div>}
+                : <motion.div key="empty" className="sb-none sb-empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>Add a project folder to start a session</motion.div>}</AnimatePresence>
             </motion.div>
           )}
       </AnimatePresence>
@@ -236,3 +236,4 @@ export default function Sidebar() {
     </div>
   );
 }
+

@@ -12,3 +12,5 @@ contextBridge.exposeInMainWorld('api', {
 });
 contextBridge.exposeInMainWorld('__calls', () => calls);
 contextBridge.exposeInMainWorld('__emit', (ch, data) => (listeners.get(ch) || []).forEach((f) => f(data)));
+
+contextBridge.exposeInMainWorld('__setFixture', (ch, value) => { fx[ch] = value; });

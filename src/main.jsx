@@ -12,6 +12,8 @@ import './styles/settings.css';
 import './styles/globals.css';
 import { applyStoredTheme } from './theme/themeStore.js';
 import App from './App.jsx';
+import './styles/acrylic.css';
+import './styles/interactions.css';
 
 applyStoredTheme();
 

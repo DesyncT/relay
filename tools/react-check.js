@@ -16,7 +16,7 @@
  [...document.querySelectorAll('button')].find(b=>b.textContent==='Skills').click(); await wait(1800);
  assert(document.querySelector('.sk-wrap'),'Skills route missing');
  document.querySelector('nav [data-tab="settings"]').click(); await wait(1800);
- [...document.querySelectorAll('button')].find(b=>b.textContent==='Themes').click(); await wait(1800);
+ [...document.querySelectorAll('button')].find(b=>b.textContent==='Background').click(); await wait(1800);
  assert(document.querySelector('#themes'),'Themes route missing');
  assert(document.querySelectorAll('#tabpair').length===1,'Duplicate tab switchers');
  document.querySelector('.sb-row[data-id="s1"]')?.click(); await wait(1800);

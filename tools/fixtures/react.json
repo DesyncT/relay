@@ -771,5 +771,19 @@
   "panel:files": [],
   "chat:send": {
     "ok": true
+  },
+  "mcp:state": {
+    "running": true,
+    "url": "http://127.0.0.1:7717/mcp",
+    "token": "example-token-abc123",
+    "port": 7717,
+    "tools": [
+      "list_projects",
+      "list_sessions",
+      "start_session",
+      "send_message",
+      "read_chat",
+      "session_status"
+    ]
   }
 }

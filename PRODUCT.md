@@ -1,0 +1,1 @@
+Relay is an Electron coding-agent workspace for Windows with a translucent, Apple-inspired glass interface. It brings Claude Code, Codex and other agents together in one chat with projects, usage tracking, rules, settings and tool panels.
