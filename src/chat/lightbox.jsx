@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // Full-size image view: click or Esc closes. The thumbnail and the big image share a layoutId, so it zooms out of the thumb.
@@ -16,7 +17,7 @@ export function Lightbox() {
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
   }, [lb]);
-  return (
+  return createPortal(
     <AnimatePresence>
       {lb && (
         <motion.div key="lb" className="lb chat-lb" role="dialog" aria-label={lb.name || 'Image'} onClick={close}
@@ -24,6 +25,6 @@ export function Lightbox() {
           <motion.img layoutId={lb.id ? lbId(lb.id) : undefined} src={lb.src} alt={lb.name || ''} transition={{ type: 'spring', stiffness: 320, damping: 34 }} />
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>, document.body
   );
 }

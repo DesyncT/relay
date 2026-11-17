@@ -1326,6 +1326,13 @@ function createWindow() {  const w = new BrowserWindow({
   if(process.env.RELAY_TEST_DATA_DIR && !app.isPackaged) { w.on('page-title-updated',e=>e.preventDefault()); w.setTitle('Relay - Test'); }
   w.setMenuBarVisibility(false);
   w.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  w.webContents.on('context-menu', (_event, params) => {
+    if (params.mediaType !== 'image' || !params.srcURL) return;
+    Menu.buildFromTemplate([
+      { label: 'Copy Image', enabled: params.hasImageContents, click: () => w.webContents.copyImageAt(params.x, params.y) },
+      { label: 'Save Image As…', click: () => w.webContents.downloadURL(params.srcURL) },
+    ]).popup({ window: w });
+  });
   // the app window only ever shows index.html; the Browser panel's <webview> gets no preload and no node
   w.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) e.preventDefault(); });
   w.webContents.on('will-attach-webview', (_e, prefs) => { delete prefs.preload; Object.assign(prefs, { nodeIntegration: false, contextIsolation: true, sandbox: true }); });
