@@ -51,13 +51,15 @@ function arrowNav(e, el) {
 }
 
 function Row({ s, active, working, pinned, menu, editing, setEditing, onPin }) {
-  const ref = useRef(), [mark, setMark] = useState(null);
+  const ref = useRef(), [mark, setMark] = useState(null), cw = useStore((st) => st.cw);
   useDnd(ref, ref, 'session', s.id, s.projectId, setMark);
   const items = [
     ['Rename', () => setEditing(s.id)],
     ['Delete', () => S.delSession(s), true],
     [pinned ? 'Unpin session' : 'Pin session', () => onPin(s.id)],
   ];
+  if (cw?.room?.sid === s.id) items.push(['Stop sharing', () => call('cowork:unshare').catch(() => {})]);
+  else if (cw?.state === 'linked' && !cw.room && !cw.pending) items.push([`Open in both clients (${cw.peer.name})`, () => call('cowork:share-chat', s.id).catch((e) => alert(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))]);
   const keys = (e) => {
     if (e.target !== ref.current) return;
     if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.moveBy('session', s.projectId, s.id, e.key === 'ArrowDown' ? 1 : -1); }
@@ -183,6 +185,9 @@ export default function Sidebar() {
   useIpcEvent('sessions:changed', S.refreshSoon);
   const setWorking = (ids) => setState({ sbWorking: new Set(ids || []) });
   useIpcEvent('sessions:working', setWorking);
+  useEffect(() => { call('cowork:state').then((c) => setState({ cw: c }), () => {}); }, []);
+  useIpcEvent('cowork:state', (c) => setState({ cw: c }));
+  useIpcEvent('cowork:open', (id) => S.refresh().then(() => S.open(id)).catch(() => {}));
   useEffect(() => { call('sessions:working').then(setWorking, () => {}); }, []);
 
   const onPin = (id) => setPins((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); S.savePins([...n]); return n; });

@@ -517,7 +517,7 @@ async function ask(sid, who, trigger, isLead) {
   const rt = RT(sid), ep = rt.epoch, msgs = () => store.getSession(sid).messages, startLen = msgs().length;
     try {
       if (!snapTaken.has(sid)) { snapTaken.add(sid); panels.snapshot(sid)?.catch?.(()=>{}); }
-      const spread=isSpreader(sid);
+      const spread=isSpreader(sid) || !!rt.remote;
       const result = await seatRun(sid,who,'coding',(_stand,state)=>{
         const session=store.getSession(sid);
         return (easyModeOn(sid)?SPREAD_ASK+'\n\n':'')+normalPrompt(session,who,state.resumed);
@@ -876,6 +876,7 @@ async function offerRoom(m, from) {
     room = { role: 'guest', sid, root, peerBusy: false, lastBusy: false, sync: coworkFs.createSync({ root, send: toPeer, allowSnap: true }) };
     toPeer({ t: 'room-ok' });
     send('cowork:state', coworkState());
+    send('cowork:open', sid); // both clients land in the same chat
   } catch (e) { toPeer({ t: 'room-no' }); }
 }
 // Host side: the guest accepted. Send the project copy, the recent chat, then start watching for edits.
@@ -1109,7 +1110,10 @@ function dispatchUser(sid, { text, files, reply }) {
       enqueueSpreader(sid,m);
       return;
     }
-    enqueue(sid,AGENT_NAMES.includes(selected) ? selected : 'codex',m,null,true,{user:true});
+    const peerSeat = /^peer:(claude|codex)$/.exec(selected)?.[1]; // the partner's agent picked in the lead menu
+    if (peerSeat && cowork.peerQuota()?.[peerSeat]) rt.remote = true;
+    else if (peerSeat) post(sid, 'system', `${cowork.peerName() || 'Your partner'}'s ${peerSeat} is not available right now. Using your own.`, null, null, { muted: true });
+    enqueue(sid,AGENT_NAMES.includes(selected) ? selected : peerSeat || 'codex',m,null,true,{user:true});
     return;
   }
 }

@@ -132,14 +132,16 @@ export default function Composer() {
 
   // ---------- lead / mode / model derived state ----------
   const disabled = cfg.disabledProviders || [];
-  const availLeads = LEADS.filter(([k]) => !disabled.includes(k) && (k !== 'spreader' || info.easyMode));
+  // while linked, the partner's lendable agents are listed too, labelled with whose they are
+  const peerLeads = cw?.state === 'linked' ? (cw.peer.lends || []).map((k) => ['peer:' + k, `${LEADS.find((l) => l[0] === k)?.[1] || k} · ${cw.peer.name}`]) : [];
+  const availLeads = [...LEADS.filter(([k]) => !disabled.includes(k) && (k !== 'spreader' || info.easyMode)), ...peerLeads];
   let lead = leadSel || availLeads[0]?.[0] || 'claude';
   if (lead === 'random') lead = 'spreader';
-  if (!availLeads.some(([k]) => k === lead)) lead = 'codex';
+  if (!availLeads.some(([k]) => k === lead)) lead = lead.startsWith('peer:') ? lead.slice(5) : 'codex';
   if (disabled.includes(lead)) lead = availLeads[0]?.[0] || 'claude';
-  const leadName = (LEADS.find(([k]) => k === lead) || LEADS[0])[1];
+  const leadName = (availLeads.find(([k]) => k === lead) || LEADS[0])[1];
   const provider = lead === 'codex' || lead === 'antigravity' ? lead : 'claude';
-  const showPickers = !!sid && lead !== 'spreader';
+  const showPickers = !!sid && lead !== 'spreader' && !lead.startsWith('peer:');
   const defaultModel = cfg.routes?.[provider]?.coding?.model || (provider === 'codex' ? 'gpt-6.1-sol' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-sonnet-5-5');
   const modelOpts = [...(CHAT_MODELS[provider] || CHAT_MODELS.claude), ...conns.flatMap((c) => [['', c.name, 1], ...c.models.map((m) => ['conn:' + c.id + '/' + m, m])])];
   const selModel = info.chatModels?.[provider] || defaultModel;
@@ -383,7 +385,7 @@ export default function Composer() {
             <Pop key="lead" id="leadMenu" name="lead" kb={kb}>
               {availLeads.map(([k, n]) => (
                 <button key={k} className="mi" role="menuitemradio" aria-checked={k === lead} onClick={() => { setLead(k); setMenu(null); focusInput(); }}>
-                  {k === 'spreader' ? <SpreaderIcon /> : <ProvLogo k={k} />}{n}{k === lead && <Check />}
+                  {k === 'spreader' ? <SpreaderIcon /> : <ProvLogo k={k.replace('peer:', '')} />}{n}{k === lead && <Check />}
                 </button>
               ))}
             </Pop>
@@ -455,7 +457,7 @@ export default function Composer() {
             </>
           )}
           <button className="pick" id="leadPick" ref={anchors.lead} data-menu="lead" data-provider={lead} aria-haspopup="menu" aria-expanded={menu === 'lead'} title="Who answers first" onClick={toggle('lead')}>
-            <span className="lead-mark">{lead === 'spreader' ? <SpreaderIcon /> : <ProvLogo k={lead} />}</span><span>{leadName}</span><Chev />
+            <span className="lead-mark">{lead === 'spreader' ? <SpreaderIcon /> : <ProvLogo k={lead.replace('peer:', '')} />}</span><span>{leadName}</span><Chev />
           </button>
           </div>
           <button className="ib" id="imgBtn" aria-label="Attach an image" onClick={() => fImg.current.click()}>
