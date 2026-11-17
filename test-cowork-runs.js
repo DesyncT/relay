@@ -12,13 +12,13 @@ fs.writeFileSync(path.join(hostRoot, 'app.txt'), 'before'); host.snapshot();
 const calls = [], state = { room: null, busy: false };
 const context = {
   settings: { coworkLend: { codex: true } }, room: null, pendingRoom: null,
-  fs, path, SCRATCH_DIR: path.join(root, 'scratch'), DATA: root,
+  fs, path, require, COWORK_DIR: root, UNDO_DIR: path.join(root, 'undo'), procs: new Map(), rts: new Map(), SCRATCH_DIR: path.join(root, 'scratch'), DATA: root,
   prof: () => ({ name: 'Alice' }), isDown: () => false, routeFor: () => ({ meta: { model: 'test-model' } }),
   localBusy: () => state.busy, syncBusy: () => {}, drainUserQueue: () => {},
   saveSettings: () => {}, send: () => {}, endRoom: () => {}, onRoomMessage: () => {},
   unpackFiles: files => files || [],
   sessOf: () => ({ messages: [] }),
-  createCowork: opts => ({ serve: opts.serve, status: () => ({}) }),
+  createCowork: opts => ({ serve: opts.serve, send: () => {}, status: () => ({}) }),
   PROV: Object.fromEntries(['claude', 'codex'].map(provider => [provider, async (prompt, trigger, options) => {
     calls.push({ provider, prompt, trigger, options });
     if (!options.textOnly) fs.writeFileSync(path.join(options.cwd, 'app.txt'), provider + ' edited');
@@ -26,7 +26,7 @@ const context = {
   }])),
 };
 vm.createContext(context);
-vm.runInContext(section + '\nthis.serve = cowork.serve; this.status = coworkState;', context);
+vm.runInContext(section + '\nthis.serve = cowork.serve; this.status = coworkState; this.workspaceApi = workspaces;', context);
 (async () => {
   try {
     assert.equal(context.status().lendable.codex, true, 'Codex switch is enabled');
@@ -37,7 +37,7 @@ vm.runInContext(section + '\nthis.serve = cowork.serve; this.status = coworkStat
     await assert.rejects(context.serve('codex', 'edit', {}), /shared chat/i);
     assert.equal(calls.length, 0, 'Codex cannot run tools outside a shared chat');
     context.room = { sid: 'guest-session', rid: 'shared-room', root: guestRoot, ready: true, sync: guest };
-    await assert.rejects(context.serve('codex', 'edit', { roomId: 'wrong-room' }), /shared chat/i);
+    await assert.rejects(context.serve('codex', 'edit', { roomId: 'wrong-room' }), /project copy/i);
     assert.equal(calls.length, 0, 'Unmatched room cannot select a filesystem root');
     context.room.ready = false;
     await assert.rejects(context.serve('codex', 'edit', { roomId: 'shared-room' }), /sync/i);
@@ -60,6 +60,13 @@ vm.runInContext(section + '\nthis.serve = cowork.serve; this.status = coworkStat
     assert.equal(context.room.runBusy, false, 'Provider errors release the busy state');
     context.PROV.codex = oldRun;
     context.room = null;
+    const wid = 'a'.repeat(32);
+    context.workspaceApi.message({ t: 'work-open', wid });
+    context.workspaceApi.message({ t: 'work-fs', wid, frame: { snapEnd: true } });
+    await context.serve('codex', 'edit in the background', { workspaceId: wid });
+    assert.equal(calls.at(-1).options.sub, 'cowork:' + wid);
+    assert.equal(calls.at(-1).options.textOnly, undefined, 'Background borrowing has edit tools without a shared chat');
+    context.workspaceApi.message({ t: 'work-end', wid });
     await context.serve('claude', 'text reply', {});
     assert.equal(calls.at(-1).options.textOnly, true, 'Legacy Claude borrowing remains text-only');
     const requestCalls = [];
@@ -77,6 +84,19 @@ vm.runInContext(section + '\nthis.serve = cowork.serve; this.status = coworkStat
     remote.room = null;
     await assert.rejects(remote.remoteRun('host-session', 'codex', () => 'edit'), /both clients/i);
     assert.equal(requestCalls.length, 1, 'Codex cannot borrow tools without an accepted shared folder');
+    const backgroundState = {};
+    remote.RT = () => backgroundState;
+    remote.cwdFor = () => hostRoot;
+    remote.workspaces = { start: ({ root }) => { assert.equal(root, hostRoot); return 'background-turn'; }, finish: () => ({}) };
+    remote.cowork.status = () => ({ peer: { backgroundRuns: true } });
+    await remote.remoteRun('host-session', 'codex', () => 'edit in the background');
+    assert.equal(requestCalls.at(-1)[2].workspaceId, 'background-turn', 'The original failing flow borrows tokens without a shared room');
+    assert.equal(backgroundState.borrowedWorkspace, null);
+    const interruption = Object.assign(new Error('connection dropped'), { coworkInterrupted: true });
+    const fallback = { RT: () => ({ remote: true }), remoteRun: async () => { throw interruption; }, sessOf: () => ({ lead: 'spreader' }), settings: { lead: 'spreader' }, post: () => { throw Error('Unexpected local fallback'); } };
+    vm.createContext(fallback);
+    vm.runInContext(source.slice(source.indexOf('async function seatRun('), source.indexOf('// Forced skills/plugins')), fallback);
+    await assert.rejects(fallback.seatRun('chat', 'codex', 'coding', () => 'prompt', null, { spread: true }), error => error === interruption, 'An interrupted borrowed Spreader turn never spends again on a local agent');
     let finishPreflight;
     const cli = { settings: {}, preflightCli: () => new Promise(resolve => { finishPreflight = resolve; }), tracked: () => { throw Error('Must not launch'); }, runCodex: () => { throw Error('Must not launch'); }, runClaude: () => { throw Error('Must not launch'); } };
     vm.createContext(cli);

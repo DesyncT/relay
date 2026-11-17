@@ -15,17 +15,17 @@
   const openLead = () => document.querySelector('.lead-mark').closest('button').click();
   const peer = () => [...document.querySelectorAll('#leadMenu button')].find(button => button.textContent.includes('Codex') && button.textContent.includes('Alex'));
   openLead(); await wait(200); assert(peer(), 'Partner Codex is listed with its owner');
-  window.__setFixture('cowork:share-chat', state); peer().click(); await wait(200);
-  assert(!window.__calls().some(([channel, , patch]) => channel === 'sessions:update' && patch?.lead === 'peer:codex'), 'Cancelling sharing preserves the selected agent');
-  openLead(); await wait(200);
-  window.__setFixture('cowork:share-chat', { ...state, pending: true }); peer().click(); await wait(200);
-  assert(window.__calls().some(([channel, sid]) => channel === 'cowork:share-chat' && sid === 's1'), 'Picking partner Codex starts folder sharing');
+  peer().click(); await wait(200);
+  assert(!window.__calls().some(([channel]) => channel === 'cowork:share-chat'), 'Borrowing Codex does not require a shared chat');
   assert(window.__calls().some(([channel, sid, patch]) => channel === 'sessions:update' && sid === 's1' && patch?.lead === 'peer:codex'), 'Partner Codex is selected in this chat');
   assert(!window.__calls().some(([channel, patch]) => channel === 'settings:save' && patch?.lead === 'peer:codex'), 'Shared agent selection does not change defaults for other folders');
   window.__emit('cowork:state', { ...state, state: 'off', peer: null }); await wait(100);
   assert(document.querySelector('.lead-mark').closest('button').textContent.includes('partner unavailable'), 'Disconnected partner selection does not masquerade as a local agent');
   window.__setFixture('cowork:state', { ...state, lend: { claude: true, codex: true } });
   document.querySelector('nav [data-tab="settings"]').click(); await wait(600);
+  window.__emit('cowork:state', { ...state, state: 'reconnecting', peer: null }); await wait(100);
+  assert(document.querySelector('#set-cowork').textContent.includes('reconnecting automatically'), 'Connection recovery has a visible status');
+  window.__emit('cowork:state', { ...state, lend: { claude: true, codex: true } }); await wait(100);
   document.querySelector('#set-cowork').scrollIntoView({ block: 'start' });
   return { passed: true, width: innerWidth };
 })()

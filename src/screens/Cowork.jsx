@@ -24,21 +24,22 @@ export default function Cowork() {
 
       <div className="cw-sec" aria-labelledby="cw-subs">
         <h4 id="cw-subs">My subscriptions</h4>
-        <p className="hint">Choose what {them} may run on your account. In a shared chat, Claude and Codex can edit the synced project folder. Changes go both ways and can be undone.</p>
+        <p className="hint">Choose what {them} may run on your account. Claude and Codex can work in the background using a temporary project copy. Edits return automatically with Undo.</p>
         <div className="cw-rows" role="group" aria-label={`Which of my subscriptions ${them} may use`}>
           {PROVS.map(([k, n]) => {
             const off = st.lendable?.[k] === false;
             return (
               <label className={'cw-row' + (off ? ' off' : '')} key={k}>
-                <span className="cw-row-l"><b>{n}</b><span className="hint">{off ? 'Update Relay to enable sharing.' : `Let ${them} use my ${n}${k === 'codex' ? ' in shared chats' : ''}`}</span></span>
+                <span className="cw-row-l"><b>{n}</b><span className="hint">{off ? 'Update Relay to enable sharing.' : `Let ${them} use my ${n}`}</span></span>
                 <input type="checkbox" role="switch" disabled={off || busy} checked={!!st.lend?.[k] && !off} onChange={(e) => act('cowork:lend', k, e.target.checked)} />
               </label>
             );
           })}
         </div>
-        <p className="hint">Pick your partner’s agent in the chat to share its folder and work together. Both clients need the latest Relay. Outside shared chats, Claude borrowing stays text-only.</p>
+        <p className="hint">Pick your partner’s agent in any chat. No shared chat is needed. Project files travel encrypted; secret files are excluded and temporary copies are deleted afterward. Both Relays must stay running and connected.</p>
       </div>
 
+      {st.state === 'reconnecting' && <p className="hint" role="status">Connection interrupted. Relay is reconnecting automatically. Interrupted turns stay stopped; retry after reconnecting.</p>}
       {linked && (
         <div className="cw-sec" aria-labelledby="cw-linked">
           <h4 id="cw-linked">Linked with {st.peer.name}</h4>

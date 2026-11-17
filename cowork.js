@@ -116,21 +116,40 @@ function discover({ targets = null, port = BEACON, ms = 1200 } = {}) {
 function createCowork(opts) {
   let server = null, beacon = null, link = null, peer = null, timer = null, nextId = 1, code = '', salt = null, ver = null, fails = 0, pendingHs = 0, tcpPort = 0;
   const pending = new Map(), tally = { lent: { runs: 0, tokens: 0, cost: 0 }, borrowed: { runs: 0, tokens: 0, cost: 0 } };
+  let lastConnection = null, reconnectTimer = null, reconnectRunning = false, connectingSocket = null, reconnectAttempt = 0, cachedQuota = {};
   const changed = () => { try { opts.onChange?.(); } catch {} };
   const lends = (p) => !!opts.sharing() && (opts.lends ? !!opts.lends(p) : true);
   const add = (t, u) => { t.runs++; t.tokens += u?.tokens || 0; t.cost = +(t.cost + (u?.cost || 0)).toFixed(6); };
 
-  async function pushQuota() {
+  async function pushQuota(immediate = false) {
     if (!link || !peer) return;
-    const q = await Promise.resolve(opts.quota?.()).catch(() => ({})) || {}, out = {};
-    for (const p of ['claude', 'codex']) if (lends(p)) out[p] = { windows: q?.[p]?.windows || [], estimated: q?.[p]?.estimated, stale: q?.[p]?.stale }; // only providers this user allows are ever offered
-    try { link.send({ t: 'quota', sharing: Object.keys(out).length > 0, lends: Object.keys(out), quota: out, sharedRuns: opts.sharedRuns === true }); } catch {}
+    const connection = link;
+    const announce = q => {
+      if (link !== connection) return;
+      const out = {};
+      for (const p of ['claude', 'codex']) if (lends(p)) out[p] = { windows: q?.[p]?.windows || [], estimated: q?.[p]?.estimated, stale: q?.[p]?.stale };
+      try { connection.send({ t: 'quota', sharing: Object.keys(out).length > 0, lends: Object.keys(out), quota: out, sharedRuns: opts.sharedRuns === true, backgroundRuns: opts.backgroundRuns === true }); } catch {}
+    };
+    if (immediate) announce(cachedQuota);
+    const q = await Promise.resolve(opts.quota?.()).catch(() => ({})) || {};
+    if (link === connection) { cachedQuota = q; announce(q); }
+  }
+  function reconnect() {
+    if (!lastConnection || link || reconnectTimer || reconnectRunning) return;
+    reconnectTimer = setTimeout(async () => {
+      reconnectTimer = null; reconnectRunning = true;
+      const target = lastConnection;
+      try { await connect(target.addr, target.code); reconnectAttempt = 0; }
+      catch (error) { if (error.wrong) lastConnection = null; }
+      finally { reconnectRunning = false; if (!link) reconnect(); changed(); }
+    }, Math.min(1000 * 2 ** reconnectAttempt++, 15000));
+    reconnectTimer.unref?.();
   }
   function drop(c) {
     if (c !== link) return;
     link = null; peer = null; clearInterval(timer);
-    for (const [, p] of pending) p.reject(new Error('Co-work partner disconnected'));
-    pending.clear(); changed();
+    for (const [, p] of pending) { clearTimeout(p.timer); p.reject(Object.assign(new Error('Co-work connection dropped. Reconnecting; this turn was stopped to avoid spending twice.'), { coworkInterrupted: true })); }
+    pending.clear(); reconnect(); changed();
   }
   function onMsg(c, m) {
     if (!m || typeof m.t !== 'string') return;
@@ -138,29 +157,42 @@ function createCowork(opts) {
       if (m.t !== 'hello' || link) return c.sock.destroy();
       link = c; peer = { name: clean(m.name), sharing: false, lends: [], quota: {} };
       c.sock.setTimeout(0); clearInterval(timer); timer = setInterval(pushQuota, 60000); timer.unref?.();
-      pushQuota(); return changed();
+      pushQuota(true); return changed();
     }
-    if (m.t === 'quota') { peer.sharing = !!m.sharing; peer.sharedRuns = m.sharedRuns === true; peer.lends = (Array.isArray(m.lends) ? m.lends : []).filter((p) => p === 'claude' || p === 'codex'); peer.quota = m.quota && typeof m.quota === 'object' ? m.quota : {}; return changed(); }
+    if (m.t === 'quota') { peer.sharing = !!m.sharing; peer.sharedRuns = m.sharedRuns === true; peer.backgroundRuns = m.backgroundRuns === true; peer.lends = (Array.isArray(m.lends) ? m.lends : []).filter((p) => p === 'claude' || p === 'codex'); peer.quota = m.quota && typeof m.quota === 'object' ? m.quota : {}; return changed(); }
     if (m.t === 'run-cancel' && typeof m.roomId === 'string') { opts.cancel?.(m.roomId); return; }
     if (m.t === 'run') {
       const reply = (r) => { try { c.send({ t: 'result', id: m.id, ...r }); } catch {} };
       if (!['claude', 'codex'].includes(m.provider) || typeof m.prompt !== 'string') return reply({ ok: false, error: 'Bad request.' });
       if (!lends(m.provider)) return reply({ ok: false, error: `Your partner is not sharing their ${m.provider} subscription right now.` });
-      return Promise.resolve().then(() => opts.serve(m.provider, m.prompt, { roomId: typeof m.roomId === 'string' ? m.roomId : null, attachments: m.attachments })).then((r) => { add(tally.lent, r.usage); changed(); reply({ ok: true, text: r.text, usage: r.usage }); }, (e) => reply({ ok: false, error: String(e?.message || e).slice(0, 500) }));
+      return Promise.resolve().then(() => opts.serve(m.provider, m.prompt, { roomId: typeof m.roomId === 'string' ? m.roomId : null, workspaceId: typeof m.workspaceId === 'string' ? m.workspaceId : null, attachments: m.attachments })).then((r) => { add(tally.lent, r.usage); changed(); reply({ ok: true, text: r.text, usage: r.usage }); }, (e) => reply({ ok: false, error: String(e?.message || e).slice(0, 500) }));
     }
     if (m.t === 'result') {
       const p = pending.get(m.id); if (!p) return; pending.delete(m.id); clearTimeout(p.timer);
       if (m.ok) { add(tally.borrowed, m.usage); changed(); p.resolve({ text: String(m.text || ''), usage: m.usage }); } else p.reject(new Error(m.error || 'Partner run failed'));
       return;
     }
-    if (m.t !== 'bye') try { opts.onMessage?.(m, peer.name); } catch {}
+    if (m.t === 'bye') { lastConnection = null; return; }
+    try { opts.onMessage?.(m, peer.name); } catch {}
   }
   function attach(sock, key, isServer) {
     const c = channel(sock, key, isServer);
+    sock.setNoDelay(true); sock.setKeepAlive(true, 10000);
+    let lastReceive = Date.now();
+    sock.on('data', () => { lastReceive = Date.now(); });
+    const heartbeat = setInterval(() => {
+      if (c !== link) return;
+      if (Date.now() - lastReceive > (peer?.backgroundRuns ? 45000 : 120000)) return sock.destroy();
+      try { c.send({ t: 'ping' }); } catch { sock.destroy(); }
+    }, 10000); heartbeat.unref?.();
     c.ready = () => c.send({ t: 'hello', name: opts.name() });
-    c.onmsg = (m) => onMsg(c, m);
+    c.onmsg = (m) => {
+      lastReceive = Date.now();
+      if (m?.t === 'ping') { try { c.send({ t: 'pong' }); } catch {} return; }
+      if (m?.t !== 'pong') onMsg(c, m);
+    };
     sock.setTimeout(10000, () => sock.destroy()); // a connection that never says hello gets 10 s
-    sock.on('close', () => drop(c));
+    sock.on('close', () => { clearInterval(heartbeat); drop(c); });
     return c;
   }
   function newCode() { code = genCode(); salt = srp.newSalt(); ver = srp.verifier(code, salt); fails = 0; }
@@ -176,12 +208,15 @@ function createCowork(opts) {
   async function connect(addr, c) {
     const [host, port] = addr.split(/:(?=\d+$)/);
     const sock = net.connect(+port || PORT, host);
+    sock.setTimeout(10000, () => sock.destroy()); // include SRP authentication, not only TCP connect
+    connectingSocket = sock;
     sock.on('error', () => {});
     try {
       await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('unreachable')), 4000); sock.once('connect', () => { clearTimeout(t); res(); }); sock.once('error', (e) => { clearTimeout(t); rej(e); }); });
       attach(sock, await clientHandshake(sock, c), false);
-      await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('unreachable')), 8000), d = setInterval(() => { if (peer) { clearTimeout(t); clearInterval(d); res(); } }, 40); sock.once('close', () => { clearTimeout(t); clearInterval(d); if (!peer) rej(new Error('unreachable')); }); });
+      await new Promise((res, rej) => { const t = setTimeout(() => { clearInterval(d); rej(new Error('unreachable')); }, 8000), d = setInterval(() => { if (peer) { clearTimeout(t); clearInterval(d); res(); } }, 40); sock.once('close', () => { clearTimeout(t); clearInterval(d); if (!peer) rej(new Error('unreachable')); }); });
     } catch (e) { sock.destroy(); throw e; }
+    finally { if (connectingSocket === sock) connectingSocket = null; }
   }
   const api = {
     // Starts the built-in listener (the caller asks the user first). The code stays valid until reset() or too many wrong guesses.
@@ -206,6 +241,7 @@ function createCowork(opts) {
     reset() { fails = 0; if (!server) return api.host(); newCode(); api.leave(); changed(); return Promise.resolve(api.status()); }, // new code; the live link ends
     // text: "123-456-789" (found on the local network, or at the host used last time) or "123-456-789@host:port"
     async join(text) {
+      clearTimeout(reconnectTimer); reconnectTimer = null; lastConnection = null; connectingSocket?.destroy();
       const m = /^\s*(\d{3})[-\s]?(\d{3})[-\s]?(\d{3})(?:\s*@\s*([^\s:]+)(?::(\d{1,5}))?)?\s*$/.exec(text || '');
       if (!m) throw new Error('Enter the 9-digit code (123-456-789), or the full invite with its @address.');
       const c = m[1] + m[2] + m[3];
@@ -214,18 +250,19 @@ function createCowork(opts) {
       if (!targets.length) throw new Error('No Relay found on this network. Ask your partner for the full invite (code@address) to connect over the internet.');
       let wrong = false;
       for (const t of targets) {
-        try { await connect(t, c); opts.onJoined?.(t); return api.status(); }
+        try { await connect(t, c); lastConnection = { addr: t, code: c }; reconnectAttempt = 0; opts.onJoined?.(t); return api.status(); }
         catch (e) { if (e.wrong) wrong = true; }
       }
       throw new Error(wrong ? 'That code is wrong or has been reset. Ask your partner for the current one.' : 'Could not reach your partner. Check the address and that their Relay has co-work switched on.');
     },
     stop() { if (server) { server.close(); server = null; code = ''; } try { beacon?.close(); } catch {} beacon = null; api.leave(); },
     leave() { // disconnect only; a hosted code keeps working
+      lastConnection = null; clearTimeout(reconnectTimer); reconnectTimer = null; connectingSocket?.destroy();
       if (link) { try { link.send({ t: 'bye' }); } catch {} link.sock.destroy(); drop(link); }
       changed();
     },
     send(obj) { if (!link || !peer) throw new Error('Not linked'); link.send(obj); },
-    sharingChanged: pushQuota,
+    sharingChanged: () => pushQuota(true),
     linked: () => !!(link && peer),
     ready: () => !!(link && peer?.sharing),
     peerQuota: () => (api.ready() ? peer.quota : null),
@@ -236,18 +273,18 @@ function createCowork(opts) {
         pending.delete(id); clearTimeout(p.timer); p.reject(Object.assign(new Error('Co-work run stopped'), { cancelled: true }));
       }
     },
-    request(provider, prompt, { roomId, attachments } = {}) {
+    request(provider, prompt, { roomId, workspaceId, attachments } = {}) {
       if (!api.ready()) return Promise.reject(new Error('No co-work partner is sharing right now.'));
       const id = nextId++;
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { pending.delete(id); reject(new Error('Partner took too long')); }, RUN_TIMEOUT);
-        pending.set(id, { resolve, reject, timer, roomId });
-        try { link.send({ t: 'run', id, provider, prompt, roomId, attachments }); } catch (e) { pending.delete(id); clearTimeout(timer); reject(e); }
+        const timer = setTimeout(() => { pending.delete(id); api.cancel(workspaceId || roomId); reject(Object.assign(new Error('Partner took too long. This turn was stopped; retry when connected.'), { coworkInterrupted: true })); }, RUN_TIMEOUT);
+        pending.set(id, { resolve, reject, timer, roomId: workspaceId || roomId });
+        try { link.send({ t: 'run', id, provider, prompt, roomId, workspaceId, attachments }); } catch (e) { pending.delete(id); clearTimeout(timer); reject(e); }
       });
     },
     status() {
       const lan = server ? `${lanIp()}:${tcpPort}` : '', addr = (server && opts.publicAddr?.()) || lan;
-      return { state: link ? 'linked' : server ? 'waiting' : 'off', hosting: !!server, code: server ? fmtCode(code) : '', invite: server ? `${fmtCode(code)}@${addr}` : '', address: addr, peer: peer && { name: peer.name, sharing: peer.sharing, lends: peer.lends, sharedRuns: peer.sharedRuns }, sharing: !!opts.sharing(), ...tally };
+      return { state: link ? 'linked' : reconnectTimer || reconnectRunning ? 'reconnecting' : server ? 'waiting' : 'off', hosting: !!server, code: server ? fmtCode(code) : '', invite: server ? `${fmtCode(code)}@${addr}` : '', address: addr, peer: peer && { name: peer.name, sharing: peer.sharing, lends: peer.lends, sharedRuns: peer.sharedRuns, backgroundRuns: peer.backgroundRuns }, sharing: !!opts.sharing(), ...tally };
     },
   };
   return api;

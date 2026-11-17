@@ -156,12 +156,6 @@ export default function Composer() {
     const chatId = live.current.sid, peer = k.startsWith('peer:');
     if (peer && !chatId) return;
     try {
-      if (peer && cw?.room?.sid !== chatId) {
-        if (!cw?.peer?.sharedRuns) return notify('Both clients need the latest Relay to share agents with file edits.');
-        const shared = await call('cowork:share-chat', chatId);
-        if (!shared?.pending && shared?.room?.sid !== chatId) return;
-        if (shared.pending) notify('Shared chat invite sent. Messages wait until your partner joins.');
-      }
       if (live.current.sid !== chatId) return;
       if (chatId) await call('sessions:update', chatId, { lead: k });
       setLeadSel(k);
