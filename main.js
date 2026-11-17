@@ -1302,11 +1302,13 @@ ipcMain.handle('settings:save', (_e, s) => { settings = { ...DEFAULTS, ...settin
 
 // Every window is a full Relay view; each one opens its own session, and all of them get every event (renderers filter by session).
 // `win` stays the first/main window for the few things that need one.
-// Setting the material to none and back makes Windows rebuild the acrylic backdrop, which it does not do by itself after fullscreen.
-function resetGlass(w) {
-  if (process.platform !== 'win32' || w.isDestroyed()) return;
-  w.setBackgroundMaterial('none');
-  setTimeout(() => { if (!w.isDestroyed() && !w.isFullScreen()) w.setBackgroundMaterial('acrylic'); }, 120);
+// Windows leaves the acrylic backdrop dead (a black window) after fullscreen and nothing repairs that in place, so the window is rebuilt with the same bounds.
+function rebuildWindow(old) {
+  if (process.platform !== 'win32' || old.isDestroyed()) return;
+  const bounds = old.getBounds(), maximized = old.isMaximized();
+  const fresh = createWindow();
+  fresh.setBounds(bounds); if (maximized) fresh.maximize();
+  fresh.webContents.once('did-finish-load', () => setTimeout(() => { if (!old.isDestroyed()) old.destroy(); win = fresh; }, 400));
 }
 function createWindow() {  const w = new BrowserWindow({
     icon: path.join(__dirname, 'assets', 'relay.ico'),
@@ -1332,11 +1334,10 @@ function createWindow() {  const w = new BrowserWindow({
   });
   w.on('closed', () => { if (w === win) win = BrowserWindow.getAllWindows()[0] || null; });
   w.on('focus', () => clearQuestionAlert());
-  // Windows drops the acrylic backdrop while a window is fullscreen. The page shows a solid blue theme meanwhile, and the material is reset on the way back.
+  // Windows drops the acrylic backdrop while a window is fullscreen. The page shows a solid blue theme meanwhile, and the window is rebuilt on the way back.
   const tellFullscreen = (on) => { if (!w.isDestroyed()) w.webContents.send('window:fullscreen', on); };
   w.on('enter-full-screen', () => tellFullscreen(true));
-  w.on('leave-full-screen', () => { tellFullscreen(false); resetGlass(w); });
-  for (const ev of ['unmaximize', 'restore']) w.on(ev, () => resetGlass(w));
+  w.on('leave-full-screen', () => { if (process.platform === 'win32') rebuildWindow(w); else tellFullscreen(false); });
   w.webContents.on('did-finish-load', () => tellFullscreen(w.isFullScreen()));  // React renderer (npm run build:ui); the legacy index.html remains until every screen is ported
   const built = path.join(__dirname, 'renderer-dist', 'index.html');
   w.loadFile(fs.existsSync(built) && !process.env.RELAY_LEGACY_UI ? built : path.join(__dirname, 'index.html'));

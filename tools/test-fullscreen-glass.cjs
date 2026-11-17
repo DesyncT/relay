@@ -8,7 +8,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
  await wait(2500);
  try {
-  const win=BrowserWindow.getAllWindows()[0]; if(!win) throw Error('No app window');
+  let win=BrowserWindow.getAllWindows()[0]; if(!win) throw Error('No app window');
   await win.webContents.executeJavaScript(`new Promise(r=>setTimeout(r,800))`);
   const bounds=win.getBounds();
   const backing=new BrowserWindow({...bounds,frame:false,backgroundColor:'#e33535',skipTaskbar:true,show:false,webPreferences:{backgroundThrottling:false}});
@@ -19,7 +19,7 @@ app.whenReady().then(async()=>{
    const d=screen.getDisplayMatching(win.getBounds());
    const src=(await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:Math.round(d.size.width*d.scaleFactor),height:Math.round(d.size.height*d.scaleFactor)}})).find(s=>s.display_id===String(d.id));
    if(!src) throw Error('Compositor capture unavailable');
-   const b=win.getBounds(),sz=src.thumbnail.getSize(),k=sz.width/d.size.width,bm=src.thumbnail.toBitmap();
+   const b=win.getBounds(),sz=src.thumbnail.getSize(),k=sz.width/d.size.width,bm=src.thumbnail.toBitmap(); if(process.env.SHOT_OUT) fs.writeFileSync(process.env.SHOT_OUT,src.thumbnail.toPNG());
    const px=(x,y)=>{const X=Math.round((b.x-d.bounds.x+x)*k),Y=Math.round((b.y-d.bounds.y+y)*k),i=(Y*sz.width+X)*4;return [bm[i+2],bm[i+1],bm[i]];};
    return {sidebar:px(120,480),main:px(700,300)};
   };
@@ -31,10 +31,15 @@ app.whenReady().then(async()=>{
   const out=[await measure('before-fullscreen')];
   win.setFullScreen(true); await wait(1800);
   const fs1=await win.webContents.executeJavaScript(`({cls:document.documentElement.classList.contains('is-fullscreen'),bg:getComputedStyle(document.body).backgroundImage.slice(0,40),isFull:true})`);
-  win.setFullScreen(false); await wait(1800);
-  const fs2=await win.webContents.executeJavaScript(`({cls:document.documentElement.classList.contains('is-fullscreen')})`);
+  const idBefore=win.id;
+  win.setFullScreen(false); await wait(3500); // the window is rebuilt on the way out
+  const apps=BrowserWindow.getAllWindows().filter(x=>x.id!==backing.id&&!x.isDestroyed());
+  win=apps[0];
+  const fs2=await win.webContents.executeJavaScript(`new Promise(r=>setTimeout(()=>r({cls:document.documentElement.classList.contains('is-fullscreen'),ready:!!document.querySelector('#root > nav')}),800))`);
+  win.setAlwaysOnTop(true); win.show(); win.focus(); await wait(600);
   out.push(await measure('after-fullscreen'));
-  const checks={blueThemeInFullscreen:fs1.cls&&fs1.bg.startsWith('radial-gradient'),classClearedAfter:!fs2.cls}; // glass pixels are reported, not asserted: DWM sampling depends on window focus
+  const sum=a=>a.split(',').reduce((n,c)=>n+Number(c),0);
+  const checks={blueThemeInFullscreen:fs1.cls&&fs1.bg.startsWith('radial-gradient'),oneWindowAfter:apps.length===1,rebuilt:win.id!==idBefore,uiLoadedAfter:fs2.ready&&!fs2.cls,notBlackAfter:sum(out[1].red)+sum(out[1].blue)>60}; // glass see-through is reported, not asserted: DWM sampling depends on window focus
   console.log(JSON.stringify({passed:Object.values(checks).every(Boolean),checks,out}));
   backing.close(); app.exit(Object.values(checks).every(Boolean)?0:1);
  } catch(e){console.error(e.message);app.exit(1)}
