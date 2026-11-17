@@ -1,0 +1,31 @@
+(async () => {
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const assert = (ok, message) => { if (!ok) throw Error(message); };
+  const state = await window.api.call('cowork:state');
+  document.querySelector('nav [data-tab="settings"]').click(); await wait(700);
+  const codex = () => [...document.querySelectorAll('#set-cowork .cw-row')].find(row => row.querySelector('b').textContent === 'Codex').querySelector('input');
+  assert(!codex().disabled && !codex().checked, 'Codex sharing is available and opt-in');
+  window.__setFixture('cowork:lend', { ...state, lend: { claude: true, codex: true } });
+  codex().click(); await wait(100);
+  assert(codex().checked && !codex().disabled, 'Codex sharing can be enabled');
+  assert(window.__calls().some(([channel, provider, on]) => channel === 'cowork:lend' && provider === 'codex' && on), 'Sharing toggle reaches the backend');
+  window.__setFixture('cowork:lend', state); codex().click(); await wait(100);
+  assert(!codex().checked, 'Codex sharing can be disabled again');
+  document.querySelector('.sb-row[data-id="s1"]').click(); await wait(700);
+  const openLead = () => document.querySelector('.lead-mark').closest('button').click();
+  const peer = () => [...document.querySelectorAll('#leadMenu button')].find(button => button.textContent.includes('Codex') && button.textContent.includes('Alex'));
+  openLead(); await wait(200); assert(peer(), 'Partner Codex is listed with its owner');
+  window.__setFixture('cowork:share-chat', state); peer().click(); await wait(200);
+  assert(!window.__calls().some(([channel, , patch]) => channel === 'sessions:update' && patch?.lead === 'peer:codex'), 'Cancelling sharing preserves the selected agent');
+  openLead(); await wait(200);
+  window.__setFixture('cowork:share-chat', { ...state, pending: true }); peer().click(); await wait(200);
+  assert(window.__calls().some(([channel, sid]) => channel === 'cowork:share-chat' && sid === 's1'), 'Picking partner Codex starts folder sharing');
+  assert(window.__calls().some(([channel, sid, patch]) => channel === 'sessions:update' && sid === 's1' && patch?.lead === 'peer:codex'), 'Partner Codex is selected in this chat');
+  assert(!window.__calls().some(([channel, patch]) => channel === 'settings:save' && patch?.lead === 'peer:codex'), 'Shared agent selection does not change defaults for other folders');
+  window.__emit('cowork:state', { ...state, state: 'off', peer: null }); await wait(100);
+  assert(document.querySelector('.lead-mark').closest('button').textContent.includes('partner unavailable'), 'Disconnected partner selection does not masquerade as a local agent');
+  window.__setFixture('cowork:state', { ...state, lend: { claude: true, codex: true } });
+  document.querySelector('nav [data-tab="settings"]').click(); await wait(600);
+  document.querySelector('#set-cowork').scrollIntoView({ block: 'start' });
+  return { passed: true, width: innerWidth };
+})()

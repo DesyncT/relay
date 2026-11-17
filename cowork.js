@@ -124,7 +124,7 @@ function createCowork(opts) {
     if (!link || !peer) return;
     const q = await Promise.resolve(opts.quota?.()).catch(() => ({})) || {}, out = {};
     for (const p of ['claude', 'codex']) if (lends(p)) out[p] = { windows: q?.[p]?.windows || [], estimated: q?.[p]?.estimated, stale: q?.[p]?.stale }; // only providers this user allows are ever offered
-    try { link.send({ t: 'quota', sharing: Object.keys(out).length > 0, lends: Object.keys(out), quota: out }); } catch {}
+    try { link.send({ t: 'quota', sharing: Object.keys(out).length > 0, lends: Object.keys(out), quota: out, sharedRuns: opts.sharedRuns === true }); } catch {}
   }
   function drop(c) {
     if (c !== link) return;
@@ -140,12 +140,13 @@ function createCowork(opts) {
       c.sock.setTimeout(0); clearInterval(timer); timer = setInterval(pushQuota, 60000); timer.unref?.();
       pushQuota(); return changed();
     }
-    if (m.t === 'quota') { peer.sharing = !!m.sharing; peer.lends = (Array.isArray(m.lends) ? m.lends : []).filter((p) => p === 'claude' || p === 'codex'); peer.quota = m.quota && typeof m.quota === 'object' ? m.quota : {}; return changed(); }
+    if (m.t === 'quota') { peer.sharing = !!m.sharing; peer.sharedRuns = m.sharedRuns === true; peer.lends = (Array.isArray(m.lends) ? m.lends : []).filter((p) => p === 'claude' || p === 'codex'); peer.quota = m.quota && typeof m.quota === 'object' ? m.quota : {}; return changed(); }
+    if (m.t === 'run-cancel' && typeof m.roomId === 'string') { opts.cancel?.(m.roomId); return; }
     if (m.t === 'run') {
       const reply = (r) => { try { c.send({ t: 'result', id: m.id, ...r }); } catch {} };
       if (!['claude', 'codex'].includes(m.provider) || typeof m.prompt !== 'string') return reply({ ok: false, error: 'Bad request.' });
       if (!lends(m.provider)) return reply({ ok: false, error: `Your partner is not sharing their ${m.provider} subscription right now.` });
-      return Promise.resolve().then(() => opts.serve(m.provider, m.prompt)).then((r) => { add(tally.lent, r.usage); changed(); reply({ ok: true, text: r.text, usage: r.usage }); }, (e) => reply({ ok: false, error: String(e?.message || e).slice(0, 500) }));
+      return Promise.resolve().then(() => opts.serve(m.provider, m.prompt, { roomId: typeof m.roomId === 'string' ? m.roomId : null, attachments: m.attachments })).then((r) => { add(tally.lent, r.usage); changed(); reply({ ok: true, text: r.text, usage: r.usage }); }, (e) => reply({ ok: false, error: String(e?.message || e).slice(0, 500) }));
     }
     if (m.t === 'result') {
       const p = pending.get(m.id); if (!p) return; pending.delete(m.id); clearTimeout(p.timer);
@@ -229,18 +230,24 @@ function createCowork(opts) {
     ready: () => !!(link && peer?.sharing),
     peerQuota: () => (api.ready() ? peer.quota : null),
     peerName: () => peer?.name || '',
-    request(provider, prompt) {
+    cancel(roomId) {
+      try { link?.send({ t: 'run-cancel', roomId }); } catch {}
+      for (const [id, p] of pending) if (p.roomId === roomId) {
+        pending.delete(id); clearTimeout(p.timer); p.reject(Object.assign(new Error('Co-work run stopped'), { cancelled: true }));
+      }
+    },
+    request(provider, prompt, { roomId, attachments } = {}) {
       if (!api.ready()) return Promise.reject(new Error('No co-work partner is sharing right now.'));
       const id = nextId++;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => { pending.delete(id); reject(new Error('Partner took too long')); }, RUN_TIMEOUT);
-        pending.set(id, { resolve, reject, timer });
-        try { link.send({ t: 'run', id, provider, prompt }); } catch (e) { pending.delete(id); clearTimeout(timer); reject(e); }
+        pending.set(id, { resolve, reject, timer, roomId });
+        try { link.send({ t: 'run', id, provider, prompt, roomId, attachments }); } catch (e) { pending.delete(id); clearTimeout(timer); reject(e); }
       });
     },
     status() {
       const lan = server ? `${lanIp()}:${tcpPort}` : '', addr = (server && opts.publicAddr?.()) || lan;
-      return { state: link ? 'linked' : server ? 'waiting' : 'off', hosting: !!server, code: server ? fmtCode(code) : '', invite: server ? `${fmtCode(code)}@${addr}` : '', address: addr, peer: peer && { name: peer.name, sharing: peer.sharing, lends: peer.lends }, sharing: !!opts.sharing(), ...tally };
+      return { state: link ? 'linked' : server ? 'waiting' : 'off', hosting: !!server, code: server ? fmtCode(code) : '', invite: server ? `${fmtCode(code)}@${addr}` : '', address: addr, peer: peer && { name: peer.name, sharing: peer.sharing, lends: peer.lends, sharedRuns: peer.sharedRuns }, sharing: !!opts.sharing(), ...tally };
     },
   };
   return api;

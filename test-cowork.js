@@ -5,9 +5,10 @@ const { createCowork } = require('./cowork');
 const msgs = [];
 const mk = (name, extra = {}) => createCowork({
   name: () => name, sharing: () => true, port: 0, beaconPort: 47999,
-  serve: async (p, prompt) => ({ text: `${name}:${p}:${prompt}`, usage: { tokens: 10, cost: 0.5 } }),
+  serve: async (p, prompt, context) => ({ text: `${name}:${p}:${prompt}${context?.roomId ? ':' + context.roomId : ''}`, usage: { tokens: 10, cost: 0.5 } }),
   quota: async () => ({ claude: { windows: [{ remaining: 80, minutes: 300 }] } }),
   onMessage: (m, from) => msgs.push([name, from, m]),
+  cancel: roomId => msgs.push([name, 'cancel', roomId]),
   ...extra,
 });
 const until = async (f) => { for (let i = 0; i < 120; i++) { if (f()) return; await new Promise((r) => setTimeout(r, 50)); } throw new Error('timeout'); };
@@ -34,6 +35,12 @@ const digits = (c) => c.replace(/\D/g, '');
   const r = await b.request('claude', 'hi');
   assert.equal(r.text, 'Alice:claude:hi'); assert.equal(r.usage.tokens, 10);
   assert.equal(a.status().lent.tokens, 10); assert.equal(b.status().borrowed.runs, 1);
+  const codex = await b.request('codex', 'edit', { roomId: 'shared-room' });
+  assert.equal(codex.text, 'Alice:codex:edit:shared-room', 'Shared run scope travels over the encrypted link');
+  const stopped = b.request('codex', 'stop this', { roomId: 'shared-room' });
+  b.cancel('shared-room');
+  await assert.rejects(stopped, error => error.cancelled === true);
+  await until(() => msgs.some(([name, kind, rid]) => name === 'Alice' && kind === 'cancel' && rid === 'shared-room'));
   await assert.rejects(b.request('rm', 'x'), /Bad request/);
 
   // room traffic reaches the other side's onMessage

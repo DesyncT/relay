@@ -95,6 +95,8 @@ function createSync({ root, send, canWrite = () => true, allowSnap = false }) {
       watcher.on('error', () => {});
     },
     push(rels) { ship(rels); },
+    // Finish the file transfer before returning a borrowed edit turn, including deletions.
+    flush() { clearTimeout(timer); pending.add(null); drain(); },
     // Apply a partner message. Returns [{rel, prev (Buffer|null), after (hash|null)}] for what actually changed.
     apply(m) {
       const applied = [];

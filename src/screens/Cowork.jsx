@@ -24,18 +24,19 @@ export default function Cowork() {
 
       <div className="cw-sec" aria-labelledby="cw-subs">
         <h4 id="cw-subs">My subscriptions</h4>
-        <p className="hint">Choose what {them} may run on your account. A lent turn has no tools, so they only get text back.</p>
+        <p className="hint">Choose what {them} may run on your account. In a shared chat, Claude and Codex can edit the synced project folder. Changes go both ways and can be undone.</p>
         <div className="cw-rows" role="group" aria-label={`Which of my subscriptions ${them} may use`}>
           {PROVS.map(([k, n]) => {
             const off = st.lendable?.[k] === false;
             return (
               <label className={'cw-row' + (off ? ' off' : '')} key={k}>
-                <span className="cw-row-l"><b>{n}</b><span className="hint">{off ? 'Not available yet. It cannot be limited to text only.' : `Let ${them} use my ${n}`}</span></span>
-                <input type="checkbox" role="switch" disabled={off} checked={st.lend?.[k] !== false && !off} onChange={(e) => act('cowork:lend', k, e.target.checked)} />
+                <span className="cw-row-l"><b>{n}</b><span className="hint">{off ? 'Update Relay to enable sharing.' : `Let ${them} use my ${n}${k === 'codex' ? ' in shared chats' : ''}`}</span></span>
+                <input type="checkbox" role="switch" disabled={off || busy} checked={!!st.lend?.[k] && !off} onChange={(e) => act('cowork:lend', k, e.target.checked)} />
               </label>
             );
           })}
         </div>
+        <p className="hint">Pick your partner’s agent in the chat to share its folder and work together. Both clients need the latest Relay. Outside shared chats, Claude borrowing stays text-only.</p>
       </div>
 
       {linked && (

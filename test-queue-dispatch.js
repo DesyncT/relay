@@ -10,7 +10,7 @@ for (const lead of ['claude', 'codex']) {
   const texts = ['Long queued task\n' + 'Preserve every instruction. '.repeat(600), 'Follow-up queued task'];
   let queue = texts.map((text, i) => ({id:'q'+i,text,files:[],reply:null}));
   const started = [], posted = [], session = {lead,messages:[]};
-  const ctx = {quitting:false,restoringSessions:false,room:null,RT:()=>rt,localBusy:()=>lane.busy||!!lane.next,subsOf:()=>[],subLive:()=>false,
+  const ctx = {quitting:false,restoringSessions:false,room:null,pendingRoom:null,RT:()=>rt,localBusy:()=>lane.busy||!!lane.next,subsOf:()=>[],subLive:()=>false,
     store:{getSession:()=>session},sessOf:()=>session,userQueues:{get:()=>queue,set:(_sid,items)=>{queue=items;}},
     send(){},shareQueue(){},queueUpdate(){},saveResume(){},supercodeOn:()=>false,isSpreader:()=>false,settings:{lead},AGENT_NAMES:['claude','codex'],reqsOf:()=>null,
     post:(_sid,from,text,reply,files)=>{const m={from,text,reply,files};session.messages.push(m);posted.push(text);return m;},
@@ -18,7 +18,13 @@ for (const lead of ['claude', 'codex']) {
   };
   vm.runInNewContext(`${enqueue}\n${drain}\n${dispatch}`,ctx);
   ctx.drainUserQueue('s');assert.equal(queue.length,2,'Do not consume while agent is busy');
-  lane.busy=false;ctx.drainUserQueue('s');
+  lane.busy=false;ctx.pendingRoom={sid:'s'};ctx.drainUserQueue('s');
+  assert.equal(queue.length,2,'Queued prompts wait for the shared chat invite');
+  ctx.pendingRoom=null;ctx.room={sid:'s',ready:false};ctx.drainUserQueue('s');
+  assert.equal(queue.length,2,'Queued prompts wait for the initial folder sync');
+  ctx.room.ready=true;ctx.room.runBusy=true;ctx.drainUserQueue('s');
+  assert.equal(queue.length,2,'Borrowed edit turns block another local agent');
+  ctx.room=null;ctx.drainUserQueue('s');
   assert.equal(started.length,1,'First queued message must actually start an agent while another message remains');
   assert.equal(started[0].text,texts[0],'Long prompt stays intact');
   assert.equal(rt.paused,false);assert.equal(rt.turns,0);

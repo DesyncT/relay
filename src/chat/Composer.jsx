@@ -137,7 +137,10 @@ export default function Composer() {
   const availLeads = [...LEADS.filter(([k]) => !disabled.includes(k) && (k !== 'spreader' || info.easyMode)), ...peerLeads];
   let lead = leadSel || availLeads[0]?.[0] || 'claude';
   if (lead === 'random') lead = 'spreader';
-  if (!availLeads.some(([k]) => k === lead)) lead = lead.startsWith('peer:') ? lead.slice(5) : 'codex';
+  if (!availLeads.some(([k]) => k === lead)) {
+    if (lead.startsWith('peer:')) availLeads.push([lead, `${LEADS.find(([k]) => k === lead.slice(5))?.[1] || lead.slice(5)} · partner unavailable`]);
+    else lead = 'codex';
+  }
   if (disabled.includes(lead)) lead = availLeads[0]?.[0] || 'claude';
   const leadName = (availLeads.find(([k]) => k === lead) || LEADS[0])[1];
   const provider = lead === 'codex' || lead === 'antigravity' ? lead : 'claude';
@@ -149,9 +152,21 @@ export default function Composer() {
   const effVal = info.chatEffort || 'low', effLabel = (EFFORTS.find(([v]) => v === effVal) || EFFORTS[0])[1];
   const modeRow = MODES.find((m) => m[0] === mode) || MODES[0];
 
-  function setLead(k) {
-    setLeadSel(k); setState({ cfg: { ...getState().cfg, lead: k } });
-    call('settings:save', { lead: k }); if (live.current.sid) call('sessions:update', live.current.sid, { lead: k });
+  async function setLead(k) {
+    const chatId = live.current.sid, peer = k.startsWith('peer:');
+    if (peer && !chatId) return;
+    try {
+      if (peer && cw?.room?.sid !== chatId) {
+        if (!cw?.peer?.sharedRuns) return notify('Both clients need the latest Relay to share agents with file edits.');
+        const shared = await call('cowork:share-chat', chatId);
+        if (!shared?.pending && shared?.room?.sid !== chatId) return;
+        if (shared.pending) notify('Shared chat invite sent. Messages wait until your partner joins.');
+      }
+      if (live.current.sid !== chatId) return;
+      if (chatId) await call('sessions:update', chatId, { lead: k });
+      setLeadSel(k);
+      if (!peer) { setState({ cfg: { ...getState().cfg, lead: k } }); await call('settings:save', { lead: k }); }
+    } catch (error) { notify(String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
   }
   function pickMode(k) {
     if (!sid) return;

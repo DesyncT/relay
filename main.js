@@ -353,10 +353,12 @@ const preflightCli = async (provider, cmd, c = {}) => {
 };
 claudeRun = async (label, who, prompt, c = {}) => {
   if (!c.cmd) await preflightCli('claude', settings.claudeCmd, c);
+  if (c.isCancelled?.()) throw Object.assign(new Error('Co-work run stopped'), { cancelled: true });
   return tracked(/^(claude|codex|antigravity)/.exec(label)?.[1] || 'claude', c.sid, await runClaude(label, who, prompt, c));
 };
 codexRun = async (prompt, images, c = {}) => {
   await preflightCli('codex', settings.codexCmd, c);
+  if (c.isCancelled?.()) throw Object.assign(new Error('Co-work run stopped'), { cancelled: true });
   return tracked('codex', c.sid, await runCodex(prompt, images, c));
 };
 const PROV = {
@@ -374,8 +376,8 @@ const standIn = (seat) => `You're standing in for @${seat} (its provider is unav
 async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
   if (c.spread && RT(sid).remote) { // the Spreader picked the co-work partner's subscription for this turn
     RT(sid).remote = false;
-    try { return await remoteRun(sid, seat, mkPrompt); }
-    catch (e) { if (e.cancelled) throw e; post(sid, 'system', `Co-work partner could not run this turn (${e.message}). Running it on your own subscription instead.`, null, null, { muted: true }); }
+    try { return await remoteRun(sid, seat, mkPrompt, trigger); }
+    catch (e) { if (e.cancelled || /^peer:/.test(sessOf(sid)?.lead || settings.lead)) throw e; post(sid, 'system', `Co-work partner could not run this turn (${e.message}). Running it on your own subscription instead.`, null, null, { muted: true }); }
   }
   for (let i = 0; ; i++) {
     const enhanced = supercodeOn(sid);
@@ -780,9 +782,15 @@ const saveSettings = () => writeText(SETTINGS_FILE, JSON.stringify(settings, nul
 const coworkFs = require('./cowork-fs');
 const COWORK_DIR = path.join(DATA, 'cowork'), UNDO_DIR = path.join(COWORK_DIR, 'undo'), ROOMS_DIR = path.join(COWORK_DIR, 'rooms'), SCRATCH_DIR = path.join(COWORK_DIR, 'scratch');
 let pendingRoom = null, change = null; // pendingRoom: invite sent/received but not accepted; change: partner edits being grouped for Undo
-const lendOf = (p) => p === 'claude' && settings.coworkLend?.[p] !== false; // only Claude can be locked to text-only; Codex is never lent // per-provider switch for lending this user's own subscription; on until switched off
-const coworkState = () => ({ ...cowork.status(), lend: { claude: lendOf('claude'), codex: false }, lendable: { claude: true, codex: false }, server: settings.coworkServer === true, room: room && { role: room.role, sid: room.sid, peerBusy: room.peerBusy }, pending: !!pendingRoom });
+const lendOf = (p) => p === 'claude' ? settings.coworkLend?.claude !== false : p === 'codex' && settings.coworkLend?.codex === true;
+const coworkState = () => ({ ...cowork.status(), lend: { claude: lendOf('claude'), codex: lendOf('codex') }, lendable: { claude: true, codex: true }, server: settings.coworkServer === true, room: room && { role: room.role, sid: room.sid, peerBusy: room.peerBusy, ready: room.ready }, pending: !!pendingRoom });
 const cowork = createCowork({
+  sharedRuns: true,
+  cancel: (rid) => {
+    if (room?.rid !== rid || !room.runBusy) return;
+    room.runCancelled = true;
+    for (const p of procs.values()) if (p.sid === room.sid && p.sub === 'cowork') killProc(p, true);
+  },
   name: () => prof().name,
   sharing: () => lendOf('claude') || lendOf('codex'),
   lends: (p) => lendOf(p),
@@ -792,18 +800,45 @@ const cowork = createCowork({
   recent: () => settings.coworkRecent || [],
   onJoined: (addr) => { settings.coworkRecent = [addr, ...(settings.coworkRecent || []).filter((x) => x !== addr)].slice(0, 3); saveSettings(); },
   publicAddr: () => settings.coworkPublic || '',
-  async serve(provider, prompt) {
+  async serve(provider, prompt, { roomId, attachments } = {}) {
+    if (!lendOf(provider)) throw new Error(`Your partner is not sharing their ${provider} right now.`);
     if (isDown(provider)) throw new Error(`${provider} is not available on your partner's machine right now.`);
-    fs.mkdirSync(SCRATCH_DIR, { recursive: true });
     const rd = routeFor(provider, 'coding');
+    if (roomId) {
+      const active = room;
+      if (!active || active.rid !== roomId) throw new Error('This shared chat is no longer active. Share the chat again before running edits.');
+      if (!active.ready) throw new Error('The shared project is still syncing. Try again when it finishes.');
+      if (active.runBusy || localBusy(active.sid)) throw new Error('Your partner’s shared chat is busy. Try again when their agent finishes.');
+      active.runBusy = true; active.runCancelled = false; syncBusy();
+      try {
+        const files = unpackFiles(attachments);
+        const historyFiles = (sessOf(active.sid)?.messages || []).flatMap(m => m.attachments || []);
+        const localFiles = [...historyFiles, ...files].filter(f => f.path).map(f => `${f.name}: ${f.path}`).join('\n');
+        const r = await PROV[provider](`You are working in a shared project. Your local project root is ${active.root}. Resolve project files relative to this folder; paths in the conversation may refer to the other computer. File edits here are synced to your partner.\n\n${prompt}${localFiles ? '\n\nAttachments for this turn on THIS computer (use these paths instead of upload paths in the conversation):\n' + localFiles : ''}`, { attachments: files }, { cwd: active.root, sid: active.sid, quiet: true, nativeCode: true, route: rd, sub: 'cowork', isCancelled: () => room !== active || active.runCancelled || !lendOf(provider) });
+        return { text: r.text, usage: r.usage };
+      } finally {
+        if (room === active) { active.sync.flush(); active.runBusy = false; syncBusy(); drainUserQueue(active.sid); }
+      }
+    }
+    if (provider === 'codex') throw new Error('Start a shared chat first so your partner’s Codex can edit the shared project.');
+    fs.mkdirSync(SCRATCH_DIR, { recursive: true });
     const r = await PROV[provider](prompt, null, { cwd: SCRATCH_DIR, quiet: true, readonly: true, textOnly: true, safeReview: true, nativeCode: true, route: rd, sub: 'cowork' });
     return { text: r.text, usage: r.usage };
   },
 });
 const REMOTE_NOTE = "You are answering for a teammate whose project files you cannot see or edit. Work only from the conversation below and reply in text (code in fenced blocks); never claim you changed their files.\n\n";
-async function remoteRun(sid, seat, mkPrompt) {
+async function remoteRun(sid, seat, mkPrompt, trigger) {
   const user = cowork.peerName(), rd = routeFor(seat, 'coding');
-  const r = await cowork.request(seat, REMOTE_NOTE + mkPrompt(false, { resumed: false }));
+  const shared = room?.sid === sid;
+  if (shared && !cowork.status().peer?.sharedRuns) throw new Error('Your partner needs to update Relay to run agents with shared file edits.');
+  if (shared && !room.ready) throw new Error('The shared project is still syncing. Try again when it finishes.');
+  if (seat === 'codex' && !shared) throw new Error('Open this chat in both clients before using your partner’s Codex to edit files.');
+  if (shared) room.sync.flush();
+  const active = shared ? room : null;
+  let r;
+  if (active) active.outgoing = true;
+  try { r = await cowork.request(seat, (shared ? '' : REMOTE_NOTE) + mkPrompt(false, { resumed: false }), active ? { roomId: active.rid, attachments: packFiles(trigger?.attachments) } : {}); }
+  finally { if (active) active.outgoing = false; }
   addSpend(sid, `${seat}@${user}`, r.usage); // shown per user in the chat's spend strip
   send('agent:usage', { sid, who: seat, ...r.usage });
   return { text: r.text, said: [], attachments: [], activity: [], usage: r.usage, prov: seat, rd, peer: user };
@@ -833,7 +868,7 @@ function unpackFiles(files) {
 }
 const packMsg = (m) => { const { attachments, activity, files, ...rest } = m; return { ...rest, ...(attachments?.length && { attachments: packFiles(attachments) }), ...(m.from === 'user' && !m.author && { author: prof().name }) }; };
 function shareMsg(m) { toPeer({ t: 'msg', m: packMsg(m) }); }
-function syncBusy() { if (!room) return; const b = localBusy(room.sid); if (b !== room.lastBusy) { room.lastBusy = b; toPeer({ t: 'busy', busy: b }); } }
+function syncBusy() { if (!room) return; const b = !!room.runBusy || localBusy(room.sid); if (b !== room.lastBusy) { room.lastBusy = b; toPeer({ t: 'busy', busy: b }); } }
 function shareQueue(sid) { if (room?.sid === sid) toPeer({ t: 'queue', items: (userQueues.get(sid) || []).map((i) => ({ text: String(i.text || '').slice(0, 120), n: (i.files || []).length })) }); }
 
 // Partner edits arrive continuously; group them into one change set (4 s quiet) so the chat shows one Undo per burst of work.
@@ -851,13 +886,16 @@ function closeChange() {
   post(c.sid, 'system', `${c.author}'s AI changed ${names.length} file${names.length === 1 ? '' : 's'}: ${list}`, null, null, { coworkUndo: id, remote: true });
 }
 function endRoom(notify) {
+  const pendingSid = pendingRoom?.sid;
   pendingRoom = null;
-  if (!room) return send('cowork:state', coworkState());
+  if (!room) { send('cowork:state', coworkState()); if (pendingSid) drainUserQueue(pendingSid); return; }
+  if (room.outgoing) cowork.cancel(room.rid);
   closeChange(); room.sync.close();
   const r = room; room = null;
+  for (const p of procs.values()) if (p.sid === r.sid && p.sub === 'cowork') killProc(p, true);
   if (notify) toPeer({ t: 'room-end' });
   post(r.sid, 'system', 'Shared chat ended. This chat is no longer synced.', null, null, { muted: true, remote: true });
-  send('cowork:state', coworkState());
+  send('cowork:state', coworkState()); drainUserQueue(r.sid);
 }
 // Guest side: the host invited us. Ask first, then keep a disposable copy of the project in our own data folder.
 async function offerRoom(m, from) {
@@ -873,7 +911,7 @@ async function offerRoom(m, from) {
     const project = store.addProject(root, `${proj} (shared by ${from})`);
     let sid = store.listSessions().map((s) => s.id).find((id) => sessOf(id)?.coworkRoom === key);
     if (sid) store.clearSession(sid); else { sid = store.createSession(project.id, title).id; store.updateSession(sid, { coworkRoom: key }); }
-    room = { role: 'guest', sid, root, peerBusy: false, lastBusy: false, sync: coworkFs.createSync({ root, send: toPeer, allowSnap: true }) };
+    room = { role: 'guest', sid, rid: m.rid, root, ready: false, peerBusy: false, lastBusy: false, sync: coworkFs.createSync({ root, send: toPeer, allowSnap: true }) };
     toPeer({ t: 'room-ok' });
     send('cowork:state', coworkState());
     send('cowork:open', sid); // both clients land in the same chat
@@ -883,7 +921,7 @@ async function offerRoom(m, from) {
 function startHostRoom() {
   const { sid } = pendingRoom; pendingRoom = null;
   try {
-    room = { role: 'host', sid, root: cwdFor(sid), peerBusy: false, lastBusy: false, sync: coworkFs.createSync({ root: cwdFor(sid), send: toPeer }) };
+    room = { role: 'host', sid, rid: sid, ready: true, root: cwdFor(sid), peerBusy: false, lastBusy: false, sync: coworkFs.createSync({ root: cwdFor(sid), send: toPeer }) };
     room.sync.snapshot();
     for (const m of (sessOf(sid)?.messages || []).slice(-100)) toPeer({ t: 'msg', hist: true, m: packMsg(m) });
     room.sync.watch(); syncBusy(); shareQueue(sid);
@@ -892,14 +930,14 @@ function startHostRoom() {
     toPeer({ t: 'room-end' }); try { room?.sync.close(); } catch {} room = null;
     post(sid, 'system', `Could not share this chat: ${e.message}`, null, null, { muted: true, remote: true });
   }
-  send('cowork:state', coworkState());
+  send('cowork:state', coworkState()); drainUserQueue(sid);
 }
 const MSG_KEYS = ['progress', 'sub', 'via', 'route', 'usage', 'askUser', 'options', 'optionInfo', 'important', 'lead', 'muted', 'failure', 'providers', 'viaAuto', 'auto'];
 const AGENT_FROM = /^(claude|codex|antigravity)(:[\w-]{1,30})?$/;
 function onRoomMessage(m, from) {
   if (m.t === 'room') return offerRoom(m, from);
   if (m.t === 'room-ok' && pendingRoom && !pendingRoom.guest) return startHostRoom();
-  if (m.t === 'room-no' && pendingRoom && !pendingRoom.guest) { const sid = pendingRoom.sid; pendingRoom = null; post(sid, 'system', `${from} declined the shared chat.`, null, null, { muted: true, remote: true }); return send('cowork:state', coworkState()); }
+  if (m.t === 'room-no' && pendingRoom && !pendingRoom.guest) { const sid = pendingRoom.sid; pendingRoom = null; post(sid, 'system', `${from} declined the shared chat.`, null, null, { muted: true, remote: true }); send('cowork:state', coworkState()); drainUserQueue(sid); return; }
   if (!room) return;
   if (m.t === 'msg') {
     const x = m.m;
@@ -908,15 +946,15 @@ function onRoomMessage(m, from) {
     for (const k of MSG_KEYS) if (x[k] !== undefined) extra[k] = x[k];
     if (typeof x.at === 'number') extra.at = x.at;
     if (x.from === 'user') extra.author = from;
-    if (agent) { extra.peer = from; if (x.usage && typeof x.usage === 'object' && !m.hist) addSpend(room.sid, `${x.from.split(':')[0]}@${from}`, x.usage); }
+    if (agent && x.peer !== prof().name) { extra.peer = from; if (x.usage && typeof x.usage === 'object' && !m.hist) addSpend(room.sid, `${x.from.split(':')[0]}@${from}`, x.usage); }
     const reply = x.replyTo && typeof x.replyTo === 'object' ? { from: String(x.replyTo.from || ''), at: +x.replyTo.at || 0, text: String(x.replyTo.text || '').slice(0, 200) } : null;
     return post(room.sid, x.from, String(x.text || '').slice(0, 1e5), reply, unpackFiles(x.attachments), extra);
   }
   if (m.t === 'fs') {
     if (m.error) post(room.sid, 'system', `Sync problem on ${from}'s side: ${String(m.error).slice(0, 200)}`, null, null, { muted: true, remote: true });
     const applied = room.sync.apply(m);
-    if (m.snapEnd && room.role === 'guest') room.sync.watch();
-    if (room.role === 'host' && applied.length) noteChange(applied);
+    if (m.snapEnd && room.role === 'guest') { room.sync.watch(); room.ready = true; send('cowork:state', coworkState()); drainUserQueue(room.sid); }
+    if (room.ready && applied.length) noteChange(applied);
   } else if (m.t === 'typing') send('cowork:typing', { sid: room.sid, name: from });
   else if (m.t === 'busy') { room.peerBusy = !!m.busy; send('cowork:state', coworkState()); if (!room.peerBusy) drainUserQueue(room.sid); }
   else if (m.t === 'queue') send('cowork:peerQueue', { sid: room.sid, name: from, items: (Array.isArray(m.items) ? m.items : []).slice(0, 10).map((i) => ({ text: String(i?.text || '').slice(0, 120), n: +i?.n || 0 })) });
@@ -940,7 +978,9 @@ ipcMain.handle('cowork:stop', () => { endRoom(true); cowork.stop(); return cowor
 ipcMain.handle('cowork:leave', () => { endRoom(true); cowork.leave(); return coworkState(); });
 ipcMain.handle('cowork:lend', (_e, provider, on) => {
   if (provider !== 'claude' && provider !== 'codex') throw new Error('Unknown provider');
-  settings.coworkLend = { ...settings.coworkLend, [provider]: !!on }; saveSettings(); cowork.sharingChanged(); send('cowork:state', coworkState()); return coworkState();
+  settings.coworkLend = { ...settings.coworkLend, [provider]: !!on };
+  if (!on) for (const p of procs.values()) if (p.sub === 'cowork' && p.label.startsWith(provider)) killProc(p, true);
+  saveSettings(); cowork.sharingChanged(); send('cowork:state', coworkState()); return coworkState();
 });
 ipcMain.handle('cowork:typing', (_e, sid) => { if (room?.sid === sid) toPeer({ t: 'typing' }); });
 ipcMain.handle('cowork:unshare', () => { endRoom(true); return coworkState(); });
@@ -952,7 +992,7 @@ ipcMain.handle('cowork:share-chat', async (e, sid) => {
   if (r.response !== 0) return coworkState();
   pendingRoom = { sid };
   toPeer({ t: 'room', rid: sid, title: sessOf(sid)?.title, project: path.basename(p) });
-  setTimeout(() => { if (pendingRoom?.sid === sid) { pendingRoom = null; post(sid, 'system', `${name} did not answer the shared chat invite.`, null, null, { muted: true, remote: true }); send('cowork:state', coworkState()); } }, 60000).unref?.();
+  setTimeout(() => { if (pendingRoom?.sid === sid) { pendingRoom = null; post(sid, 'system', `${name} did not answer the shared chat invite.`, null, null, { muted: true, remote: true }); send('cowork:state', coworkState()); drainUserQueue(sid); } }, 60000).unref?.();
   send('cowork:state', coworkState()); return coworkState();
 });
 ipcMain.handle('cowork:undo', (_e, id) => {
@@ -1056,7 +1096,7 @@ const userQueues = {
 };
 const drainingUserQueue = new Set();
 const queueUpdate = (sid) => { send('chat:queue', { sid, items: (userQueues.get(sid) || []) }); shareQueue(sid); };
-const chatBusy = (sid) => localBusy(sid) || (room?.sid === sid && room.peerBusy); // in a shared room only one person's AI works at a time
+const chatBusy = (sid) => localBusy(sid) || pendingRoom?.sid === sid || (room?.sid === sid && (room.peerBusy || room.runBusy || !room.ready)); // in a shared room only one person's AI works at a time
 const localBusy = (sid) => RT(sid).selecting || Object.values(RT(sid).lanes).some((l) => l.busy || l.next) || subsOf(sid).some(subLive);
 function drainUserQueue(sid) {
   if (quitting || restoringSessions || drainingUserQueue.has(sid)) return;
@@ -1080,7 +1120,7 @@ async function spreadTo(sid) {
   const prev = sess?.messages?.findLast((x) => AGENT_NAMES.includes(x.from));
   const quota = await require('./quota').readQuota({fresh:true}).catch(() => ({}));
   const theirs = sess?.cowork ? cowork.peerQuota() : null; // per chat: /cowork on // the co-work partner's subscriptions compete as extra providers: peer:claude, peer:codex
-  for (const k of ['claude', 'codex']) if (theirs?.[k]) { quota['peer:' + k] = theirs[k]; avail.push('peer:' + k); }
+  for (const k of ['claude', 'codex']) if (theirs?.[k] && (k !== 'codex' || (room?.sid === sid && cowork.status().peer?.sharedRuns))) { quota['peer:' + k] = theirs[k]; avail.push('peer:' + k); }
   // Keep question context unless that provider has exhausted a reported limit.
   if (prev?.askUser && avail.includes(prev.from) && pickProvider(quota,[prev.from])) return prev.from;
   const p = pickProvider(quota, avail, sess?.spreadLast, sess?.spreadBalance);
@@ -1112,7 +1152,7 @@ function dispatchUser(sid, { text, files, reply }) {
     }
     const peerSeat = /^peer:(claude|codex)$/.exec(selected)?.[1]; // the partner's agent picked in the lead menu
     if (peerSeat && cowork.peerQuota()?.[peerSeat]) rt.remote = true;
-    else if (peerSeat) post(sid, 'system', `${cowork.peerName() || 'Your partner'}'s ${peerSeat} is not available right now. Using your own.`, null, null, { muted: true });
+    else if (peerSeat) { rt.remote = false; post(sid, 'system', `${cowork.peerName() || 'Your partner'}'s ${peerSeat} is not available right now. Reconnect or choose one of your own agents.`, null, null, { muted: true }); return; }
     enqueue(sid,AGENT_NAMES.includes(selected) ? selected : peerSeat || 'codex',m,null,true,{user:true});
     return;
   }
@@ -1221,6 +1261,7 @@ ipcMain.handle('chat:stop', (_e, sid) => {
 });
 
 function interruptSession(sid, rt = RT(sid)) {
+  if (room?.sid === sid && room.outgoing) cowork.cancel(room.rid);
   rt.epoch++; rt.selecting=false; rt.selectionTrigger=null;
   for (const l of Object.values(rt.lanes)) l.next = null;
   for (const p of procs.values()) if (p.sid === sid) killProc(p,true);
