@@ -204,7 +204,8 @@ button:disabled { cursor:default; }
 #chat #busy { height:38px; padding-top:4px; }
 #chat .cu-line { height:30px; padding:0 12px 0 6px; gap:7px; border-radius:999px; background:var(--glass-sheen),var(--glass-control); box-shadow:var(--glass-edge),0 4px 10px color-mix(in srgb,var(--glass-black) 22%,transparent); font-size:12.5px; }
 #chat .cu-row { gap:7px; }
-#chat .cu-mark { width:20px; height:20px; }
+#chat .cu-line .cu-mark { display:grid; place-items:center; width:20px; height:20px; padding:0; margin:0; }
+#chat .cu-mark svg { display:block; }
 #chat .cu-line .nm,#chat .cu-row > span:first-of-type { font-weight:600; }
 #chat .cu-is { color:var(--text-2); }
 #chat .cu-word span { color:var(--text); }
