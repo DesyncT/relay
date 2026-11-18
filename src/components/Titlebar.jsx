@@ -53,6 +53,9 @@ export default function Titlebar() {
           {seg(isSuper, 'tbSupercode', 'EasyCode', 'EasyCode: short questions and Spreader quota balancing', <path d="m13 2-9 12h7l-1 8 10-12h-7z" />, true)}
           {seg(!isSuper, 'tbNormal', 'Code', 'Code: direct Claude Code or Codex session in your project', <path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16" />, false)}
         </div>
+        <button id="tbVsc" title="Open this folder in VS Code" aria-label="Open this folder in VS Code" disabled={!sid} onClick={() => call('chat:vscode', sid).catch((e) => alert(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))}>
+          <Icon><path d="M16 3 8 12l8 9V3Z" /><path d="m8 12-5 4V8l5 4Z" /></Icon>
+        </button>
         <button id="tbScan" title="Rescan usage" aria-label="Rescan usage" onClick={() => { setState({ tab: 'usage' }); setTimeout(() => document.getElementById('rescan')?.click(), 50); }}>
           <Icon><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></Icon>
         </button>

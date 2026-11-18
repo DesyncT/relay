@@ -1110,7 +1110,13 @@ ipcMain.handle('chat:attach', (_e, name, b64) => {
   } catch { /* A file without a decodable thumbnail can still be attached. */ }
   return { name: orig, path: file, size: buf.length, type: IMG[path.extname(orig).slice(1).toLowerCase()] || 'application/octet-stream', previewUrl };
 });
-ipcMain.handle('chat:open', (_e, p) => { if (inUploads(p)) return shell.openPath(path.resolve(p)); });
+// Runs `code .` in the chat's folder; `code` is a .cmd shim on Windows, so it needs a shell. No user text reaches the command line.
+ipcMain.handle('chat:vscode', (_e, sid) => new Promise((resolve, reject) => {
+  const p = spawn('code', ['.'], { cwd: cwdFor(sid), shell: true, windowsHide: true, stdio: 'ignore' });
+  p.once('error', () => reject(new Error('Could not start VS Code.')));
+  p.once('exit', (c) => (c ? reject(new Error('VS Code is not installed, or its "code" command is not on your PATH.')) : resolve(true)));
+}));
+ipcMain.handle('chat:open',(_e, p) => { if (inUploads(p)) return shell.openPath(path.resolve(p)); });
 const userQueues = {
   get: (sid) => { try { return store.getSession(sid).queuedMessages || []; } catch { return []; } },
   set: (sid, items) => store.updateSession(sid, { queuedMessages: items }),
@@ -1226,6 +1232,7 @@ ipcMain.handle('chat:send', (_e, sid, text, attachments = [], options = {}) => {
   clearQuestionAlert();
   const sess = store.getSession(sid);
   const files = (Array.isArray(attachments) ? attachments : []).filter((a) => a && inUploads(a.path)).map(({ name, path: p, size, type, previewUrl }) => ({ name, path: p, size, type, previewUrl }));
+  if (typeof text !== 'string' || (!text.trim() && !files.length)) throw new Error('Enter a message or keep an attachment.');
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
   const item = { text, files, reply: target ? ref(target) : null };
   const instant = !files.length && (conversationReply(text) !== null);
@@ -1240,6 +1247,7 @@ ipcMain.handle('chat:interrupt-send', (_e, sid, text, attachments = [], options 
   clearQuestionAlert();
   const sess = store.getSession(sid);
   const files = (Array.isArray(attachments) ? attachments : []).filter((a) => a && inUploads(a.path)).map(({ name, path: p, size, type, previewUrl }) => ({ name, path: p, size, type, previewUrl }));
+  if (typeof text !== 'string' || (!text.trim() && !files.length)) throw new Error('Enter a message or keep an attachment.');
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
   const q = userQueues.get(sid) || [];
   q.unshift({ text, files, reply: target ? ref(target) : null, id: 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), queuedAt: Date.now() });
