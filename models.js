@@ -157,6 +157,18 @@ function registerAuth(ipc, ctx) {
 
 // ctx: { get: () => settings, save: () => void, cmds: () => ({claude, codex, antigravity}) }
 function register(ipc, ctx) {
+  const requests = new Map();
+  ipc.handle('models:available', (_event, provider) => {
+    const { readCodexModels, readClaudeModels } = require('./account-usage');
+    const read = provider === 'codex' ? readCodexModels : provider === 'claude' ? readClaudeModels : null;
+    if (!read) return null;
+    const command = cliName(ctx, provider);
+    const key = JSON.stringify([provider, command]);
+    if (!requests.has(key)) {
+      requests.set(key, read(command).finally(() => requests.delete(key)));
+    }
+    return requests.get(key);
+  });
   const conns = () => (ctx.get().connections ||= []);
   const find = (id) => conns().find((c) => c.id === id);
   registerAuth(ipc, ctx);

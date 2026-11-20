@@ -49,6 +49,7 @@ export default function Composer() {
   const [qHost, setQHost] = useState(null); // queued messages render at the end of the chat log, not above the composer
   useEffect(() => setQHost(document.getElementById('logQueue')), []);
   const [info, setInfo] = useState({}), [conns, setConns] = useState([]), [leadSel, setLeadSel] = useState(null), [mode, setModeState] = useState('edits');
+  const [availableModels, setAvailableModels] = useState({});
   const [menu, setMenu] = useState(null), [kb, setKb] = useState(false);
   const [slashSel, setSlashSel] = useState(0), [slashOff, setSlashOff] = useState(false), [skills, setSkills] = useState({ sid: null, list: [] });
   const [spend, setSpend] = useState({}), [running, setRunning] = useState({});
@@ -146,9 +147,20 @@ export default function Composer() {
   const provider = lead === 'codex' || lead === 'antigravity' ? lead : 'claude';
   const showPickers = !!sid && lead !== 'spreader' && !lead.startsWith('peer:');
   const defaultModel = cfg.routes?.[provider]?.coding?.model || (provider === 'codex' ? 'gpt-6.1-sol' : provider === 'antigravity' ? 'gemini-3.8-flash-low' : 'claude-sonnet-5-5');
-  const modelOpts = [...(CHAT_MODELS[provider] || CHAT_MODELS.claude), ...conns.flatMap((c) => [['', c.name, 1], ...c.models.map((m) => ['conn:' + c.id + '/' + m, m])])];
+  useEffect(() => {
+    if (provider === 'antigravity' || menu !== 'model') return;
+    let active = true;
+    call('models:available', provider).then((models) => {
+      if (active && models?.length) setAvailableModels((prev) => ({ ...prev, [provider]: models }));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [provider, menu]);
+  const modelOpts = [...(availableModels[provider] || CHAT_MODELS[provider]), ...conns.flatMap((c) => [['', c.name, 1], ...c.models.map((m) => ['conn:' + c.id + '/' + m, m])])];
   const selModel = info.chatModels?.[provider] || defaultModel;
-  const modelLabel = (modelOpts.find(([v]) => v && v === selModel) || modelOpts[0] || [selModel, selModel])[1];
+  if (availableModels[provider] && selModel && !selModel.startsWith('conn:') && !modelOpts.some(([id]) => id === selModel)) {
+    modelOpts.unshift(CHAT_MODELS[provider].find(([id]) => id === selModel) || [selModel, selModel]);
+  }
+  const modelLabel = (modelOpts.find(([v]) => v && v === selModel) || [selModel, selModel])[1];
   const effVal = info.chatEffort || 'low', effLabel = (EFFORTS.find(([v]) => v === effVal) || EFFORTS[0])[1];
   const modeRow = MODES.find((m) => m[0] === mode) || MODES[0];
 

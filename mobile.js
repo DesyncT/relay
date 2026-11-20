@@ -10,7 +10,7 @@ const IMAGE = /^\.(png|jpe?g|gif|webp|svg)$/i;
 // anything that opens dialogs or touches the desktop itself are not reachable from the network.
 const CALL_OK = new Set(['profile:get', 'settings:get', 'settings:limits', 'sessions:tree', 'sessions:getActive', 'sessions:setActive', 'sessions:create', 'sessions:rename', 'sessions:search', 'sessions:working', 'sessions:markRead', 'projects:list',
   'chat:info', 'chat:history', 'chat:send', 'chat:interrupt-send', 'chat:stop', 'chat:queue', 'chat:queue-edit', 'chat:queue-delete', 'chat:queue-send', 'chat:queue-interrupt-send', 'chat:attach', 'chat:mode', 'chat:retry', 'chat:endTask', 'chat:workflow', 'chat:cowork',
-  'subagents:list', 'subagents:stop', 'subagents:retry', 'models:list', 'skills:list', 'skills:inUse', 'limits:get', 'usage:quota', 'prices:get', 'notify:clearQuestion', 'cowork:typing', 'procs:list']);
+  'subagents:list', 'subagents:stop', 'subagents:retry', 'models:list', 'models:available', 'skills:list', 'skills:inUse', 'limits:get', 'usage:quota', 'prices:get', 'notify:clearQuestion', 'cowork:typing', 'procs:list']);
 const EVENT_OK = /^(?:chat:|spend:|agent:|subagent:|sessions:|limits:|workflow:|reqs:|skills:|procs$|cowork:(?:typing|peerQueue)$|usage:quota-update$)/;
 const HOST_OK = /^(?:\d{1,3}(?:\.\d{1,3}){3}|localhost)(?::\d{1,5})?$/; // an IP or localhost, never a name: blocks DNS-rebinding pages
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');

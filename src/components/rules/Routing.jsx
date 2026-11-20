@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { call } from '../../api.js';
+import { call, useCall } from '../../api.js';
 import { spring } from '../../motion.js';
 import Logo, { logoColor } from './Logo.jsx';
 import { useSaved } from './Saved.jsx';
@@ -25,12 +25,12 @@ const priceOf = (prices, model) => {
   return r ? `$${r[0]} in / $${r[1]} out per MTok` : '';
 };
 
-function Cell({ agent, r, prices, onChange }) {
+function Cell({ agent, models, r, prices, onChange }) {
   const [val, setVal] = useState(r.model);
   useEffect(() => setVal(r.model), [r.model]);
   return (
     <div className="rt-cell">
-      <datalist id={`rt-${agent}`}>{MODELS[agent].map((m) => <option key={m} value={m} />)}</datalist>
+      <datalist id={`rt-${agent}`}>{models.map((m) => <option key={m} value={m} />)}</datalist>
       <input type="text" value={val} spellCheck={false} autoComplete="off" list={`rt-${agent}`} aria-label={`${agent} default model`} placeholder={DEF[agent][0]}
         onChange={(e) => setVal(e.target.value)} onBlur={() => { const m = val.trim() || DEF[agent][0]; setVal(m); if (m !== r.model) onChange({ model: m, effort: r.effort }); }} />
       <div className="rt-price">{priceOf(prices, r.model)}</div>
@@ -48,6 +48,9 @@ function Cell({ agent, r, prices, onChange }) {
 
 export default function Routing() {
   const [s, setS] = useState(null), [prices, setPrices] = useState(null), [routes, setRoutes] = useState(null);
+  const { data: codexModels } = useCall('models:available', 'codex');
+  const { data: claudeModels } = useCall('models:available', 'claude');
+  const available = { codex: codexModels, claude: claudeModels };
   const [saved, flash] = useSaved(1200);
   useEffect(() => {
     Promise.all([call('settings:get'), call('prices:get')]).then(([st, p]) => { setS(st); setPrices(p); setRoutes(norm(st.routes)); }).catch(() => {});
@@ -65,7 +68,7 @@ export default function Routing() {
           <div />
           {agents.map((a) => <div key={a} className="rt-col"><span style={{ display: 'inline-flex' }}><Logo name={a === 'codex' ? 'openai' : a} color={logoColor(a)} /></span>{NAMES[a]}</div>)}
           <div className="rt-phase"><b>Default model</b><span>Used for every task. Spreader runs this model on whichever provider it picks</span></div>
-          {agents.map((a) => <Cell key={a} agent={a} r={routes[a].coding} prices={prices} onChange={(v) => set(a, v)} />)}
+          {agents.map((a) => <Cell key={a} agent={a} models={available[a]?.length ? available[a].map(([model]) => model) : MODELS[a]} r={routes[a].coding} prices={prices} onChange={(v) => set(a, v)} />)}
         </div>
         <div className="rt-foot"><button className="b" type="button" onClick={() => commit(defaults())}>Reset to defaults</button></div>
       </div>
