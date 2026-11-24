@@ -7,6 +7,7 @@ import { getChat, setSubsOpen, useChat } from './chatStore.js';
 import { dur, fcost, ftok } from './md.js';
 import { useNow } from './Bars.jsx';
 
+const nat = (r) => r.kind === 'native';
 const subEnd = (r) => r.status !== 'running' && r.status !== 'queued';
 const subTime = (r) => r.stateLabel || (r.status === 'running' ? dur(Date.now() - r.started) : r.status === 'queued' ? 'Queued' : r.status === 'done' ? 'Done' : r.status === 'failed' ? 'Failed' : 'Stopped');
 
@@ -40,8 +41,8 @@ function Detail({ r, end }) {
       <small>Task</small><p>{r.task}</p>{outcome}
       {files.length > 0 && <><small>Files changed · {files.length}</small><div className="sr-files">{files.map((f) => <button key={f} type="button" title={f} onClick={() => openFile(f)}>{f.split(/[\\/]/).pop()}</button>)}</div></>}
       <div className="sr-acts">
-        {!end && <Act onClick={() => call('subagents:stop', r.id)}>Stop</Act>}
-        {end && (!req || r.status !== 'done') && (req ? <><RetryAct r={r} label="Retry" /><RetryAct r={r} label="Try another model" alternate /></> : <RetryAct r={r} label="Run again" />)}
+        {!nat(r) && !end && <Act onClick={() => call('subagents:stop', r.id)}>Stop</Act>}
+        {!nat(r) && end && (!req || r.status !== 'done') && (req ? <><RetryAct r={r} label="Retry" /><RetryAct r={r} label="Try another model" alternate /></> : <RetryAct r={r} label="Run again" />)}
         {r.result && <CopyAct r={r} />}
         {req ? <Act onClick={() => { const d = document.getElementById('reqbar'); if (d) { d.open = true; d.querySelector('ol')?.children[r.requirementIndex]?.scrollIntoView({ block: 'nearest' }); } }}>Show requirement</Act>
           : r.status === 'done' && <Act onClick={() => showSubInChat(r)}>Show in chat</Act>}
@@ -50,48 +51,77 @@ function Detail({ r, end }) {
   );
 }
 
-function SubRow({ r, open, toggle }) {
+function SubRow({ r, open, toggle, depth = 0 }) {
   const end = subEnd(r);
   const meta = [r.model && r.model.replace(/^claude-/, ''), end && r.ended ? dur(r.ended - r.started) : '', r.tokensOut ? ftok(r.tokensOut) + ' out' : '', r.cost ? fcost(r.cost) : ''].filter(Boolean).join(' · ') || r.owner;
   return (
-    <motion.div layout="position" className={`sr ${r.status}${end ? ' end' : ''}${open ? ' open' : ''}`} data-id={r.id}
+    <motion.div layout="position" className={`sr ${r.status}${end ? ' end' : ''}${open ? ' open' : ''}${depth ? ' kid' : ''}`} data-id={r.id} style={depth ? { marginLeft: Math.min(depth, 4) * 12 } : undefined}
       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0.12 } }} transition={springSoft}>
       <div className="sr-hd">
         <button className="sr-top" type="button" aria-expanded={open} onClick={toggle}>
           <span className="sr-ic"><Logo name={r.owner === 'claude' ? 'claude' : 'openai'} size={16} color={r.owner === 'claude' ? '#D97757' : '#fff'} /></span>
           <span className="sr-t" title={r.title}>{r.title}</span>
+          {nat(r) && r.agentType && <span className="sr-ty">{r.agentType}</span>}
           {r.status === 'running' && <span className="sr-live" />}
           <span className={'sr-s' + (r.status === 'running' ? ' tm' : '')}>{subTime(r)}</span>
           <span className="sr-chev"><Ico d="m9 6 6 6-6 6" /></span>
         </button>
-        {!end && <button className="sr-stop" type="button" title="Stop" aria-label={'Stop ' + r.title} onClick={() => call('subagents:stop', r.id)}><Ico><rect width="10" height="10" x="7" y="7" rx="1.5" /></Ico></button>}
+        {!end && !nat(r) && <button className="sr-stop" type="button" title="Stop" aria-label={'Stop ' + r.title} onClick={() => call('subagents:stop', r.id)}><Ico><rect width="10" height="10" x="7" y="7" rx="1.5" /></Ico></button>}
       </div>
-      <div className="sr-m">{meta}</div>
+      <div className="sr-m">{meta}{nat(r) && <span className="sr-cc"> · Claude Code</span>}</div>
+      {nat(r) && !end && r.activity && <div className="sr-act" title={r.activity}>{r.activity}</div>}
       <AnimatePresence initial={false}>{open && <Detail key="d" r={r} end={end} />}</AnimatePresence>
     </motion.div>
   );
 }
 
+// boss first, children under their parent (parent id), oldest first; orphans become roots
+function flatten(list) {
+  const ids = new Set(list.map((r) => r.id)), kids = {}, out = [], bosses = {};
+  // backend parent = boss run id (no record of its own): synthesize a header node per boss run
+  list.forEach((r) => { if (r.parent && !ids.has(r.parent)) { const b = (bosses[r.parent] ||= { id: r.parent, boss: true, owner: r.owner, started: r.started, live: false }); b.started = Math.min(b.started || 0, r.started || 0); b.live ||= r.status === 'running' || r.status === 'queued'; } });
+  Object.values(bosses).forEach((b) => (kids[''] ||= []).push(b));
+  list.forEach((r) => { const p = r.parent && (ids.has(r.parent) || bosses[r.parent]) ? r.parent : ''; (kids[p] ||= []).push(r); });
+  const walk = (p, d) => (kids[p] || []).sort((a, b) => (a.started || 0) - (b.started || 0)).forEach((r) => { out.push([r, d]); walk(r.id, d + 1); });
+  walk('', 0);
+  return out;
+}
+
+function PlanList() {
+  const plan = useChat((s) => s.plan);
+  if (!plan?.length) return null;
+  const n = plan.filter((x) => x.status === 'done').length;
+  return (
+    <div className="pl" role="group" aria-label="Plan">
+      <div className="pl-h"><b>Plan</b><span>{n}/{plan.length} steps</span></div>
+      <div className="pl-bar" role="progressbar" aria-valuemin={0} aria-valuemax={plan.length} aria-valuenow={n}><i style={{ width: (n / plan.length) * 100 + '%' }} /></div>
+      <ol>{plan.map((x) => <li key={x.id} className={'pl-' + x.status}><span className="pl-d" aria-hidden="true" /><span className="pl-t">{x.text}<small className="sr-only"> ({x.status})</small></span></li>)}</ol>
+    </div>
+  );
+}
+
 export function SubsAside() {
-  const subs = useChat((s) => s.subs), open = useChat((s) => s.subsOpen), sid = useChat((s) => s.sid);
+  const subs = useChat((s) => s.subs), open = useChat((s) => s.subsOpen), sid = useChat((s) => s.sid), hasPlan = useChat((s) => s.plan.length > 0);
   const [exp, setExp] = useState(() => new Set()), [all, setAll] = useState(false);
   useEffect(() => { setAll(false); setExp(new Set()); }, [sid]);
   useNow(1000, open && subs.some((r) => r.status === 'running'));
-  const run = subs.filter((r) => r.status === 'running').length, q = subs.filter((r) => r.status === 'queued').length, dn = subs.filter(subEnd).length;
-  const live = subs.filter((r) => !subEnd(r)).sort((a, b) => a.started - b.started), old = subs.filter(subEnd).sort((a, b) => b.ended - a.ended);
-  const every = [...live, ...old], vis = all ? every : every.slice(0, Math.max(6, live.length));
-  const show = open && subs.length > 0;
+  const run = subs.filter((r) => r.status === 'running').length, q = subs.filter((r) => r.status === 'queued').length, dn = subs.filter((r) => r.status === 'done').length, bad = subs.filter((r) => r.status === 'failed').length;
+  const every = flatten(subs), vis = all ? every : every.slice(0, 40);
+  const show = open && (subs.length > 0 || hasPlan);
   const toggle = (id) => setExp((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   return (
     <AnimatePresence initial={false}>
       {show && (
         <motion.aside id="subs" aria-label="Subagents" key="subs" initial={{ width: 0, opacity: 0 }} animate={{ width: 280, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ width: { type: 'spring', stiffness: 300, damping: 32 }, opacity: { duration: 0.2 } }}>
           <div style={{ width: 280, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-            <div className="sb-h"><b>Subagents</b><span id="sbN">{[run && run + ' running', q && q + ' queued', !run && !q && dn + ' done'].filter(Boolean).join(' · ')}</span>
+            <div className="sb-h"><b>Agents</b><span id="sbN">{[run && run + ' running', q && q + ' queued', dn && dn + ' done', bad && bad + ' failed'].filter(Boolean).join(' · ')}</span>
               <button className="sb-x" id="sbClose" type="button" aria-label="Hide subagents" title="Hide" onClick={() => setSubsOpen(false)}><Ico d="M18 6 6 18M6 6l12 12" /></button></div>
+            <PlanList />
             <div id="sbList">
-              <AnimatePresence initial={false}>{vis.map((r) => <SubRow key={r.id} r={r} open={exp.has(r.id)} toggle={() => toggle(r.id)} />)}</AnimatePresence>
-              {every.length > 6 && <button id="sbMore" onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show ${every.length - vis.length} more`}</button>}
+              <AnimatePresence initial={false}>{vis.map(([r, d]) => r.boss
+                ? <div key={r.id} className="sb-boss"><span className={'sb-boss-dot' + (r.live ? ' live' : '')} />Boss · @{r.owner}<small>{r.live ? 'delegating' : 'settled'}</small></div>
+                : <SubRow key={r.id} r={r} depth={d} open={exp.has(r.id)} toggle={() => toggle(r.id)} />)}</AnimatePresence>
+              {every.length > 40 && <button id="sbMore" onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show ${every.length - vis.length} more`}</button>}
             </div>
           </div>
         </motion.aside>

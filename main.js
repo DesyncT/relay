@@ -22,7 +22,8 @@ const { fixMojibake } = require('./mojibake');
 const ACCESS_NOTE = 'Text is UTF-8. In Windows PowerShell set [Console]::OutputEncoding = [Text.Encoding]::UTF8 first, read files with -Encoding UTF8, and fetch web pages with curl.exe (Invoke-WebRequest misreads them). Never copy garbled characters like â€™ or Â· into messages, files or requirements: write the real ones (’ ·). Relay grants full filesystem and network access on every run. Do not infer read-only access from old messages or interview instructions. Verify actual tool results before reporting a permission error; distinguish missing credentials from filesystem permissions. Never invent credentials.';
 
 app.setAppUserModelId('Relay.Desktop');
-nativeTheme.themeSource = 'dark'; // Dark native acrylic instead of Windows' milky light material.
+nativeTheme.themeSource = 'dark'; // Dark native acrylic by default; the renderer switches it with the app's light/dark mode.
+ipcMain.handle('theme:native', (e, mode) => { const light = mode === 'light'; nativeTheme.themeSource = light ? 'light' : 'dark'; try { BrowserWindow.fromWebContents(e.sender)?.setTitleBarOverlay({ color: '#00000000', symbolColor: light ? '#2b3445' : '#d5dfef', height: 54 }); } catch {} }); // window buttons follow the mode
 { const old = path.join(app.getPath('appData'), 'jarvis'); app.setPath('userData', !app.isPackaged ? (process.env.RELAY_TEST_DATA_DIR || path.join(app.getPath('appData'), 'Relay-dev')) : require('fs').existsSync(old) ? old : path.join(app.getPath('appData'), 'Relay')); } // npm start gets its own data folder and instance lock so it runs beside the installed Relay; installs from before the rename keep their data folder
 
 
@@ -197,6 +198,24 @@ function claudeRun(label, who, prompt, c = {}) {
   const act = [];
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, c.seat || w, st, c.route?.meta); // quiet: subagent runs have their own panel
   setStatus(who, 'thinking');
+  // Claude Code's own Task/Agent subagents -> records in the session's subs (kind 'native'); the CLI's stream carries their events with parent_tool_use_id
+  const nat = new Map();
+  const nativeEvent = (e) => {
+    if (!c.sid || (e.type !== 'assistant' && e.type !== 'user')) return;
+    const blocks = Array.isArray(e.message?.content) ? e.message.content : [], now = Date.now();
+    if (e.type === 'assistant') {
+      for (const b of blocks) {
+        const r = BL.nativeSub(b, { sid: c.sid, owner: c.seat || who, parent: RT(c.sid).bossRun || null, now });
+        if (r && !nat.has(b.id)) { nat.set(b.id, r); subsOf(c.sid).push(r); subPush(r); }
+      }
+      const r = e.parent_tool_use_id && nat.get(e.parent_tool_use_id), u = r && blocks.findLast((b) => b.type === 'tool_use');
+      if (u && r.status === 'running' && now - (r.actAt || 0) >= 1000) { r.actAt = now; r.activity = toolStatus(u.name, u.input); subPush(r); }
+    } else for (const b of blocks) {
+      const r = b.type === 'tool_result' && nat.get(b.tool_use_id);
+      if (r && r.status === 'running') { r.status = b.is_error ? 'failed' : 'done'; r.ended = now; r.result = BL.resultText(b.content); r.activity = ''; subPush(r); }
+    }
+  };
+  const nativeEnd = () => { for (const r of nat.values()) if (r.status === 'running') { r.status = 'stopped'; r.ended = Date.now(); r.activity = ''; subPush(r); } };
   const isAntigravity = (c.cmd || settings.claudeCmd).includes('antigravity') || String(who).startsWith('antigravity');
   const bare = (!c.conn && (isAntigravity || (!c.nativeCode && process.env.ANTHROPIC_API_KEY) || c.bare)) ? ['--bare'] : [];
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
@@ -206,6 +225,7 @@ function claudeRun(label, who, prompt, c = {}) {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
     if (e.type === 'error' && (e.message || e.error?.message)) errText = String(e.message || e.error?.message);
+    try { nativeEvent(e); } catch {}
     if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) { said.push(b.text); progress.push(b.text); } if (b.type === 'tool_use') progress.flush(); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
     else if (e.type === 'system' && e.subtype === 'init') { model = e.model || ''; if (e.session_id) c.onSession?.(e.session_id); }
     else if (e.type === 'result') {
@@ -217,7 +237,7 @@ function claudeRun(label, who, prompt, c = {}) {
     if (failed || !result.trim()) throw new Error(cleanErrorMessage(errText || result.trim() || stderrText.trim() || 'No result returned from claude', who));
     progress.finish(result);
     return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] };
-  }).finally(() => setStatus(who, null));
+  }).finally(() => { nativeEnd(); setStatus(who, null); });
 }
 
 // Codex: exec --json. The final text is the last agent_message.
@@ -381,8 +401,11 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
   }
   for (let i = 0; ; i++) {
     const enhanced = supercodeOn(sid);
-    // Normal chats always run on the provider you picked (no silent swaps), like using Claude Code / Codex directly
-    const prov = c.routeOverride?.provider || (enhanced || c.spread ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat);
+    // Auto-switch (default on): a provider that is out hands the turn to the next one up; off = always the provider you picked
+    const swap = enhanced || c.spread || settings.autoSwitch !== false;
+    const prov = c.routeOverride?.provider || (swap ? (i === 0 ? await chooseProvider(sid, seat, c) : provOf(seat)) : seat);
+    const note = `${sid}:${seat}:${down[seat]}`; // one note per outage per chat, not per turn
+    if (prov && prov !== seat && !c.routeOverride && !c.quiet && !swapNoted.has(note) && swapNoted.add(note)) post(sid, 'system', `${seat} hit its limit (out until ${hhmm(down[seat])}). Switched to ${prov} automatically.`, null, null, { muted: true });
     if (!prov) throw bothErr();
     const rd = routeFor(prov, phase);
     if (c.routeOverride) {
@@ -418,12 +441,13 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
       if (e.cancelled || !isLimitError(e.message)) throw e;
       markDown(prov, e.message);
       if (c.routeOverride) throw e; // The coordinator chooses another worker; a pinned route must never retry itself.
-      if (!enhanced && !c.spread) throw e;
+      if (!enhanced && !c.spread && settings.autoSwitch === false) throw e;
       if (i >= 2 || !provOf(seat)) throw provOf(seat) ? e : bothErr();
     }
   }
 }
 
+var swapNoted = new Set(); // auto-switch notes already posted (see seatRun)
 // Forced skills/plugins (Settings): one name per line. Added to every agent and subagent prompt; empty file = nothing.
 const forcedLine = () => { const n = readText(RULE_FILES.forced).split(/\r?\n/).map((x) => x.trim()).filter(Boolean); return n.length ? `Always use these skills/plugins on every task: ${n.join(', ')}. Invoke them before starting work.\n\n` : ''; };
 // Installed skill names: folders in ~/.claude/skills and <project>/.claude/skills
@@ -515,14 +539,128 @@ const RT = (sid) => {
   return r;
 };
 
-async function ask(sid, who, trigger, isLead) {
-  const rt = RT(sid), ep = rt.epoch, msgs = () => store.getSession(sid).messages, startLen = msgs().length;
+// ---- boss mode / loop until done / project memory (helpers in boss-loop.js) ----
+const BL = require('./boss-loop'), CP = require('./checkpoints');
+const loopMaxOf = () => Math.max(1, Math.min(30, Math.trunc(+settings.loopMax) || 6));
+const loopInfo = (L) => ({ goal: L.goal, iter: L.iter, max: L.max, status: L.status, reason: L.reason || '', tests: L.tests || 'none', phase: L.phase || 'build', autopilot: !!L.autopilot, review: L.review || null, stalls: L.stalls || 0 });
+const emitLoop = (sid) => { const L = RT(sid).loop; if (L) send('loop:update', { sid, ...loopInfo(L) }); };
+function setBoss(sid, on) { const rt = RT(sid); rt.boss = on; if (!on) rt.bossRun = null; try { store.updateSession(sid, { boss: on }); } catch {} send('boss:update', { sid, on, run: rt.bossRun || null }); }
+function stopLoop(sid) { const L = RT(sid).loop; if (L?.status === 'running') { L.status = 'stopped'; emitLoop(sid); } }
+// applies the /boss /loop command attached to the user message that just started this turn
+function startCmd(sid) {
+  const rt = RT(sid), c = rt.cmd; rt.cmd = null;
+  if (!c) return;
+  if (c.autopilot) setMode(sid, 'super'); // Super Auto: the voters answer every question
+  if (c.boss) { rt.bossRun = 'b' + Date.now().toString(36); setBoss(sid, true); } else if (rt.boss) setBoss(sid, false);
+  if (c.loop || rt.loopFlag?.on) { rt.loop = { goal: c.goal, iter: 0, max: Math.max(1, Math.min(30, Math.trunc(c.loopMax || rt.loopFlag?.max) || loopMaxOf())), status: 'running', reason: '', tests: 'none', runTests: c.runTests, autopilot: !!c.autopilot, phase: c.autopilot ? 'plan' : 'build', review: null, stalls: 0, reviews: 0, base: null, prevReason: '', prevTree: '' }; emitLoop(sid); }
+  else if (rt.loop?.status === 'running' && !sessOf(sid)?.messages?.slice(0, -1).findLast((x) => AGENT_NAMES.includes(x.from))?.askUser) stopLoop(sid);
+}
+// per-turn extras: project memory, tag help, boss preamble, and one-shot feedback (loop reason / subagent results)
+const extras = (sid, note) => BL.globalBlock() + BL.memBlock(cwdFor(sid)) + BL.TAGS_HELP + (RT(sid).boss ? BL.BOSS : '') + (note ? note + '\n\n' : '');
+function remember(sid, facts, globals = []) { try { if (facts.length && BL.addMem(cwdFor(sid), facts)) send('memory:update', { sid }); if (globals.length && BL.addGlobal(globals)) send('memory:update', { sid, global: true }); } catch {} }
+// strips [remember:] (always) and [sub:] (boss mode) tags from a reply, acting on them
+function takeTags(sid, who, raw) {
+  const rt = RT(sid); let text = String(raw || '');
+  const r = BL.parseRemember(text); text = r.text; remember(sid, r.facts, r.globals);
+  if (rt.boss) { text = takePlan(sid, text); const s = require('./turn').parseSubs(text); text = s.text.trim(); if (s.subs.length) spawnSubs(sid, who, s.subs); }
+  return text;
+}
+// live plan: session.plan = [{id, text, status: todo|doing|done}]
+const setPlan = (sid, plan) => { const s = sessOf(sid); if (!s) return; s.plan = plan; try { store.updateSession(sid, {}); } catch {} send('plan:update', { sid, plan }); const L = RT(sid).loop; if (L?.status === 'running' && L.phase === 'plan' && plan.length) { L.phase = 'build'; emitLoop(sid); } };
+function takePlan(sid, text) {
+  const p = BL.parsePlan(text); if (p.plan === null && !p.done.length) return text;
+  let plan = sessOf(sid)?.plan || [], ch = false;
+  if (p.plan?.length) { plan = BL.mkPlan(p.plan); ch = true; }
+  for (const d of p.done) ch = BL.planMark(plan, d, 'done') || ch;
+  if (ch) setPlan(sid, plan);
+  return p.text;
+}
+const planSub = (r, status) => { const plan = sessOf(r.sid)?.plan; if (plan && !(status === 'doing' && r.depth > 1) && BL.planMark(plan, r.title, status)) setPlan(r.sid, plan); };
+ipcMain.handle('plan:get', (_e, sid) => (sessOf(sid)?.plan || []).map((x) => ({ ...x })));
+const bossNote = (sid) => { const rt = RT(sid), done = subsOf(sid).filter((x) => (x.parent === rt.bossRun || x.depth > 1) && !subLive(x)); return done.length ? 'Subagent results to review against the goal (delegate fixes with [sub: ...] or finish if met):\n' + done.slice(-8).map((x) => `- ${x.title} [${x.status}]: ${String(x.result).slice(0, 700)}`).join('\n') : ''; };
+async function loopCheck(sid, ep) {
+  const rt = RT(sid), L = rt.loop;
+  if (!L || L.status !== 'running' || L.checking || ep !== rt.epoch || rt.paused || rt.awaiting || chatBusy(sid) || userQueues.get(sid)?.length) return;
+  const msgs = sessOf(sid)?.messages || [], last = msgs.findLast((m) => AGENT_NAMES.includes(m.from) && !m.progress);
+  if (!last || last.askUser) return;
+  L.checking = true;
+  const since = msgs.slice(msgs.findLastIndex((m) => m.from === 'user') + 1);
+  const files = [...new Set(since.flatMap((m) => m.activity || []).filter((a) => ['create', 'edit', 'delete'].includes(a.kind)).map((a) => a.abs || a.file).filter(Boolean))];
+  let v, tp = false, tree = '';
+  try { if (await CP.isGit(cwdFor(sid))) tree = await CP.worktreeTree(cwdFor(sid)); } catch {}
+  const cmd = (L.runTests ?? settings.loopRunTests !== false) ? BL.testCommand(cwdFor(sid)) : null;
+  L.tests = 'none'; L.phase = 'test';
+  if (cmd) {
+    emitLoop(sid); const t = await BL.runTests(cwdFor(sid), cmd); tp = t.pass; L.tests = t.pass ? 'pass' : 'fail';
+    if (!t.pass) v = { done: false, reason: `tests failed (${cmd}):
+` + t.out };
+  }
+  if (!v) try { v = BL.parseVerdict((await seatRun(sid, last.from, 'other', () => BL.verifierPrompt(L.goal, last.text, files, tp), null, { quiet: true, readonly: true, sub: 'loop-verify' })).text); }
+  catch (e) { v = { done: false, failed: true, reason: 'verifier failed: ' + String(e?.message || e).slice(0, 120) }; }
+  // autopilot: after DONE, one read-only reviewer pass over the loop's whole diff (max 2 rounds, then accept)
+  if (v.done && L.autopilot && L.reviews < 2 && L.base && tree && ep === rt.epoch && L.status === 'running') {
+    L.phase = 'review'; L.review = null; emitLoop(sid);
     try {
+      const diff = await CP.diffBetween(cwdFor(sid), L.base, tree);
+      if (diff.trim()) {
+        const rv = BL.parseReview((await seatRun(sid, last.from, 'other', () => BL.reviewPrompt(L.goal, diff), null, { quiet: true, readonly: true, sub: 'loop-review' })).text);
+        L.reviews++; L.review = rv.pass ? 'pass' : 'fail';
+        if (!rv.pass) v = { done: false, reason: 'code review found blocking bugs: ' + rv.reason };
+      }
+    } catch {} // a failing reviewer never blocks the result
+  }
+  L.checking = false;
+  if (ep !== rt.epoch || L.status !== 'running') return; // stopped meanwhile
+  L.iter++; L.reason = v.reason;
+  if (v.done) { L.status = 'done'; L.phase = 'done'; if (rt.boss) setBoss(sid, false); emitLoop(sid); return; }
+  // stalls: same reason as last time, or the worktree did not change since the last check
+  L.stalls = (L.prevReason && BL.similar(L.prevReason, v.reason)) || (tree && tree === L.prevTree) ? L.stalls + 1 : 0;
+  L.prevReason = v.reason; L.prevTree = tree; L.phase = 'build';
+  if (v.failed || L.iter >= L.max) { L.status = 'gave-up'; emitLoop(sid); return; }
+  if (L.stalls >= 3) { L.status = 'gave-up'; L.reason = 'stalled'; emitLoop(sid); return; }
+  emitLoop(sid);
+  rt.turns = 0; rt.paused = false; rt.note = (L.stalls ? BL.STALL_NOTE + '\n\n' : '') + `A check says the goal is not met yet: ${v.reason}\nGoal: ${L.goal}\nKeep working until it is fully met.`;
+  enqueue(sid, last.from, last);
+}
+// no loop to run: boss mode ends once everything has settled
+const settle = (sid, ep) => { const rt = RT(sid); if (rt.boss && ep === rt.epoch && !rt.loop?.checking && rt.loop?.status !== 'running' && !chatBusy(sid) && !rt.paused) setBoss(sid, false); };
+ipcMain.handle('chat:loop', (_e, sid, on, max) => { const rt = RT(sid); rt.loopFlag = { on: !!on, max: Math.trunc(+max) || null }; if (!on) stopLoop(sid); return rt.loopFlag; });
+ipcMain.handle('loop:get', (_e, sid) => { const rt = RT(sid), L = rt.loop; return { flag: rt.loopFlag || { on: false, max: null }, ...(L ? loopInfo(L) : {}) }; });
+ipcMain.handle('memory:getGlobal', () => ({ path: BL.gmemFile(), text: BL.readGlobal() }));
+ipcMain.handle('memory:saveGlobal', (_e, text) => { BL.writeGlobal(String(text || '')); send('memory:update', { global: true }); return true; });
+ipcMain.handle('memory:get', (_e, sid) => ({ path: BL.memFile(cwdFor(sid)), text: BL.readMem(cwdFor(sid)) }));
+ipcMain.handle('memory:save', (_e, sid, text) => { BL.writeMem(cwdFor(sid), String(text || '')); send('memory:update', { sid }); return true; });
+
+// ---- checkpoints (rewind): a git snapshot before each agent turn; helpers in checkpoints.js ----
+const cpOf = (sid) => { const s = sessOf(sid); return s ? (s.checkpoints ||= []) : []; };
+let cpChain = Promise.resolve(); // one git operation at a time
+async function checkpoint(sid, who, trigger) {
+  const cwd = cwdFor(sid), list = cpOf(sid);
+  if (!await CP.isGit(cwd)) return;
+  const c = await CP.snapshot(cwd, sid, list, who, trigger?.text || '');
+  list.push(c); const { keep, drop } = CP.prune(list); list.splice(0, list.length, ...keep); await CP.dropRefs(cwd, drop);
+  try { store.updateSession(sid, {}); } catch {} send('checkpoint:update', { sid });
+}
+const checkpointSafe = (sid, who, trigger) => (cpChain = cpChain.then(() => checkpoint(sid, who, trigger)).catch(() => {}));
+ipcMain.handle('checkpoints:list', async (_e, sid) => { const git = await CP.isGit(cwdFor(sid)); return { git, items: git ? cpOf(sid).map((c) => ({ ...c })) : [] }; });
+ipcMain.handle('checkpoints:restore', async (_e, sid, id) => {
+  if (chatBusy(sid) || subsOf(sid).some(subLive)) throw new Error('An agent is working. Stop it before rewinding.');
+  const c = cpOf(sid).find((x) => x.id === id); if (!c) throw new Error('That checkpoint no longer exists.');
+  await (cpChain = cpChain.then(() => CP.restore(cwdFor(sid), c.sha)));
+  send('checkpoint:update', { sid }); return true;
+});
+
+async function ask(sid, who, trigger, isLead) {
+  startCmd(sid);
+  const rt = RT(sid), ep = rt.epoch, msgs = () => store.getSession(sid).messages, startLen = msgs().length, note = rt.note; rt.note = null;
+    try {
+      await checkpointSafe(sid, who, trigger);
+      { const L = rt.loop; if (L?.status === 'running') { if (!L.base) L.base = cpOf(sid).at(-1)?.sha || ''; if (L.phase === 'test' || L.phase === 'review' || (L.phase === 'plan' && L.iter > 0)) { L.phase = 'build'; emitLoop(sid); } } }
       if (!snapTaken.has(sid)) { snapTaken.add(sid); panels.snapshot(sid)?.catch?.(()=>{}); }
       const spread=isSpreader(sid) || !!rt.remote;
       const result = await seatRun(sid,who,'coding',(_stand,state)=>{
         const session=store.getSession(sid);
-        return (easyModeOn(sid)?SPREAD_ASK+'\n\n':'')+normalPrompt(session,who,state.resumed);
+        return (easyModeOn(sid)?SPREAD_ASK+'\n\n':'')+extras(sid,note)+normalPrompt(session,who,state.resumed);
       },trigger,{spread,easyCode:easyModeOn(sid),onTodos: list => {
         // the agent's todo list drives the progress bar
         if (ep === rt.epoch) setReqs(sid,{items:list.map(x=>({t:x.t,done:x.done,...(x.now && {by:who,pct:50})})),requestAt:trigger?.at});
@@ -530,6 +668,7 @@ async function ask(sid, who, trigger, isLead) {
         if (ep === rt.epoch && !rt.paused) post(sid,who,text,null,null,{progress:true});
       }});
       if (ep !== rt.epoch) return {next:[]};
+      result.text = takeTags(sid, who, result.text);
       const asked=(easyModeOn(sid)||/\[ask-user/i.test(result.text))?parseTurn(result.text,result.prov || who):null, from=result.prov || who;
       const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,result.attachments,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(result.peer && {peer:result.peer}),...(asked?.askUser && {askUser:true,options:asked.options || []})});
       if (result.usage) send('agent:usage',{sid,who,...result.usage});
@@ -617,24 +756,25 @@ const subsOf = (sid) => {
   return s.subs;
 };
 const subPush = (r) => { send('subagent:update', { ...r }); syncBusy(); try { store.updateSession(r.sid, { subs: subsOf(r.sid) }); } catch {} };
-function spawnSubs(sid, owner, list) {
+function spawnSubs(sid, owner, list, parent = RT(sid).bossRun || null, depth = 1) {
   const now = Date.now();
   for (const { title, task } of list) {
-    const r = { id: 's' + now.toString(36) + Math.random().toString(36).slice(2, 6), sid, owner, title, task, model: '', effort: '', status: 'queued', started: now, ended: 0, tokensIn: 0, tokensOut: 0, cost: 0, result: '' };
+    const r = { id: 's' + now.toString(36) + Math.random().toString(36).slice(2, 6), sid, owner, parent, depth, title, task, model: '', effort: '', status: 'queued', started: now, ended: 0, tokensIn: 0, tokensOut: 0, cost: 0, result: '' };
     subsOf(sid).push(r); subPush(r);
   }
   pumpSubs(sid);
 }
 function pumpSubs(sid) {
   const all = subsOf(sid);
-  let n = all.filter((r) => r.status === 'running').length;
+  let n = all.filter((r) => r.status === 'running' && r.kind !== 'native').length;
   for (const r of all) if (n < limit('subagents') && r.status === 'queued') { n++; runSub(r); }
 }
 async function runSub(r) {
   const rt = RT(r.sid), ep = rt.epoch;
   let rd = routeFor(provOf(r.owner) || r.owner, 'other'), prov = r.owner;
-  r.status = 'running'; r.started = Date.now(); r.model = rd.meta.model || ''; r.effort = rd.meta.effort || ''; subPush(r);
-  const mk = (s) => `${forcedLine()}You are a subagent of @${r.owner}, working in the same project folder as a part of a bigger build. Your task: ${r.title}\n\n${r.task}\n\nDo only this task. ${editsOn(r.sid) ? '' : 'You cannot edit files; report what you found. '}Share short, plain-language progress updates as you work: what you are checking, useful findings and changes. Keep your final reply under 5 lines with a summary of the diff (files and what changed). No tags, no questions.${s ? '\n\n' + standIn(r.owner).trim() : ''}`;
+  r.status = 'running'; r.started = Date.now(); r.model = rd.meta.model || ''; r.effort = rd.meta.effort || ''; subPush(r); planSub(r, 'doing');
+  const nest = rt.boss && r.depth < 2;
+  const mk = (s) => `${forcedLine()}${BL.memBlock(cwdFor(r.sid))}You are a subagent of @${r.owner}, working in the same project folder as a part of a bigger build. Your task: ${r.title}\n\n${r.task}\n\nDo only this task. ${editsOn(r.sid) ? '' : 'You cannot edit files; report what you found. '}Share short, plain-language progress updates as you work: what you are checking, useful findings and changes. Keep your final reply under 5 lines with a summary of the diff (files and what changed). ${nest ? 'You may delegate a sub-piece with a line [sub: short title | complete task] (max 3, only if it truly is independent work). Otherwise no tags, no questions.' : 'No tags, no questions.'}${s ? '\n\n' + standIn(r.owner).trim() : ''}`;
   let res, err = '';
   try { res = await seatRun(r.sid, r.owner, 'other', mk, null, { quiet: true, onProgress:chatProgress(r.sid,r.owner,r.title,rd.meta,()=>r.status==='running'), sub: r.id }); rd = res.rd; prov = res.prov; r.model = rd.meta.model || r.model; r.effort = rd.meta.effort || r.effort; }
   catch (e) {
@@ -644,13 +784,14 @@ async function runSub(r) {
   }
   if (r.status === 'stopped') { pumpSubs(r.sid); return drainUserQueue(r.sid); }
   r.ended = Date.now();
+  if (res && nest) { const k = require('./turn').parseSubs(res.text); if (k.subs.length) { res.text = k.text.trim(); spawnSubs(r.sid, r.owner, k.subs, r.id, r.depth + 1); } }
   if (res) { r.files = [...new Set((res.activity || []).filter((a) => ['create', 'edit', 'delete'].includes(a.kind)).map((a) => a.abs || a.file).filter(Boolean))]; r.status = 'done'; r.result = res.text; r.model = res.usage.model || r.model; r.tokensIn = res.usage.input + res.usage.cached; r.tokensOut = res.usage.output; r.cost = res.usage.cost; }
   else {
     const failure = formatFailureInfo(err, r.owner);
     failure.title = `Subagent "${r.title}" failed`;
     r.status = 'failed'; r.result = failure.message;
   }
-  subPush(r);
+  subPush(r); planSub(r, res ? 'done' : 'todo');
   let m;
   if (res) { m = post(r.sid, r.owner, res.text, null, res.attachments, { sub: r.title, ...(res.activity?.length && { activity: res.activity }), usage: res.usage, ...(prov !== r.owner && { via: prov }), route: { phase: 'other', model: r.model, effort: r.effort } }); send('agent:usage', { sid: r.sid, who: r.owner, ...res.usage }); }
   else {
@@ -660,7 +801,7 @@ async function runSub(r) {
   }
   pumpSubs(r.sid);
   // wake the owner once its last subagent is in; counts toward maxTurns like any turn
-  if (ep === rt.epoch && !subsOf(r.sid).some((x) => x.owner === r.owner && subLive(x))) enqueue(r.sid, r.owner, m);
+  if (ep === rt.epoch && !subsOf(r.sid).some((x) => x.owner === r.owner && x.kind !== 'native' && subLive(x))) { if (rt.boss) rt.note = bossNote(r.sid); enqueue(r.sid, r.owner, m); }
   drainUserQueue(r.sid); // no-op while a lane or another sub is still busy
 }
 function stopSub(r) {
@@ -674,6 +815,7 @@ ipcMain.handle('subagents:list', (_e, sid) => subsOf(sid).map(r => ({...r})));
 ipcMain.handle('subagents:retry', (_e, id) => {
   for (const session of store.listSessions()) {
     const sub = subsOf(session.id).find(r => r.id === id);
+    if (sub?.kind === 'native') return; // Claude Code's own subagent: cannot be rerun on its own
     if (sub) return spawnSubs(sub.sid, sub.owner, [{title:sub.title, task:sub.task}]);
   }
   throw new Error('This subagent no longer exists.');
@@ -681,6 +823,7 @@ ipcMain.handle('subagents:retry', (_e, id) => {
 ipcMain.handle('subagents:stop', (_e, id) => {
   for (const session of store.listSessions()) {
     const sub = subsOf(session.id).find(r => r.id === id);
+    if (sub?.kind === 'native') return; // ends with its owning run
     if (sub) return stopSub(sub);
   }
 });
@@ -692,7 +835,7 @@ ipcMain.handle('sessions:working', () => workingIds());
 
 async function pump(sid, who) {
   // Supercode chats run until the user says "wrap up" (or the team goes idle); a single agent keeps the maxTurns cap
-  const rt = RT(sid), lane = rt.lanes[who], ep = rt.epoch, max = supercodeOn(sid) ? Infinity : Math.max(1, +settings.maxTurns || 4);
+  const rt = RT(sid), lane = rt.lanes[who], ep = rt.epoch, max = supercodeOn(sid) ? Infinity : rt.boss ? 40 : Math.max(1, +settings.maxTurns || 4);
   let completed=null;
   lane.busy = true; sendWorking(); saveResume(sid); // saved as it starts: closing Relay mid-turn still knows who was working
   while (lane.next && ep === rt.epoch) {
@@ -716,6 +859,7 @@ async function pump(sid, who) {
   }
   lane.busy = false; saveResume(sid); sendWorking();
   drainUserQueue(sid);
+  loopCheck(sid, ep).then(() => settle(sid, ep)).catch(() => {});
   if(canNotifyComplete({msg:completed,busy:chatBusy(sid),queued:!!userQueues.get(sid)?.length,cancelled:ep!==rt.epoch || rt.paused || quitting})) alerts.notify('complete',{sid,from:completed.from,text:completed.text});
 }
 
@@ -1165,8 +1309,9 @@ function enqueueSpreader(sid,trigger) {
         .catch(error=>{if(rt.epoch===epoch)post(sid,'system','Could not select a provider.',null,null,{failure:formatFailureInfo(error.message,'spreader')});})
         .finally(()=>{if(rt.epoch===epoch){rt.selecting=false;rt.selectionTrigger=null;saveResume(sid);sendWorking();drainUserQueue(sid);}});
 }
-function dispatchUser(sid, { text, files, reply }) {
+function dispatchUser(sid, { text, files, reply, cmd }) {
   const sess = store.getSession(sid), rt = RT(sid); // throws on an unknown session
+  rt.cmd = cmd || null; // boss/loop flags for this message, applied when the agent turn starts
   const m = post(sid, 'user', text, reply, files);
   if (!supercodeOn(sid)) {
     const selected=sess.lead || settings.lead;
@@ -1228,13 +1373,16 @@ ipcMain.handle('notify:clearQuestion', () => {
   clearQuestionAlert();
   return true;
 });
+// options {boss, loop, loopMax} from the UI toggles; "/boss" "/loop" text prefixes still work
+const cmdFrom = (text, o = {}) => { const c = BL.parseCommand(text), ap = !!o.autopilot; return { autopilot: ap, boss: c.boss || !!o.boss || ap, loop: c.loop || !!o.loop || ap, loopMax: Math.trunc(+o.loopMax) || (ap ? 12 : null), runTests: ap ? true : typeof o.runTests === 'boolean' ? o.runTests : undefined, goal: c.goal || String(text).trim() }; };
 ipcMain.handle('chat:send', (_e, sid, text, attachments = [], options = {}) => {
   clearQuestionAlert();
   const sess = store.getSession(sid);
   const files = (Array.isArray(attachments) ? attachments : []).filter((a) => a && inUploads(a.path)).map(({ name, path: p, size, type, previewUrl }) => ({ name, path: p, size, type, previewUrl }));
   if (typeof text !== 'string' || (!text.trim() && !files.length)) throw new Error('Enter a message or keep an attachment.');
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
-  const item = { text, files, reply: target ? ref(target) : null };
+  const cmd = cmdFrom(text, options); if (cmd.goal) text = cmd.goal;
+  const item = { text, files, reply: target ? ref(target) : null, cmd };
   const instant = !files.length && (conversationReply(text) !== null);
   if (quitting || restoringSessions || (!instant && options.queue !== false && (chatBusy(sid) || userQueues.get(sid).length))) {
     const q = userQueues.get(sid) || []; q.push({ ...item, id: 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), queuedAt: Date.now() }); userQueues.set(sid, q); queueUpdate(sid);
@@ -1250,7 +1398,8 @@ ipcMain.handle('chat:interrupt-send', (_e, sid, text, attachments = [], options 
   if (typeof text !== 'string' || (!text.trim() && !files.length)) throw new Error('Enter a message or keep an attachment.');
   const target = options.reply && sess.messages.find((m) => m.at === options.reply.at && m.from === options.reply.from);
   const q = userQueues.get(sid) || [];
-  q.unshift({ text, files, reply: target ? ref(target) : null, id: 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), queuedAt: Date.now() });
+  const cmd = cmdFrom(text, options); if (cmd.goal) text = cmd.goal;
+  q.unshift({ text, files, reply: target ? ref(target) : null, cmd, id: 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), queuedAt: Date.now() });
   userQueues.set(sid, q); queueUpdate(sid);
   const rt = RT(sid);
   interruptSession(sid, rt);
@@ -1294,6 +1443,7 @@ function interruptSession(sid, rt = RT(sid)) {
   if (rt.borrowedWorkspace) cowork.cancel(rt.borrowedWorkspace);
   if (room?.sid === sid && room.outgoing) cowork.cancel(room.rid);
   rt.epoch++; rt.selecting=false; rt.selectionTrigger=null;
+  stopLoop(sid); if (rt.boss) setBoss(sid, false);
   for (const l of Object.values(rt.lanes)) l.next = null;
   for (const p of procs.values()) if (p.sid === sid) killProc(p,true);
   stopSubs(sid);

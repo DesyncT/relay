@@ -6,6 +6,7 @@ import { getState, setState, useStore } from '../store.js';
 import { spring, ease } from '../motion.js';
 import { addSystemCard, registerSender } from './chatStore.js';
 import { makeCmds } from './composer/commands.jsx';
+import AgentTools, { sendOpts } from './composer/AgentTools.jsx';
 import Queue from './composer/Queue.jsx';
 import { Check, Chev, FileIcon, Ico, isImg, fileUrl, fsize, notify, Pop, ProvLogo, SpreaderIcon, Tween, XIcon } from './composer/ui.jsx';
 import '../styles/composer.css';
@@ -305,7 +306,7 @@ export default function Composer() {
     }
     setState({ chatReplying: null, chatWaitFor: null });
     try {
-      await call(interrupt ? 'chat:interrupt-send' : 'chat:send', sid, t, files, { reply: reply && { from: reply.from, at: reply.at }, queue: true });
+      await call(interrupt ? 'chat:interrupt-send' : 'chat:send', sid, t, files, { reply: reply && { from: reply.from, at: reply.at }, queue: true, ...(pick ? {} : sendOpts(sid)) });
     } catch (e) {
       try { localStorage.setItem(recoveryKey(sid), JSON.stringify([...failedDrafts(sid), { text: raw, files }])); } catch { /* full */ }
       if (live.current.sid === sid) {
@@ -466,6 +467,7 @@ export default function Composer() {
         </div>
 
         </div>
+        <AgentTools sid={sid} />
         <div className="cb-tools">
           <button className="plus" id="plus" aria-label="Upload a file" onClick={() => fAny.current.click()}><Ico><path d="M12 5v14M5 12h14" /></Ico></button>
           <div className="cb-opts">

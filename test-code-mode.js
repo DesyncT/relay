@@ -29,7 +29,7 @@ const seatSource=source.slice(source.indexOf('async function seatRun('),source.i
   let current={messages:[{from:'user',text:'Fix it'}],cli:{codex:'old-requirements-session'}};
   const calls=[];
   const context={
-    supercodeOn:()=>false, easyModeOn:()=>false,settings:{codexArgs:''},routeFor:()=>({extra:[],meta:{}}),
+    supercodeOn:()=>false, easyModeOn:()=>false,chooseProvider:async(_sid,seat)=>seat,provOf:(seat)=>seat,post:()=>{},hhmm:()=>'',down:{},settings:{codexArgs:''},routeFor:()=>({extra:[],meta:{}}),
     argsFor:()=>[],resolved:()=>({}),models:{resolve:()=>null},sessOf:()=>current,
     store:{updateSession:(_sid,patch)=>{current={...current,...patch};}},ctxFor:()=>({}),
     PROV:{codex:async(prompt,_trigger,options)=>{calls.push({prompt,...options});options.onSession('native-session');return {text:'Done'};}},
@@ -50,6 +50,10 @@ const seatSource=source.slice(source.indexOf('async function seatRun('),source.i
   await assert.rejects(seat('test','claude','coding',()=>'',{}, {routeOverride:{provider:'claude',model:'claude-haiku-5-5',effort:'low'}}),/credits/);
   assert.equal(failedCalls,1,'A pinned worker route must hand failure back instead of retrying the same provider');
   assert.equal(markedDown,1);
+  context.supercodeOn=()=>false; context.provOf=(seat)=>seat==='claude'?'codex':seat; let notes=0; context.post=()=>{notes++;};
+  const swapped=await seat('test','claude','coding',()=>'',{});
+  assert.equal(swapped.prov,'codex','A provider that runs out hands the turn to the other one without asking');
+  assert.equal(notes,1,'The switch is announced once');
   console.log('Native CLI session continuity and pinned-route failure checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 

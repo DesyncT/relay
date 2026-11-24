@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { call, useIpcEvent } from '../api.js';
 import { getState, setState, useStore } from '../store.js';
 import { Icon } from './icons.jsx';
+import { setMode } from '../theme/themeStore.js';
 
-export const TAB_LABEL = { usage: 'Usage', agents: 'Subagents', rules: 'Rules', skills: 'Skills', settings: 'Settings', themes: 'Background' };
+export const TAB_LABEL = { usage: 'Usage', agents: 'Subagents', rules: 'Rules', skills: 'Skills', settings: 'Settings', themes: 'Appearance' };
 const readChat = () => window.ActiveChat || null;
 
 export default function Titlebar() {
@@ -12,6 +13,8 @@ export default function Titlebar() {
   const [chat, setChat] = useState(readChat);
   const [procs, setProcs] = useState([]);
   const [just, setJust] = useState(false);
+  const [light, setLight] = useState(() => document.documentElement.dataset.mode === 'light');
+  useEffect(() => { const f = () => setLight(document.documentElement.dataset.mode === 'light'); window.addEventListener('relay-theme', f); return () => window.removeEventListener('relay-theme', f); }, []);
 
 
   useEffect(() => {
@@ -53,6 +56,9 @@ export default function Titlebar() {
           {seg(isSuper, 'tbSupercode', 'EasyCode', 'EasyCode: short questions and Spreader quota balancing', <path d="m13 2-9 12h7l-1 8 10-12h-7z" />, true)}
           {seg(!isSuper, 'tbNormal', 'Code', 'Code: direct Claude Code or Codex session in your project', <path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16" />, false)}
         </div>
+        <button id="tbMode" title={light ? 'Switch to dark mode' : 'Switch to light mode'} aria-label={light ? 'Switch to dark mode' : 'Switch to light mode'} onClick={() => setMode(light ? 'dark' : 'light')}>
+          <Icon>{light ? <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" /> : <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>}</Icon>
+        </button>
         <button id="tbVsc" title="Open this folder in VS Code" aria-label="Open this folder in VS Code" disabled={!sid} onClick={() => call('chat:vscode', sid).catch((e) => alert(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))}>
           <Icon><path d="M16 3 8 12l8 9V3Z" /><path d="m8 12-5 4V8l5 4Z" /></Icon>
         </button>

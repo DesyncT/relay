@@ -334,7 +334,7 @@ html.mobile .workspace-label { display:none; }
 /* Data needs stable contrast even over a bright desktop. */
 :root { --usage-grid:color-mix(in srgb,var(--text-2) 27%,transparent); --usage-input:#9bbfee; --usage-cache:#7d9fbc; --usage-write:#b6dfcf; }
 #root > main:has(#usage.on) { background:var(--glass-sheen),color-mix(in srgb,var(--deep) 72%,transparent); }
-#root #usage { --muted:#c1cddd; --text-2:#d2dceb; }
+:root:not([data-mode="light"]) #root #usage { --muted:#c1cddd; --text-2:#d2dceb; }
 #root #usage .u-lim { border-color:var(--usage-grid); }
 #root #usage .u-meter { background:color-mix(in srgb,var(--text-2) 22%,var(--deep)); }
 #root #usage .provider-share { background:var(--usage-grid); }
@@ -348,7 +348,7 @@ html.is-fullscreen,html.is-fullscreen body { background:radial-gradient(120% 90%
 html.mobile,html.mobile body { background:radial-gradient(120% 70% at 15% 0%,#1d3359 0%,transparent 62%),radial-gradient(90% 70% at 100% 100%,#17294b 0%,transparent 58%),#0b1425; }
 html.mobile #root,html.mobile #root > main { background:transparent; box-shadow:none; }
 html.mobile #chat.on .ch-head { background:color-mix(in srgb,var(--deep) 48%,transparent); -webkit-backdrop-filter:blur(22px) saturate(1.5); backdrop-filter:blur(22px) saturate(1.5); border-bottom:1px solid var(--glass-side); box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--glass-black) 25%,transparent); border-radius:0; }
-html.mobile #root > nav { background:color-mix(in srgb,#0b1425 80%,transparent); -webkit-backdrop-filter:blur(30px) saturate(1.5); backdrop-filter:blur(30px) saturate(1.5); box-shadow:none; }
+html.mobile #root > nav { background:color-mix(in srgb,var(--deep) 80%,transparent); -webkit-backdrop-filter:blur(30px) saturate(1.5); backdrop-filter:blur(30px) saturate(1.5); box-shadow:none; }
 html.mobile #root > nav .sb .sb-row { min-height:46px; border-radius:14px; }
 html.mobile #root > nav .sb .sb-top .sb-act { border-radius:14px; }
 html.mobile #chat.on .cbar { width:auto !important; max-width:none; margin:6px 10px calc(8px + env(safe-area-inset-bottom)) !important; padding:8px 8px 2px; border:0 !important; border-radius:26px !important; background:var(--glass-sheen),color-mix(in srgb,var(--card) 55%,transparent) !important; -webkit-backdrop-filter:blur(22px) saturate(1.4); backdrop-filter:blur(22px) saturate(1.4); box-shadow:var(--glass-edge),0 10px 28px color-mix(in srgb,var(--glass-black) 28%,transparent); }
@@ -356,3 +356,25 @@ html.mobile #chat .cbar .composer-entry #input { background:color-mix(in srgb,va
 html.mobile #chat #log { padding:20px 16px; }
 html.mobile #chat #log .msg .opt { border-radius:16px; min-height:46px; }
 html.mobile #chat .conversation-start h2 { font-size:28px; line-height:34px; }
+
+/* Light mode: frosted white glass. Native acrylic stays dark behind it, so panes carry more opacity. */
+:root[data-mode="light"] {
+  --glass-black:#1b2a40;
+  --glass-pane:color-mix(in srgb,var(--card) 68%,transparent);
+  --glass-control:color-mix(in srgb,var(--raised) 78%,transparent);
+  --glass-rim:color-mix(in srgb,#fff 90%,transparent);
+  --glass-side:color-mix(in srgb,var(--text) 12%,transparent);
+  --glass-shadow:0 14px 32px color-mix(in srgb,var(--glass-black) 20%,transparent),0 3px 8px color-mix(in srgb,var(--glass-black) 12%,transparent);
+  --glass-edge:inset 0 1px 0 var(--glass-rim),inset 1px 0 0 var(--glass-side),inset 0 -1px 0 color-mix(in srgb,var(--glass-black) 14%,transparent);
+  --glass-sheen:linear-gradient(145deg,color-mix(in srgb,#fff 45%,transparent),transparent 40%);
+  --usage-input:#2f66b0; --usage-cache:#51708f; --usage-write:#2d7a62;
+}
+:root[data-mode="light"] #root > main { background:var(--glass-sheen),color-mix(in srgb,var(--bg) 62%,transparent); }
+:root[data-mode="light"] #root > main:has(#usage.on) { background:var(--glass-sheen),color-mix(in srgb,var(--deep) 86%,transparent); }
+:root[data-mode="light"] #root #chat .cbar .send:not(:disabled) { color:#fff; }
+:root[data-mode="light"].is-fullscreen,:root[data-mode="light"].is-fullscreen body,:root[data-mode="light"].mobile,:root[data-mode="light"].mobile body { background:radial-gradient(120% 90% at 15% 0%,#ffffff 0%,transparent 62%),radial-gradient(90% 80% at 100% 100%,#d6e2f5 0%,transparent 58%),#e8eef7; }
+.appearance-presets { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin:16px 0 28px; }
+.appearance-mode { margin:12px 0; display:inline-flex; }
+
+/* light mode: keep the disabled send arrow readable on frosted white */
+:root[data-mode="light"] #chat .cbar .send:disabled { background:color-mix(in srgb,var(--text) 8%,transparent); color:var(--text-2); }

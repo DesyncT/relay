@@ -8,13 +8,14 @@ import { Icon } from './panels/ui.jsx';
 import Term, { useTermEvents } from './panels/Term.jsx';
 import Changes from './panels/Changes.jsx';
 import Browser from './panels/Browser.jsx';
+import Checkpoints from './panels/Checkpoints.jsx';
 import Files from './panels/Files.jsx';
 import Viewer from './panels/Viewer.jsx';
 import '../styles/panels-react.css';
 
 export { openPanel, closePanel, openFile, openUrl, fileUrl, fmtSize, IMG };
 
-const BTNS = [['term', 'Terminal', 'term'], ['changes', 'Changes', 'diff'], ['browser', 'Browser', 'globe'], ['files', 'Files', 'folder']];
+const BTNS = [['term', 'Terminal', 'term'], ['changes', 'Changes', 'diff'], ['browser', 'Browser', 'globe'], ['files', 'Files', 'folder'], ['checkpoints', 'Checkpoints', 'reload']];
 // header buttons for the chat header; active state mirrors the open panel
 export function PanelButtons() {
   const mode = useStore((s) => s.pnMode);
@@ -46,7 +47,7 @@ export default function Panels() {
 
   useIpcEvent('panel:open-url', (d) => { if (d?.sid === sid && /^https?:\/\//i.test(d.url)) openUrl(d.url); });
   useIpcEvent('panel:show', (d) => {
-    if (d?.sid !== sid || !['term', 'changes', 'browser', 'files', 'viewer'].includes(d.mode)) return;
+    if (d?.sid !== sid || !['term', 'changes', 'browser', 'files', 'checkpoints', 'viewer'].includes(d.mode)) return;
     if (getState().pnMode === d.mode) refreshPanel(); else setState({ pnMode: d.mode, pnRefresh: refresh + 1 });
   });
 
@@ -76,6 +77,7 @@ export default function Panels() {
                 {mode === 'changes' && <Changes sid={sid} refresh={refresh} />}
                 {mode === 'browser' && <Browser sid={sid} />}
                 {mode === 'files' && <Files sid={sid} refresh={refresh} />}
+                {mode === 'checkpoints' && <Checkpoints sid={sid} refresh={refresh} />}
                 {mode === 'viewer' && <Viewer sid={sid} onWide={toggleWide} />}
               </motion.div>
             </AnimatePresence>

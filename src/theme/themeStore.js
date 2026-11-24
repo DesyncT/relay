@@ -4,6 +4,7 @@ export const TOKEN_MAP = { deep: 'deep', bg: 'bg', card: 'card', raised: 'raised
 const P = (name, description, style, font, c) => ({ name, description, style, font, colors: Object.fromEntries(Object.keys(TOKEN_MAP).map((k, i) => [k, c[i]])), radius: style === 'square' ? 0 : 8, borderWidth: 1, density: 'comfortable' });
 export const PRESETS = {
   acrylic: { ...P('Acrylic', 'Dark smoked glass, luminous edges, and clear depth.', 'rounded', 'sans', ['#10151d', '#151c26', '#26303d', '#323e4e', '#f1f6ff', '#c6d2e4', '#afbdd1', '#3b495c', '#55667d', '#87b7ff', '#9bdcc6', '#ff8f9b']), radius: 12 },
+  acrylicLight: { ...P('Acrylic Light', 'Frosted white glass with the same blue accent.', 'rounded', 'sans', ['#e8eef7', '#eef3fa', '#ffffff', '#f6f9fd', '#14202f', '#33465c', '#4a5d73', '#c3cfdd', '#9fb0c4', '#1f5fc4', '#1d6b57', '#b3283b']), radius: 12 },
   graphite: P('Graphite', 'Quiet charcoal. The Relay original.', 'rounded', 'sans', ['#111112', '#181819', '#1e1e20', '#29292c', '#ededee', '#b5b5bc', '#96969e', '#303033', '#444449', '#e5997c', '#dedee3', '#f16b70']),
   paper: P('Paper', 'Warm white, ink, and a softer contrast.', 'rounded', 'sans', ['#e9e7e2', '#f6f4ef', '#ffffff', '#e5e2da', '#222321', '#51544e', '#62665e', '#d5d3cb', '#b5b7ad', '#9c432c', '#46554b', '#b52d36']),
   midnight: P('Midnight', 'Deep blue with a restrained lavender accent.', 'rounded', 'sans', ['#11141e', '#171b29', '#1d2333', '#2a3247', '#edf0fa', '#bcc5db', '#a0aecb', '#343e56', '#4c5c7b', '#b4a6e8', '#b9d5e4', '#f68a95']),
@@ -32,6 +33,13 @@ export function validate(value) {
   return { name: value.name.trim(), font: value.font, radius: value.radius, borderWidth: value.borderWidth, density: value.density, colors };
 }
 let selected = 'acrylic', custom = null;
+export const MODE_KEY = 'relay.mode.v1';
+const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: light)') : null;
+let mode = 'dark';
+export const getMode = () => mode;
+export const isAcrylic = (id) => id === 'acrylic' || id === 'acrylicLight';
+const resolve = (m) => (m === 'system' ? (mq?.matches ? 'light' : 'dark') : m);
+const emit = () => window.dispatchEvent(new Event('relay-theme'));
 export const getSelected = () => selected;
 export const getCustom = () => custom;
 export function applyTheme(theme, id) {
@@ -50,11 +58,30 @@ export function applyTheme(theme, id) {
   root.style.colorScheme = 'normal';
   if (document.body) document.body.style.colorScheme = lum(theme.colors.bg) > 0.179 ? 'light' : 'dark';
   if (document.body) document.body.dataset.theme = id;
+  root.dataset.mode = lum(theme.colors.bg) > 0.179 ? 'light' : 'dark';
+  try { window.api?.call('theme:native', root.dataset.mode); } catch (_) { /* harness without IPC */ }
   selected = id;
+  emit();
 }
 // Called once before first render so the saved theme paints without a flash.
 export function applyStoredTheme() {
-  applyTheme(PRESETS.acrylic, 'acrylic');
+  try { const m = localStorage.getItem(MODE_KEY); if (['dark', 'light', 'system'].includes(m)) mode = m; } catch (_) { /* default dark */ }
+  let id = 'acrylic', theme = PRESETS.acrylic;
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (saved?.id === 'custom' && (custom = validate(saved.theme))) { id = 'custom'; theme = custom; }
+    else if (PRESETS[saved?.id]) { id = saved.id; theme = PRESETS[id]; }
+  } catch (_) { /* corrupt storage: keep default */ }
+  if (isAcrylic(id)) { id = resolve(mode) === 'light' ? 'acrylicLight' : 'acrylic'; theme = PRESETS[id]; }
+  applyTheme(theme, id);
+  mq?.addEventListener?.('change', () => { if (mode === 'system' && isAcrylic(selected)) setMode('system'); });
+}
+// Dark/Light/System picks the Acrylic variant; other presets keep their own palette.
+export function setMode(next) {
+  mode = next;
+  try { localStorage.setItem(MODE_KEY, next); } catch (_) { /* unsaved */ }
+  const id = resolve(next) === 'light' ? 'acrylicLight' : 'acrylic';
+  if (selected !== id) persistTheme(PRESETS[id], id); else emit();
 }
 // Apply + persist. Returns false when storage failed. Briefly tags <html> so colors crossfade.
 export function persistTheme(theme, id) {

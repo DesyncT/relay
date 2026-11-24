@@ -6,6 +6,7 @@ import { item, spring, stagger } from '../motion.js';
 import Routing from '../components/rules/Routing.jsx';
 import Logo from '../components/rules/Logo.jsx';
 import { useSaved } from '../components/rules/Saved.jsx';
+import Memory from '../components/rules/Memory.jsx';
 import Skills from './Skills.jsx';
 import '../styles/agents.css';
 
@@ -62,6 +63,7 @@ export default function Rules() {
       </>) : (<>
         <div className="page-head"><div><h2>Rules</h2><p>Model routing and instructions for your agents</p></div></div>
         <Routing />
+        <Memory />
         <RulesList />
       </>)}
     </>

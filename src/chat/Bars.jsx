@@ -3,10 +3,11 @@ import { AnimatePresence, animate, motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { call, useIpcEvent } from '../api.js';
 import { useStore } from '../store.js';
-import { ease, spring } from '../motion.js';
+import { ease, spring, springSoft } from '../motion.js';
 import { CARET, Ico, Logo, RtBadge, provLogo } from './bits.jsx';
-import { cancelReply, useChat } from './chatStore.js';
+import { cancelReply, dismissLoop, useChat } from './chatStore.js';
 import { disp, dur, fcost, ftok, modelProvider, nameColor, visibleSpeaker } from './md.js';
+import { sendOpts } from './composer/AgentTools.jsx';
 
 export function useNow(ms, on = true) {
   const [, set] = useState(0);
@@ -260,5 +261,34 @@ export function ReplyChip() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ---- /loop status strip ----
+const PHASES = [['plan', 'Plan'], ['build', 'Build'], ['test', 'Test'], ['review', 'Review'], ['done', 'Done']];
+export function LoopBar() {
+  const l = useChat((s) => s.loop), sid = useChat((s) => s.sid);
+  const real = !!l && l.sid === sid && ['running', 'done', 'gave-up', 'stopped'].includes(l.status) && (l.iter >= 1 || l.status !== 'running');
+  return <AnimatePresence initial={false}>{real && <LoopStrip key={sid} l={l} sid={sid} />}</AnimatePresence>;
+}
+function LoopStrip({ l, sid }) {
+  const run = l.status === 'running', bad = l.status === 'gave-up' || l.status === 'stopped';
+  const head = run ? (l.autopilot ? 'Autopilot' : 'Looping') : l.status === 'done' ? (l.autopilot ? 'Autopilot done' : 'Loop done') : l.status === 'gave-up' ? 'Loop gave up' : 'Loop stopped';
+  const cur = l.status === 'done' ? 4 : PHASES.findIndex(([k]) => k === l.phase);
+  const retry = () => { if (l.goal) { dismissLoop(); call('chat:send', sid, l.goal, [], { queue: true, ...sendOpts(sid) }).catch(() => {}); } };
+  return (
+    <motion.div id="loopbar" className={'lp ' + l.status} role="status" initial={{ opacity: 0, y: 10, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.16 } }} transition={springSoft}>
+      <span className="lp-h">{run && <span className="sr-live" />}{head}</span>
+      {cur >= 0 && <ol className="lp-steps" aria-label="Pipeline">{PHASES.map(([k, t], i) => <li key={k} className={i < cur || l.status === 'done' ? 'past' : i === cur ? (run ? 'cur' : 'stop') : ''} aria-current={i === cur ? 'step' : undefined}>{i === cur && <motion.span layoutId="lp-ind" className="lp-ind" transition={spring} />}<span>{t}</span></li>)}</ol>}
+      <span className="lp-i">iteration {l.iter || 0}/{l.max || '?'}</span>
+      {l.tests && l.tests !== 'none' && <span className={'lp-t ' + l.tests} title={'Tests ' + (l.tests === 'pass' ? 'passing' : 'failing')}>Tests {l.tests === 'pass' ? 'pass' : 'fail'}</span>}
+      {l.review && <span className={'lp-t ' + l.review} title={'Review ' + l.review}>Review {l.review}</span>}
+      {run && l.stalls > 0 && <span className="lp-st">stuck x{l.stalls}, changing approach</span>}
+      {l.reason && <span className="lp-r" title={l.reason}>{l.reason}</span>}
+      <span className="lp-a">
+        {run ? <button type="button" className="lp-b stop" onClick={() => call('chat:loop', sid, false).catch(() => {})}>Stop</button>
+          : <>{bad && l.goal && <button type="button" className="lp-b" onClick={retry}>Try again</button>}<button type="button" className="lp-b" aria-label="Dismiss" onClick={dismissLoop}>Dismiss</button></>}
+      </span>
+    </motion.div>
   );
 }

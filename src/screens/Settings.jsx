@@ -22,12 +22,14 @@ const collect = (v, limits) => ({
   ...Object.fromEntries(Object.keys(limits).map((k) => [k, Number(v.l[k])])),
   defaultMode: v.mode || 'edits',
   disabledProviders: ALL_PROVIDERS.map(([k]) => k).filter((k) => v.disabled.includes(k)),
+  autoSwitch: v.autoSwitch !== false,
 });
 const initVals = (s, limits) => ({
   f: Object.fromEntries(FIELDS.map((k) => [k, s[k] ?? ''])),
   l: Object.fromEntries(Object.entries(limits).map(([k, d]) => [k, String(s[k] ?? d[0])])),
   mode: s.defaultMode || 'edits',
   disabled: s.disabledProviders || [],
+  autoSwitch: s.autoSwitch !== false,
 });
 
 function TabPair({ view, setView }) {
@@ -246,6 +248,9 @@ export default function Settings() {
                           </div>
                         ))}
                       </div>
+                    </Row>
+                    <Row label="Auto-switch when one runs out" hint="A provider that hits its limit hands the turn to the next one up, without asking" show={showRow('Providers', 'auto switch limit fallback')}>
+                      <label className="set-prov-l" htmlFor="s-autoSwitch"><input type="checkbox" id="s-autoSwitch" checked={vals.autoSwitch !== false} onChange={(e) => setVals({ ...vals, autoSwitch: e.target.checked })} />Switch automatically</label>
                     </Row>
                     <Row label="Connected models" hint="Ollama, OpenRouter, DeepSeek, Kimi, GLM and more, picked from the chat model menu" show={showRow('Providers', T.models)}>
                       <ConnectedModels auth={auth} />

@@ -560,3 +560,7 @@ body :is(button,input,textarea,select,[tabindex]):focus-visible { outline:2px so
   #chat #log > .msg { padding-right:20px; }
   .composer-help > span:last-child { display:none; }
 }
+
+/* light mode */
+:root[data-mode="light"] .b.primary:hover { background:color-mix(in srgb, var(--text) 85%, transparent); }
+:root[data-mode="light"] .ch-main > #busy:not(:empty) .rq-think { background-image:linear-gradient(100deg,var(--muted) 38%,var(--text) 50%,var(--muted) 62%); }

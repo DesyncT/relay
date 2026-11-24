@@ -4,7 +4,7 @@ import { useStore } from '../store.js';
 import { layoutItems, scrollLogToBottom, setLogEl, setSubsOpen, useChat } from '../chat/chatStore.js';
 import Message from '../chat/Message.jsx';
 import Composer from '../chat/Composer.jsx';
-import { Limits, Quota, ReplyChip, ReqBar, SkillChips, Typing } from '../chat/Bars.jsx';
+import { Limits, LoopBar, Quota, ReplyChip, ReqBar, SkillChips, Typing } from '../chat/Bars.jsx';
 import { SubsAside } from '../chat/Subs.jsx';
 import Panels, { PanelButtons, closePanel } from '../chat/Panels.jsx';
 import ConversationStart from '../components/ConversationStart.jsx';
@@ -60,7 +60,7 @@ export default function Chat() {
         <div id="logTail"><Typing /><div id="logQueue" /></div>
       </div>
       <ScrollButton logRef={log} />
-      <ReqBar /><ReplyChip /><Composer />
+      <ReqBar /><LoopBar /><ReplyChip /><Composer />
     </div><SubsAside /><Panels /></div>
     <AnimatePresence>{drag && (
       <motion.div id="drop" className="cu-drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.15 } }}>

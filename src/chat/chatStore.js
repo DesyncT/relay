@@ -7,7 +7,7 @@ import '../../turn.js'; // classic script: defines window.parseTurn / window.for
 // Conversation state for the open session. Lives at module level (not in the Chat screen) because the
 // sidebar opens sessions and main pushes chat events even while another tab is showing.
 const AGENTS = ['claude', 'codex', 'antigravity'];
-let S = { sid: null, title: '', loaded: false, items: [], subs: [], subsOpen: false, reqs: null, spend: {}, ledger: false, act: {}, limits: { claude: 0, codex: 0, antigravity: 0 }, chips: null, info: null, stoppable: false, epoch: 0, unread: 0 };
+let S = { sid: null, title: '', loaded: false, items: [], subs: [], plan: [], subsOpen: false, loop: null, reqs: null, spend: {}, ledger: false, act: {}, limits: { claude: 0, codex: 0, antigravity: 0 }, chips: null, info: null, stoppable: false, epoch: 0, unread: 0 };
 const listeners = new Set();
 const patch = (p) => { S = { ...S, ...p }; listeners.forEach((l) => l()); };
 export const getChat = () => S;
@@ -139,7 +139,9 @@ export async function openSession(id, show = true) {
   const batch = [];
   for (const m of msgs) addMsg(m, false, batch);
   const a = id ? (actBy[id] ||= {}) : {};
-  patch({ sid: id || null, title: info ? info.title : '', loaded: true, items: batch, subs: sl, subsOpen: sl.length > 0 && !isPanelOpen(), reqs: info ? info.reqs || { items: [], idle: true } : null, ledger: !!info?.spend, spend: info?.spend ? JSON.parse(JSON.stringify(info.spend)) : {}, act: a, info, chips: null, unread: 0, epoch: S.epoch + 1 });
+  patch({ sid: id || null, title: info ? info.title : '', loaded: true, items: batch, subs: sl, plan: [], loop: null, subsOpen: sl.length > 0 && !isPanelOpen(), reqs: info ? info.reqs || { items: [], idle: true } : null, ledger: !!info?.spend, spend: info?.spend ? JSON.parse(JSON.stringify(info.spend)) : {}, act: a, info, chips: null, unread: 0, epoch: S.epoch + 1 });
+  if (id) call('plan:get', id).then((p) => { if (Array.isArray(p) && S.sid === id) patch({ plan: p, ...(p.length ? { subsOpen: true } : {}) }); }).catch(() => {});
+  if (id) call('loop:get', id).then((l) => { if (S.sid === id) setLoop(l && { ...l, sid: id }); }).catch(() => {});
   setState({ sessionCwd: info?.project?.path || getState().sbTree?.projects?.find(p => p.id === info?.projectId)?.path || getState().cfg.cwd || '', openSid: id || null, chatReplying: null, chatSessionInfo: info, ...(show ? { tab: 'chat' } : {}) });
   syncShared();
   window.ActiveChat = { sid: S.sid, supercode: false, easyMode: !!info?.easyMode, chatModels: info?.chatModels || {}, chatEffort: info?.chatEffort || 'low' };
@@ -159,6 +161,15 @@ export async function refreshChips() {
 }
 
 // ---- subagents ----
+export const dismissLoop = () => patch({ loop: null });
+// a loop is shown only when one really exists (a bare {flag} reply or a not-yet-started iteration 0 is not one); stopped loops fade out after 4s
+let loopTimer = 0;
+function setLoop(l) {
+  clearTimeout(loopTimer);
+  const ok = l && ['running', 'done', 'gave-up', 'stopped'].includes(l.status) && (l.iter >= 1 || l.status !== 'running');
+  patch({ loop: ok ? l : null });
+  if (ok && l.status === 'stopped') loopTimer = setTimeout(() => { if (S.loop?.status === 'stopped' && S.loop.sid === l.sid) dismissLoop(); }, 4000);
+}
 export const setSubsOpen = (v) => { if (S.subsOpen !== v) patch({ subsOpen: v }); };
 
 // ---- push events (registered once, at module load) ----
@@ -178,6 +189,8 @@ api.on('subagent:update', (d) => {
   patch({ subs, ...(first ? { subsOpen: true } : {}) });
 });
 api.on('subagent:removed', (d) => { if (d.sid === S.sid) patch({ subs: S.subs.filter((w) => w.id !== d.id) }); });
+api.on('plan:update', (d) => { if (d?.sid === S.sid && Array.isArray(d.plan)) patch({ plan: d.plan, ...(d.plan.length && !S.plan.length ? { subsOpen: true } : {}) }); });
+api.on('loop:update', (d) => { if (d?.sid === S.sid) setLoop(d); });
 api.on('limits:state', (s) => { if (s?.down) patch({ limits: s.down }); });
 api.on('skills:changed', (d) => { if (d.sid === S.sid) refreshChips(); });
 api.on('notify:openSession', ({ sid }) => { if (sid) openSession(sid).catch((e) => console.error(e)); });
