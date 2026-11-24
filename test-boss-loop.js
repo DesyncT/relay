@@ -56,3 +56,20 @@ console.log('plan/tests/checkpoints helpers ok');
   assert.ok(/disjoint|own/.test(BL.BOSS) && BL.BOSS.includes('[plan:'));
 }
 console.log('stall/review/native helpers ok');
+
+// boss verdicts + strikes
+{
+  const p = BL.parseVerdicts('Looks mostly good.\n[accept: Write A]\n[redo: write b | b.txt must contain B; rerun the test]\n[redo: x]');
+  assert.deepEqual(p.accepts, ['Write A']); assert.equal(p.text, 'Looks mostly good.');
+  assert.deepEqual(p.redos, [{ title: 'write b', feedback: 'b.txt must contain B; rerun the test' }, { title: 'x', feedback: 'not good enough' }]);
+  const ws = [{ title: 'Write A' }, { title: 'write b files' }, { title: 'docs' }];
+  assert.equal(BL.matchWorker(ws, 'write a'), ws[0]); assert.equal(BL.matchWorker(ws, 'write b'), ws[1]); assert.equal(BL.matchWorker(ws, 'the docs'), ws[2]); assert.equal(BL.matchWorker(ws, 'nope'), null);
+  assert.deepEqual(BL.strikeStep(1), { fire: false, stance: 1, phase: 'other', effort: null });
+  assert.deepEqual(BL.strikeStep(2), { fire: false, stance: 2, phase: 'coding', effort: 'high' });
+  assert.equal(BL.strikeStep(3).fire, true);
+  const r = { strikes: 2, feedback: 'bad', history: [{ result: 'old result' }] };
+  assert.ok(/old result/.test(BL.redoBlock(r)) && /rejected by the boss: bad/.test(BL.redoBlock(r)) && /final warning: verify every claim/.test(BL.redoBlock(r)));
+  assert.ok(!/final warning/.test(BL.redoBlock({ ...r, strikes: 1 })));
+  assert.ok(/FIRED.*w1/.test(BL.reviewNote([], [{ title: 'w1' }])) && BL.BOSS.includes('[accept: <worker title>]') && BL.BOSS.includes('[redo: <worker title>'));
+}
+console.log('boss verdict/strike helpers ok');

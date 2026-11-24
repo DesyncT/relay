@@ -44,6 +44,10 @@ app.whenReady().then(async () => {
     const nat = subs.filter((x) => x.kind === 'native');
     check('native Claude Code subagent captured and done', nat.length >= 1 && nat.every((x) => x.status === 'done' && x.agentType), JSON.stringify(nat.map((x) => [x.title, x.agentType, x.status])));
     check('subagent files exist', ['a.txt', 'b.txt'].every((f) => fs.existsSync(path.join(proj, f))));
+    const wa = subs.find((x) => x.title === 'write a'), wb = subs.find((x) => x.title === 'write b');
+    check('redone worker b: attempt 2, strikes 1, accepted, history 1', wb?.attempt === 2 && wb.strikes === 1 && wb.verdict === 'accepted' && wb.history?.length === 1 && /b\.txt must contain B/.test(wb.history[0].feedback), JSON.stringify(wb));
+    check('worker a: attempt 1, strikes 0, accepted', wa?.attempt === 1 && wa.strikes === 0 && wa.verdict === 'accepted', JSON.stringify(wa));
+    check('b.txt has the redone content', fs.existsSync(path.join(proj, 'b.txt')) && fs.readFileSync(path.join(proj, 'b.txt'), 'utf8').trim() === 'B');
     const plan = await call('plan:get', sid);
     check('plan has steps', plan.length >= 2, JSON.stringify(plan));
     check('plan steps marked done', plan.length > 0 && plan.every((x) => x.status === 'done'), JSON.stringify(plan));
@@ -53,7 +57,7 @@ app.whenReady().then(async () => {
     check('[remember:] persisted to .relay/memory.md', fs.existsSync(mem) && /npm test/.test(fs.readFileSync(mem, 'utf8')));
     const log = (fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '').split('\n').filter(Boolean).map((x) => JSON.parse(x));
     const n = (r) => log.filter((x) => x.role === r).length;
-    check('fake CLI roles: boss>=1, sub==2, verifier==2', n('boss') >= 1 && n('sub') === 2 && n('verifier') === 2, `boss=${n('boss')} sub=${n('sub')} verifier=${n('verifier')}`);
+    check('fake CLI roles: boss>=1, sub==3 (2 + 1 redo), verifier==2', n('boss') >= 1 && n('sub') === 3 && n('verifier') === 2, `boss=${n('boss')} sub=${n('sub')} verifier=${n('verifier')}`);
     const sf = await call('sessions:get', sid);
     check('boss mode turned off at the end', !(sf.boss), 'boss=' + sf.boss);
   } catch (e) { check('harness run', false, e.stack || e.message); }

@@ -551,7 +551,7 @@ function startCmd(sid) {
   const rt = RT(sid), c = rt.cmd; rt.cmd = null;
   if (!c) return;
   if (c.autopilot) setMode(sid, 'super'); // Super Auto: the voters answer every question
-  if (c.boss) { rt.bossRun = 'b' + Date.now().toString(36); setBoss(sid, true); } else if (rt.boss) setBoss(sid, false);
+  if (c.boss || c.loop || rt.loopFlag?.on) { rt.bossRun = 'b' + Date.now().toString(36); rt.bossRounds = 0; rt.bossPending = []; setBoss(sid, true); } else if (rt.boss) setBoss(sid, false);
   if (c.loop || rt.loopFlag?.on) { rt.loop = { goal: c.goal, iter: 0, max: Math.max(1, Math.min(30, Math.trunc(c.loopMax || rt.loopFlag?.max) || loopMaxOf())), status: 'running', reason: '', tests: 'none', runTests: c.runTests, autopilot: !!c.autopilot, phase: c.autopilot ? 'plan' : 'build', review: null, stalls: 0, reviews: 0, base: null, prevReason: '', prevTree: '' }; emitLoop(sid); }
   else if (rt.loop?.status === 'running' && !sessOf(sid)?.messages?.slice(0, -1).findLast((x) => AGENT_NAMES.includes(x.from))?.askUser) stopLoop(sid);
 }
@@ -562,7 +562,7 @@ function remember(sid, facts, globals = []) { try { if (facts.length && BL.addMe
 function takeTags(sid, who, raw) {
   const rt = RT(sid); let text = String(raw || '');
   const r = BL.parseRemember(text); text = r.text; remember(sid, r.facts, r.globals);
-  if (rt.boss) { text = takePlan(sid, text); const s = require('./turn').parseSubs(text); text = s.text.trim(); if (s.subs.length) spawnSubs(sid, who, s.subs); }
+  if (rt.boss) { const g = BL.parseVerdicts(text); text = g.text; gradeSubs(sid, who, g); text = takePlan(sid, text); const s = require('./turn').parseSubs(text); text = s.text.trim(); if (s.subs.length) spawnSubs(sid, who, s.subs); }
   return text;
 }
 // live plan: session.plan = [{id, text, status: todo|doing|done}]
@@ -577,7 +577,34 @@ function takePlan(sid, text) {
 }
 const planSub = (r, status) => { const plan = sessOf(r.sid)?.plan; if (plan && !(status === 'doing' && r.depth > 1) && BL.planMark(plan, r.title, status)) setPlan(r.sid, plan); };
 ipcMain.handle('plan:get', (_e, sid) => (sessOf(sid)?.plan || []).map((x) => ({ ...x })));
-const bossNote = (sid) => { const rt = RT(sid), done = subsOf(sid).filter((x) => (x.parent === rt.bossRun || x.depth > 1) && !subLive(x)); return done.length ? 'Subagent results to review against the goal (delegate fixes with [sub: ...] or finish if met):\n' + done.slice(-8).map((x) => `- ${x.title} [${x.status}]: ${String(x.result).slice(0, 700)}`).join('\n') : ''; };
+// the boss's wake-up note: finished workers to grade (max 6 review rounds per boss run, then everything is accepted) and anyone fired since the last note
+const bossNote = (sid) => {
+  const rt = RT(sid), mine = subsOf(sid).filter((x) => x.kind !== 'native' && (x.parent === rt.bossRun || x.depth > 1) && !subLive(x));
+  const fired = mine.filter((x) => x.verdict === 'fired' && !x.told), ungraded = mine.filter((x) => x.verdict !== 'fired' && x.verdict !== 'accepted');
+  fired.forEach((x) => { x.told = true; }); rt.bossPending = [];
+  if (ungraded.length && (rt.bossRounds = (rt.bossRounds || 0) + 1) > 6) { ungraded.forEach((x) => { x.verdict = 'accepted'; subPush(x); }); return 'Review cap reached (6 rounds): every remaining worker result was accepted as it is. Finish now and summarize what is and is not met.' + (fired.length ? ' ' + BL.reviewNote([], fired) : ''); }
+  rt.bossPending = ungraded.map((x) => x.id);
+  return BL.reviewNote(ungraded, fired);
+};
+// applies the boss's [accept:]/[redo:] verdicts to the workers listed in its last wake note; unmentioned workers are accepted
+function gradeSubs(sid, who, g) {
+  const rt = RT(sid), ids = rt.bossPending || []; if (!ids.length) return;
+  rt.bossPending = [];
+  const ws = subsOf(sid).filter((x) => ids.includes(x.id)), marked = new Map();
+  for (const { title, feedback } of g.redos) { const w = BL.matchWorker(ws.filter((x) => !marked.has(x)), title); if (w) marked.set(w, feedback); }
+  let fired = false;
+  for (const w of ws) {
+    if (!marked.has(w)) { w.verdict = 'accepted'; subPush(w); continue; }
+    const fb = BL.clip(marked.get(w));
+    w.history = [...(w.history || []), { attempt: w.attempt || 1, result: BL.clip(w.result), feedback: fb }]; w.feedback = fb; w.strikes = (w.strikes || 0) + 1;
+    if (BL.strikeStep(w.strikes).fire) { w.status = 'failed'; w.verdict = 'fired'; w.ended = Date.now(); fired = true; subPush(w); continue; }
+    w.attempt = (w.attempt || 1) + 1; w.verdict = 'redo'; w.status = 'queued'; w.ended = 0; subPush(w);
+    const plan = sessOf(sid)?.plan; if (plan && BL.planReopen(plan, w.title)) setPlan(sid, plan);
+  }
+  pumpSubs(sid);
+  // a fired worker with nobody left running: wake the boss now so it can reassign
+  if (fired && !subsOf(sid).some((x) => x.owner === who && x.kind !== 'native' && subLive(x))) { const ep = rt.epoch; setImmediate(() => { if (ep !== rt.epoch) return; rt.note = bossNote(sid); const t = sessOf(sid)?.messages?.at(-1); if (rt.note && t) enqueue(sid, who, t); }); }
+}
 async function loopCheck(sid, ep) {
   const rt = RT(sid), L = rt.loop;
   if (!L || L.status !== 'running' || L.checking || ep !== rt.epoch || rt.paused || rt.awaiting || chatBusy(sid) || userQueues.get(sid)?.length) return;
@@ -619,7 +646,7 @@ async function loopCheck(sid, ep) {
   if (v.failed || L.iter >= L.max) { L.status = 'gave-up'; emitLoop(sid); return; }
   if (L.stalls >= 3) { L.status = 'gave-up'; L.reason = 'stalled'; emitLoop(sid); return; }
   emitLoop(sid);
-  rt.turns = 0; rt.paused = false; rt.note = (L.stalls ? BL.STALL_NOTE + '\n\n' : '') + `A check says the goal is not met yet: ${v.reason}\nGoal: ${L.goal}\nKeep working until it is fully met.`;
+  rt.turns = 0; rt.paused = false; rt.note = (L.stalls ? BL.STALL_NOTE + '\n\n' : '') + `A check says the goal is not met yet: ${v.reason}\nGoal: ${L.goal}\n` + (rt.boss ? 'You are the boss: assign (or redo with [sub: ...]) the work that closes this gap, grade the results, and keep going until the goal is fully met.' : 'Keep working until it is fully met.');
   enqueue(sid, last.from, last);
 }
 // no loop to run: boss mode ends once everything has settled
@@ -759,7 +786,7 @@ const subPush = (r) => { send('subagent:update', { ...r }); syncBusy(); try { st
 function spawnSubs(sid, owner, list, parent = RT(sid).bossRun || null, depth = 1) {
   const now = Date.now();
   for (const { title, task } of list) {
-    const r = { id: 's' + now.toString(36) + Math.random().toString(36).slice(2, 6), sid, owner, parent, depth, title, task, model: '', effort: '', status: 'queued', started: now, ended: 0, tokensIn: 0, tokensOut: 0, cost: 0, result: '' };
+    const r = { id: 's' + now.toString(36) + Math.random().toString(36).slice(2, 6), sid, owner, parent, depth, title, task, model: '', effort: '', status: 'queued', started: now, ended: 0, tokensIn: 0, tokensOut: 0, cost: 0, result: '', attempt: 1, strikes: 0, verdict: null, feedback: '', history: [] };
     subsOf(sid).push(r); subPush(r);
   }
   pumpSubs(sid);
@@ -771,12 +798,14 @@ function pumpSubs(sid) {
 }
 async function runSub(r) {
   const rt = RT(r.sid), ep = rt.epoch;
-  let rd = routeFor(provOf(r.owner) || r.owner, 'other'), prov = r.owner;
+  const st = r.verdict === 'redo' ? BL.strikeStep(r.strikes) : null, phase = st?.phase || 'other'; let ov; // strike 2: the stronger 'coding' route at high effort
+  if (st?.effort) { const cm = routeFor(provOf(r.owner) || r.owner, 'coding').meta; if (cm.model) ov = { model: cm.model, effort: st.effort }; }
+  let rd = routeFor(provOf(r.owner) || r.owner, phase), prov = r.owner;
   r.status = 'running'; r.started = Date.now(); r.model = rd.meta.model || ''; r.effort = rd.meta.effort || ''; subPush(r); planSub(r, 'doing');
   const nest = rt.boss && r.depth < 2;
-  const mk = (s) => `${forcedLine()}${BL.memBlock(cwdFor(r.sid))}You are a subagent of @${r.owner}, working in the same project folder as a part of a bigger build. Your task: ${r.title}\n\n${r.task}\n\nDo only this task. ${editsOn(r.sid) ? '' : 'You cannot edit files; report what you found. '}Share short, plain-language progress updates as you work: what you are checking, useful findings and changes. Keep your final reply under 5 lines with a summary of the diff (files and what changed). ${nest ? 'You may delegate a sub-piece with a line [sub: short title | complete task] (max 3, only if it truly is independent work). Otherwise no tags, no questions.' : 'No tags, no questions.'}${s ? '\n\n' + standIn(r.owner).trim() : ''}`;
+  const mk = (s) => `${forcedLine()}${BL.memBlock(cwdFor(r.sid))}You are a subagent of @${r.owner}, working in the same project folder as a part of a bigger build. Your task: ${r.title}\n\n${r.task}${st ? BL.redoBlock(r) : ''}\n\nDo only this task. ${editsOn(r.sid) ? '' : 'You cannot edit files; report what you found. '}Share short, plain-language progress updates as you work: what you are checking, useful findings and changes. Keep your final reply under 5 lines with a summary of the diff (files and what changed). ${nest ? 'You may delegate a sub-piece with a line [sub: short title | complete task] (max 3, only if it truly is independent work). Otherwise no tags, no questions.' : 'No tags, no questions.'}${s ? '\n\n' + standIn(r.owner).trim() : ''}`;
   let res, err = '';
-  try { res = await seatRun(r.sid, r.owner, 'other', mk, null, { quiet: true, onProgress:chatProgress(r.sid,r.owner,r.title,rd.meta,()=>r.status==='running'), sub: r.id }); rd = res.rd; prov = res.prov; r.model = rd.meta.model || r.model; r.effort = rd.meta.effort || r.effort; }
+  try { res = await seatRun(r.sid, r.owner, phase, mk, null, { quiet: true, routeOverride: ov, onProgress:chatProgress(r.sid,r.owner,r.title,rd.meta,()=>r.status==='running'), sub: r.id }); rd = res.rd; prov = res.prov; r.model = rd.meta.model || r.model; r.effort = rd.meta.effort || r.effort; }
   catch (e) {
     const activeDowns = [down.claude, down.codex, down.antigravity].filter(t => t > Date.now());
     const until = activeDowns.length ? Math.min(...activeDowns) : Math.min(down.claude || Infinity, down.codex || Infinity);
@@ -793,7 +822,7 @@ async function runSub(r) {
   }
   subPush(r); planSub(r, res ? 'done' : 'todo');
   let m;
-  if (res) { m = post(r.sid, r.owner, res.text, null, res.attachments, { sub: r.title, ...(res.activity?.length && { activity: res.activity }), usage: res.usage, ...(prov !== r.owner && { via: prov }), route: { phase: 'other', model: r.model, effort: r.effort } }); send('agent:usage', { sid: r.sid, who: r.owner, ...res.usage }); }
+  if (res) { m = post(r.sid, r.owner, res.text, null, res.attachments, { sub: r.title, ...(res.activity?.length && { activity: res.activity }), usage: res.usage, ...(prov !== r.owner && { via: prov }), route: { phase, model: r.model, effort: r.effort } }); send('agent:usage', { sid: r.sid, who: r.owner, ...res.usage }); }
   else {
     const failure = formatFailureInfo(err, r.owner);
     failure.title = `Subagent "${r.title}" failed`;
@@ -1374,7 +1403,7 @@ ipcMain.handle('notify:clearQuestion', () => {
   return true;
 });
 // options {boss, loop, loopMax} from the UI toggles; "/boss" "/loop" text prefixes still work
-const cmdFrom = (text, o = {}) => { const c = BL.parseCommand(text), ap = !!o.autopilot; return { autopilot: ap, boss: c.boss || !!o.boss || ap, loop: c.loop || !!o.loop || ap, loopMax: Math.trunc(+o.loopMax) || (ap ? 12 : null), runTests: ap ? true : typeof o.runTests === 'boolean' ? o.runTests : undefined, goal: c.goal || String(text).trim() }; };
+const cmdFrom = (text, o = {}) => { const c = BL.parseCommand(text), ap = !!o.autopilot; return { autopilot: ap, boss: c.boss || !!o.boss || c.loop || !!o.loop || ap, loop: c.loop || !!o.loop || ap, loopMax: Math.trunc(+o.loopMax) || (ap ? 12 : null), runTests: ap ? true : typeof o.runTests === 'boolean' ? o.runTests : undefined, goal: c.goal || String(text).trim() }; };
 ipcMain.handle('chat:send', (_e, sid, text, attachments = [], options = {}) => {
   clearQuestionAlert();
   const sess = store.getSession(sid);

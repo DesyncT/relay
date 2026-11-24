@@ -64,14 +64,14 @@ export default function AgentTools({ sid }) {
     if (k === 'agents') return call('subagents:list', sid).then((l) => (l.length ? setSubsOpen(true) : addSystemCard(<div>No subagents in this session yet</div>))).catch(() => {});
     call('chat:send', sid, PROMPTS[k], [], { queue: true }).catch(() => {});
   };
-  const ap = !!o.autopilot, boss = ap || o.boss, loop = ap || o.loop, tests = ap || o.runTests;
+  const ap = !!o.autopilot, boss = ap || o.loop || o.boss, loop = ap || o.loop, tests = ap || o.runTests;
   const mk = ap ? 'apMax' : 'loopMax', mx = o[mk];
   const inc = 'Included in Autopilot';
   return (
     <div className="agt" role="toolbar" aria-label="Agent tools">
       <motion.div layout className="agt-grp" role="group" aria-label="Agent modes" transition={spring}>
         <Tg k="autopilot" label="Autopilot" cls="ap" on={ap} title="Runs unattended with Super Auto access: plan, build with subagents, test, review, repeat until done" onClick={() => set({ autopilot: !ap })} />
-        <Tg k="boss" label="Boss" on={boss} disabled={ap} title={ap ? inc : 'Split the work across subagents'} onClick={() => set({ boss: !o.boss })} />
+        <Tg k="boss" label="Boss" on={boss} disabled={ap || o.loop} title={ap ? inc : o.loop ? 'Loop runs boss mode until the result is met' : 'Split the work across subagents'} onClick={() => set({ boss: !o.boss })} />
         <Tg k="loop" label="Loop" on={loop} disabled={ap} title={ap ? inc : 'Keep iterating until the goal is met'} onClick={() => set({ loop: !o.loop })} />
         <AnimatePresence initial={false}>
           {loop && <motion.span key="st" className="agt-more" layout initial={{ opacity: 0, width: 0 }} animate={{ opacity: 1, width: 'auto' }} exit={{ opacity: 0, width: 0 }} transition={springSoft}>

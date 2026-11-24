@@ -79,9 +79,35 @@ function addMem(dir, facts) { const old = readMem(dir), next = memAdd(old, facts
 const memBlock = (dir) => { const t = readMem(dir).trim().slice(-4000); return t ? `Project memory (saved by earlier agents in .relay/memory.md):\n${t}\n\n` : ''; };
 
 const TAGS_HELP = 'To save a durable fact about this project for future sessions (a convention, command, gotcha), put [remember: fact] on its own line (max 3 per reply); use [remember-global: fact] only for a preference of the user that applies to every project. Do not store secrets.\n\n';
-const BOSS = 'BOSS MODE. You lead a team; work the way a strong lead works. 1) Plan first: put [plan: step one; step two; ...] on its own line before delegating (send it again to replace it; [done: step text or number] marks a step finished). 2) Break the goal into independent pieces and delegate each with a line [sub: short title | complete task] (max 3 per reply, they run in parallel as subagents in this folder). Name each title after the plan step it does. 3) Give every [sub:] a disjoint set of files that it alone owns and say so in the task ("You own only src/a.js and src/b.js; do not touch other files"). Never let two subagents edit the same file; if two pieces need the same file, make them sequential or give the file to one of them. 4) Delegate independent pieces in the same reply so they run in parallel. Do not do delegated work yourself. 5) When the results come back, verify before declaring done: read their diffs (git diff) and run the tests; review critically against the goal, delegate fixes with new [sub: ...] lines. 6) Prefer the smallest change that meets the goal. Only finish once the whole goal is truly met, then reply with the summary.\n\n';
+const BOSS = 'BOSS MODE. You lead a team; work the way a strong lead works. 1) Plan first: put [plan: step one; step two; ...] on its own line before delegating (send it again to replace it; [done: step text or number] marks a step finished). 2) Break the goal into independent pieces and delegate each with a line [sub: short title | complete task] (max 3 per reply, they run in parallel as subagents in this folder). Name each title after the plan step it does. 3) Give every [sub:] a disjoint set of files that it alone owns and say so in the task ("You own only src/a.js and src/b.js; do not touch other files"). Never let two subagents edit the same file; if two pieces need the same file, make them sequential or give the file to one of them. 4) Delegate independent pieces in the same reply so they run in parallel. Do not do delegated work yourself. 5) When the results come back, grade EVERY worker with exactly one verdict line each: [accept: <worker title>] or [redo: <worker title> | <what is wrong and what to do>]. A rejected worker redoes the same piece and earns a strike; three rejections fire it, so only reject with a concrete defect. Verify before accepting: read their diffs (git diff) and run the tests; review critically against the goal. Delegate genuinely new pieces with new [sub: ...] lines. 6) Prefer the smallest change that meets the goal. Only finish once the whole goal is truly met, then reply with the summary.\n\n';
 const verifierPrompt = (goal, last, files, testsPass) => `You verify whether an agent finished a goal. Do not edit anything.\nGoal: ${goal}\n\nAgent's last reply:\n${String(last).slice(0, 3000)}\n\nFiles changed: ${files.length ? files.slice(0, 30).join(', ') : 'none reported'}${testsPass ? '\nThe project test suite was just run: tests pass.' : ''}\n\nAnswer strictly with one line: DONE or NOT DONE: <the single most important reason>.`;
 
+
+// Boss verdicts: [accept: title] / [redo: title | what is wrong]. Returns the text without them.
+function parseVerdicts(raw) {
+  const accepts = [], redos = [];
+  const text = String(raw).replace(/[ \t]*\[(accept|redo):\s*([^\]\n|]+?)\s*(?:\|\s*([^\]]*?))?\s*\]/gi, (_, k, t, fb) => { if (k.toLowerCase() === 'accept') accepts.push(t); else redos.push({ title: t, feedback: (fb || '').trim() || 'not good enough' }); return ''; }).replace(/\n{3,}/g, '\n\n').trim();
+  return { text, accepts, redos };
+}
+// worker whose title matches: exact (case-insensitive), then prefix, then substring either way
+function matchWorker(workers, title) {
+  const t = norm(title); if (!t) return null;
+  return workers.find((w) => norm(w.title) === t) || workers.find((w) => norm(w.title).startsWith(t) || t.startsWith(norm(w.title))) || workers.find((w) => norm(w.title).includes(t) || t.includes(norm(w.title))) || null;
+}
+// what a rejection costs: strike 1 = redo, strike 2 = redo on the stronger 'coding' route at high effort, strike 3 = fired
+const strikeStep = (strikes) => strikes >= 3 ? { fire: true } : { fire: false, stance: strikes >= 2 ? 2 : 1, phase: strikes >= 2 ? 'coding' : 'other', effort: strikes >= 2 ? 'high' : null };
+const redoBlock = (r) => {
+  const st = strikeStep(r.strikes || 1), prev = r.history?.at(-1)?.result || '';
+  return `\n\nYour previous result:\n${prev}\n\nYour previous attempt was rejected by the boss: ${r.feedback}. Fix exactly this; prove it (show the test/command output).` + (st.stance === 2 ? ` This is strike ${r.strikes}: final warning: verify every claim before reporting. One more rejection and you are fired.` : '');
+};
+const clip = (s, n = 1024) => String(s || '').slice(0, n);
+// the boss's wake-up note: workers to grade now, plus anyone fired since the last note
+function reviewNote(ungraded, fired) {
+  const line = (x) => `- ${x.title} [${x.status}]${x.attempt > 1 ? ` (attempt ${x.attempt}, ${x.strikes} strike${x.strikes > 1 ? 's' : ''})` : ''}: ${String(x.result).slice(0, 700)}`;
+  return (ungraded.length ? 'Subagent results to review against the goal. Give exactly one verdict per worker: [accept: <worker title>] or [redo: <worker title> | <what is wrong and what to do>]. Unmentioned workers count as accepted; finish if the goal is met:\n' + ungraded.slice(-8).map(line).join('\n') : '')
+    + (fired.length ? (ungraded.length ? '\n\n' : '') + 'FIRED after 3 rejections (their work was discarded): ' + fired.map((x) => x.title).join(', ') + '. Reassign each piece to a new worker with [sub: ...] or do it yourself.' : '');
+}
+function planReopen(plan, ref) { const n = plan.find((x) => x.status === 'done' && stepMatch(x, ref)); if (!n) return false; n.status = 'doing'; return true; }
 
 // Stall detection: reasons are "the same" when normalized text is equal or word-set jaccard >= 0.8
 const words = (s) => new Set(norm(String(s || '')).replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean));
@@ -108,4 +134,4 @@ function nativeSub(b, { sid, owner, parent = null, now = Date.now() }) {
 // tool_result content (string or [{type:'text',text}]) -> text, max 4KB
 const resultText = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => x?.text || '').join('\n') : '').trim().slice(0, 4096);
 
-module.exports = { similar, STALL_NOTE, parseReview, reviewPrompt, isNativeUse, nativeSub, resultText, parsePlan, mkPlan, planMark, gmemFile, readGlobal, writeGlobal, addGlobal, globalBlock, testCommand, runTests, parseCommand, parseRemember, memAdd, parseVerdict, memFile, readMem, writeMem, addMem, memBlock, TAGS_HELP, BOSS, verifierPrompt };
+module.exports = { similar, STALL_NOTE, parseReview, reviewPrompt, isNativeUse, nativeSub, resultText, parsePlan, mkPlan, planMark, gmemFile, readGlobal, writeGlobal, addGlobal, globalBlock, testCommand, runTests, parseCommand, parseRemember, memAdd, parseVerdict, memFile, readMem, writeMem, addMem, memBlock, TAGS_HELP, BOSS, verifierPrompt, parseVerdicts, matchWorker, strikeStep, redoBlock, clip, reviewNote, planReopen };
