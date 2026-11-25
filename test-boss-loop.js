@@ -73,3 +73,25 @@ console.log('stall/review/native helpers ok');
   assert.ok(/FIRED.*w1/.test(BL.reviewNote([], [{ title: 'w1' }])) && BL.BOSS.includes('[accept: <worker title>]') && BL.BOSS.includes('[redo: <worker title>'));
 }
 console.log('boss verdict/strike helpers ok');
+
+// Claude Code background agents: the launch ack is not a result; the later notification is
+{
+  const BL2 = require('./boss-loop');
+  const ack = 'Async agent launched successfully.\nagentId: a76a341a109d71d9a (internal ID)\nThe agent is working in the background.';
+  require('node:assert').equal(BL2.asyncLaunch(ack), 'a76a341a109d71d9a');
+  require('node:assert').equal(BL2.asyncLaunch('Changed 3 files, tests pass'), null);
+  require('node:assert').equal(BL2.asyncDone({ type: 'user', message: { content: [{ type: 'tool_result', content: ack }] } }, 'a76a341a109d71d9a'), null, 'the ack itself is not completion');
+  const note = { type: 'user', message: { content: [{ type: 'text', text: '<task-notification><task-id>a76a341a109d71d9a</task-id><status>completed</status><result>Both inputs unlinked, tsc clean</result></task-notification>' }] } };
+  require('node:assert').equal(BL2.asyncDone(note, 'a76a341a109d71d9a'), 'Both inputs unlinked, tsc clean');
+  require('node:assert').equal(BL2.asyncDone({ type: 'assistant', message: { content: [{ type: 'text', text: 'a76a341a109d71d9a completed' }] } }, 'a76a341a109d71d9a'), null);
+  require('node:assert').match(BL2.BOSS, /Agent\/Task tool is off/);
+  console.log('Background native agent checks passed');
+}
+{
+  const BL3 = require('./boss-loop'), assert = require('node:assert');
+  const plan = BL3.mkPlan(['add independent dollar and value companions for the six minimum settings and for auto-pay', 'make the admin box two unlinked inputs', 'run tsc and lint']);
+  assert.ok(BL3.planMark(plan, 'Independent dollar and value limits', 'done'), 'a paraphrased worker title ticks its step');
+  assert.equal(plan[0].status, 'done');
+  assert.ok(!BL3.planMark(plan, 'Unlink remaining settings rows', 'done'), 'unrelated titles do not tick a step');
+  console.log('Fuzzy plan step checks passed');
+}

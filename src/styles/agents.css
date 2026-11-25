@@ -86,7 +86,6 @@
 .mem-tabs { display:flex; gap:4px; margin:0 0 10px; } .mem-tabs button { all:unset; cursor:pointer; padding:4px 12px; border-radius:8px; font-size:13px; color:var(--text-2); } .mem-tabs button[aria-selected=true] { background:var(--raised); color:var(--text); } .mem-tabs button:focus-visible { outline:2px solid var(--claude); }
 
 /* autopilot, pipeline stepper, native subagents */
-#subs .sr-ty { flex:none; padding:0 6px; border:1px solid var(--line); border-radius:999px; font-size:10px; color:var(--text-2); }
 #subs .sr-cc { color:var(--muted); }
 #subs .sr-act { padding:0 12px 6px 40px; font-size:11px; color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 

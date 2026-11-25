@@ -201,7 +201,7 @@ function claudeRun(label, who, prompt, c = {}) {
   // Claude Code's own Task/Agent subagents -> records in the session's subs (kind 'native'); the CLI's stream carries their events with parent_tool_use_id
   const nat = new Map();
   const nativeEvent = (e) => {
-    if (!c.sid || (e.type !== 'assistant' && e.type !== 'user')) return;
+    if (!c.sid || (!nat.size && e.type !== 'assistant')) return;
     const blocks = Array.isArray(e.message?.content) ? e.message.content : [], now = Date.now();
     if (e.type === 'assistant') {
       for (const b of blocks) {
@@ -210,18 +210,24 @@ function claudeRun(label, who, prompt, c = {}) {
       }
       const r = e.parent_tool_use_id && nat.get(e.parent_tool_use_id), u = r && blocks.findLast((b) => b.type === 'tool_use');
       if (u && r.status === 'running' && now - (r.actAt || 0) >= 1000) { r.actAt = now; r.activity = toolStatus(u.name, u.input); subPush(r); }
-    } else for (const b of blocks) {
+    } else if (e.type === 'user') for (const b of blocks) {
       const r = b.type === 'tool_result' && nat.get(b.tool_use_id);
-      if (r && r.status === 'running') { r.status = b.is_error ? 'failed' : 'done'; r.ended = now; r.result = BL.resultText(b.content); r.activity = ''; subPush(r); }
+      if (!r || r.status !== 'running') continue;
+      const t = BL.resultText(b.content), bg = BL.asyncLaunch(t);
+      if (bg && !b.is_error) { r.agentId = bg; r.activity = 'working in the background'; subPush(r); continue; }
+      r.status = b.is_error ? 'failed' : 'done'; r.ended = now; r.result = t; r.activity = ''; subPush(r);
     }
+    // a background agent's completion arrives later as a notification that names its agentId
+    for (const r of nat.values()) if (r.agentId && r.status === 'running') { const done = BL.asyncDone(e, r.agentId); if (done != null) { r.status = 'done'; r.ended = now; r.result = done; r.activity = ''; subPush(r); } }
   };
-  const nativeEnd = () => { for (const r of nat.values()) if (r.status === 'running') { r.status = 'stopped'; r.ended = Date.now(); r.activity = ''; subPush(r); } };
+  let ok = false; // a cleanly finished run has waited for its background agents
+  const nativeEnd = () => { for (const r of nat.values()) if (r.status === 'running') { r.status = ok && r.agentId ? 'done' : 'stopped'; r.ended = Date.now(); r.activity = ''; subPush(r); } };
   const isAntigravity = (c.cmd || settings.claudeCmd).includes('antigravity') || String(who).startsWith('antigravity');
   const bare = (!c.conn && (isAntigravity || (!c.nativeCode && process.env.ANTHROPIC_API_KEY) || c.bare)) ? ['--bare'] : [];
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
   const chrome = !c.nativeCode && !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Code uses the CLI's own browser configuration.
   let shared = []; if ((c.easyCode || !c.nativeCode) && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // EasyCode gets design skills; Code keeps its own environment.
-  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || [])], 'claude', { readonly:c.readonly, textOnly:c.textOnly }), prompt, (l) => {
+  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || []), ...(c.noNativeAgents ? ['--disallowedTools=Task,Agent'] : [])], 'claude', { readonly:c.readonly, textOnly:c.textOnly }), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
     if (e.type === 'error' && (e.message || e.error?.message)) errText = String(e.message || e.error?.message);
@@ -235,7 +241,7 @@ function claudeRun(label, who, prompt, c = {}) {
     }
   }, { quotaProvider:!c.conn && !isAntigravity?'claude':'none', cwd: c.cwd, sid: c.sid, sub: c.sub, tag: c.tag, env: c.conn?.env, timeoutMs: c.timeoutMs, onStderr: (d) => { stderrText += d; } }).then(() => {
     if (failed || !result.trim()) throw new Error(cleanErrorMessage(errText || result.trim() || stderrText.trim() || 'No result returned from claude', who));
-    progress.finish(result);
+    progress.finish(result); ok = true;
     return { text: result.trim(), said, usage, activity: activity.clean(act), skills: act.skills || [] };
   }).finally(() => { nativeEnd(); setStatus(who, null); });
 }
@@ -688,7 +694,7 @@ async function ask(sid, who, trigger, isLead) {
       const result = await seatRun(sid,who,'coding',(_stand,state)=>{
         const session=store.getSession(sid);
         return (easyModeOn(sid)?SPREAD_ASK+'\n\n':'')+extras(sid,note)+normalPrompt(session,who,state.resumed);
-      },trigger,{spread,easyCode:easyModeOn(sid),onTodos: list => {
+      },trigger,{spread,noNativeAgents:!!rt.boss,easyCode:easyModeOn(sid),onTodos: list => {
         // the agent's todo list drives the progress bar
         if (ep === rt.epoch) setReqs(sid,{items:list.map(x=>({t:x.t,done:x.done,...(x.now && {by:who,pct:50})})),requestAt:trigger?.at});
       },onProgress: text => {

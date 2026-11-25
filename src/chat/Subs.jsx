@@ -70,14 +70,13 @@ function SubRow({ r, open, toggle, depth = 0 }) {
         <button className="sr-top" type="button" aria-expanded={open} onClick={toggle}>
           <span className="sr-ic"><Logo name={r.owner === 'claude' ? 'claude' : 'openai'} size={16} color={r.owner === 'claude' ? '#D97757' : '#fff'} /></span>
           <span className="sr-t" title={r.title}>{r.title}</span>
-          {nat(r) && r.agentType && <span className="sr-ty">{r.agentType}</span>}
           {r.status === 'running' && <span className="sr-live" />}
           <span className={'sr-s' + (r.status === 'running' ? ' tm' : '')}>{subTime(r)}</span>
           <span className="sr-chev"><Ico d="m9 6 6 6-6 6" /></span>
         </button>
         {!end && !nat(r) && <button className="sr-stop" type="button" title="Stop" aria-label={'Stop ' + r.title} onClick={() => call('subagents:stop', r.id)}><Ico><rect width="10" height="10" x="7" y="7" rx="1.5" /></Ico></button>}
       </div>
-      <div className="sr-m">{meta}{nat(r) && <span className="sr-cc"> · Claude Code</span>}</div>
+      <div className="sr-m">{meta}{nat(r) && <span className="sr-cc"> · Claude Code{r.agentType && r.agentType !== 'general-purpose' ? ' ' + r.agentType : ''}</span>}</div>
       {(att > 1 || strikes > 0 || vd) && <div className="sr-bd">{att > 1 && <span className="sr-chip">Attempt {att}</span>}{strikes > 0 && <Strikes n={strikes} />}{vd && <span className={'sr-v ' + r.verdict}>{vd}</span>}</div>}
       {nat(r) && !end && r.activity && <div className="sr-act" title={r.activity}>{r.activity}</div>}
       <AnimatePresence initial={false}>{open && <Detail key="d" r={r} end={end} />}</AnimatePresence>
