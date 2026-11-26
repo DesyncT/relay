@@ -112,3 +112,13 @@ assert.equal(buf.readUInt32BE(16), 16, 'Width must be 16');
 assert.equal(buf.readUInt32BE(20), 16, 'Height must be 16');
 
 console.log('Error handling and question alert checks passed');
+
+// A rejected model is named, so users can tell it apart from the one they picked.
+{
+  const raw = `stream error: unexpected status 400 Bad Request: {"detail":"The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.","error":{"type":"invalid_request_error","code":"model_not_found"}}`;
+  const f = formatFailureInfo(raw, 'codex');
+  assert.equal(f.title, 'Invalid model');
+  assert.match(f.message, /gpt-5\.3-codex is not available/);
+  assert.match(f.fix, /config\.toml/);
+  assert.match(formatFailureInfo('model_not_found', 'codex').fix, /model picker/);
+}
