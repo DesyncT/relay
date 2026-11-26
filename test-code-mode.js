@@ -68,7 +68,7 @@ async function checkProgress(provider) {
     settings:{claudeCmd:'claude',codexCmd:'codex'},process:{env:{}},DATA:'.',HOME:'.',
     require:name=>name==='./generated-images'?require(name):({sync:()=>''}),q:x=>x,providerArgs:x=>x,splitArgs:()=>[],
     modelFromArgs:()=> 'test',readText:()=>'',path:require('path'),json:JSON.parse,
-    activity:{claude(){},codex(){},clean:x=>x},setStatusFor(){},toolStatus:()=>'',base:()=>'',
+    activity:{claude(){},codex(){},clean:x=>x,tasks:()=>()=>null},setStatusFor(){},toolStatus:()=>'',base:()=>'',
     mkUsage:()=>({}),cleanErrorMessage:x=>x,
     run:async(_label,_cmd,_args,_prompt,onLine)=>{
       const emit=e=>onLine(JSON.stringify(e));

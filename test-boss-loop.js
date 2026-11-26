@@ -84,7 +84,7 @@ console.log('boss verdict/strike helpers ok');
   const note = { type: 'user', message: { content: [{ type: 'text', text: '<task-notification><task-id>a76a341a109d71d9a</task-id><status>completed</status><result>Both inputs unlinked, tsc clean</result></task-notification>' }] } };
   require('node:assert').equal(BL2.asyncDone(note, 'a76a341a109d71d9a'), 'Both inputs unlinked, tsc clean');
   require('node:assert').equal(BL2.asyncDone({ type: 'assistant', message: { content: [{ type: 'text', text: 'a76a341a109d71d9a completed' }] } }, 'a76a341a109d71d9a'), null);
-  require('node:assert').match(BL2.BOSS, /Agent\/Task tool is off/);
+  require('node:assert').match(BL2.BOSS_CLAUDE, /Agent tool/);
   console.log('Background native agent checks passed');
 }
 {
@@ -94,4 +94,22 @@ console.log('boss verdict/strike helpers ok');
   assert.equal(plan[0].status, 'done');
   assert.ok(!BL3.planMark(plan, 'Unlink remaining settings rows', 'done'), 'unrelated titles do not tick a step');
   console.log('Fuzzy plan step checks passed');
+}
+// Claude bosses use TodoWrite + Agent; todo lists become the live plan
+{
+  assert.ok(/Agent tool/.test(BL.bossPrompt('claude')) && /BOSS MODE/.test(BL.bossPrompt('claude')));
+  assert.ok(/\[sub:/.test(BL.bossPrompt('codex')));
+  assert.deepEqual(BL.todoPlan([{ t: 'a', done: true }, { t: 'b', now: true }, { t: 'c' }, { t: '' }]).map((x) => x.status), ['done', 'doing', 'todo']);
+  console.log('boss prompt/todo plan ok');
+}
+// Claude Code task tools (TaskCreate/TaskUpdate) -> todo list
+{
+  const tk = require('./activity').tasks(), A = (b) => ({ type: 'assistant', message: { content: [b] } }), U = (b) => ({ type: 'user', message: { content: [b] } });
+  assert.equal(tk(A({ type: 'tool_use', id: 'u1', name: 'TaskCreate', input: { subject: 'alpha' } })), null);
+  tk(U({ type: 'tool_result', tool_use_id: 'u1', content: 'Task #1 created successfully: alpha' }));
+  tk(A({ type: 'tool_use', id: 'u2', name: 'TaskCreate', input: { subject: 'beta' } }));
+  assert.deepEqual(tk(U({ type: 'tool_result', tool_use_id: 'u2', content: [{ type: 'text', text: 'Task #2 created successfully: beta' }] })).map((x) => x.t), ['alpha', 'beta']);
+  assert.deepEqual(tk(A({ type: 'tool_use', id: 'u3', name: 'TaskUpdate', input: { taskId: '1', status: 'completed' } })).map((x) => x.done), [true, false]);
+  assert.deepEqual(tk(A({ type: 'tool_use', id: 'u4', name: 'TaskUpdate', input: { taskId: '2', status: 'in_progress' } }))[1].now, true);
+  console.log('task tool tracker ok');
 }

@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
     check('loop settled', !!loop, JSON.stringify(await call('loop:get', sid)));
     const l = await call('loop:get', sid);
     check("loop status 'done'", l.status === 'done', JSON.stringify(l));
-    check('loop iterations >= 2', l.iter >= 2, 'iter=' + l.iter);
+    check('loop done in one check (plan ticked + tests pass)', l.iter === 1, 'iter=' + l.iter);
     const subs = await call('subagents:list', sid);
     check('2 subagents spawned', subs.filter((x) => x.kind !== 'native').length >= 2, 'count=' + subs.length);
     check('subagents all done', subs.length > 0 && subs.every((x) => x.status === 'done'), subs.map((x) => x.title + ':' + x.status).join(', '));
@@ -57,7 +57,7 @@ app.whenReady().then(async () => {
     check('[remember:] persisted to .relay/memory.md', fs.existsSync(mem) && /npm test/.test(fs.readFileSync(mem, 'utf8')));
     const log = (fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '').split('\n').filter(Boolean).map((x) => JSON.parse(x));
     const n = (r) => log.filter((x) => x.role === r).length;
-    check('fake CLI roles: boss>=1, sub==3 (2 + 1 redo), verifier==2', n('boss') >= 1 && n('sub') === 3 && n('verifier') === 2, `boss=${n('boss')} sub=${n('sub')} verifier=${n('verifier')}`);
+    check('fake CLI roles: boss>=1, sub==3 (2 + 1 redo), verifier==0 (plan done + tests pass skips it)', n('boss') >= 1 && n('sub') === 3 && n('verifier') === 0, `boss=${n('boss')} sub=${n('sub')} verifier=${n('verifier')}`);
     const sf = await call('sessions:get', sid);
     check('boss mode turned off at the end', !(sf.boss), 'boss=' + sf.boss);
   } catch (e) { check('harness run', false, e.stack || e.message); }

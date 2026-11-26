@@ -199,14 +199,14 @@ function claudeRun(label, who, prompt, c = {}) {
   const setStatus = (w, st) => !c.quiet && setStatusFor(c.sid, c.seat || w, st, c.route?.meta); // quiet: subagent runs have their own panel
   setStatus(who, 'thinking');
   // Claude Code's own Task/Agent subagents -> records in the session's subs (kind 'native'); the CLI's stream carries their events with parent_tool_use_id
-  const nat = new Map();
+  const nat = new Map(), tasks = activity.tasks();
   const nativeEvent = (e) => {
     if (!c.sid || (!nat.size && e.type !== 'assistant')) return;
     const blocks = Array.isArray(e.message?.content) ? e.message.content : [], now = Date.now();
     if (e.type === 'assistant') {
       for (const b of blocks) {
         const r = BL.nativeSub(b, { sid: c.sid, owner: c.seat || who, parent: RT(c.sid).bossRun || null, now });
-        if (r && !nat.has(b.id)) { nat.set(b.id, r); subsOf(c.sid).push(r); subPush(r); }
+        if (r && !nat.has(b.id)) { nat.set(b.id, r); subsOf(c.sid).push(r); subPush(r); planSub(r, 'doing'); } // its plan step spins while it works
       }
       const r = e.parent_tool_use_id && nat.get(e.parent_tool_use_id), u = r && blocks.findLast((b) => b.type === 'tool_use');
       if (u && r.status === 'running' && now - (r.actAt || 0) >= 1000) { r.actAt = now; r.activity = toolStatus(u.name, u.input); subPush(r); }
@@ -227,9 +227,9 @@ function claudeRun(label, who, prompt, c = {}) {
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
   const chrome = !c.nativeCode && !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Code uses the CLI's own browser configuration.
   let shared = []; if ((c.easyCode || !c.nativeCode) && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // EasyCode gets design skills; Code keeps its own environment.
-  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || []), ...(c.noNativeAgents ? ['--disallowedTools=Task,Agent'] : [])], 'claude', { readonly:c.readonly, textOnly:c.textOnly }), prompt, (l) => {
+  return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || []), ...(c.noNativeAgents ? ['--disallowedTools=Task,Agent'] : [])], 'claude', { readonly:c.readonly, textOnly:c.textOnly }).concat(c.onTodos && !bare.length && !c.textOnly ? ['--allowedTools=TodoWrite'] : []), prompt, (l) => {
     const e = json(l);
-    try { activity.claude(e, act, c.cwd); const t = activity.todos(e); if (t) c.onTodos?.(t); } catch {}
+    try { activity.claude(e, act, c.cwd); const t = activity.todos(e) || tasks(e); if (t) c.onTodos?.(t); } catch {}
     if (e.type === 'error' && (e.message || e.error?.message)) errText = String(e.message || e.error?.message);
     try { nativeEvent(e); } catch {}
     if (e.type === 'assistant') for (const b of e.message?.content || []) { if (b.type === 'text' && b.text) { said.push(b.text); progress.push(b.text); } if (b.type === 'tool_use') progress.flush(); setStatus(who, b.type === 'tool_use' ? toolStatus(b.name, b.input) : b.type === 'text' ? 'typing' : 'thinking'); }
@@ -441,7 +441,7 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
     if (!enhanced && !c.sub && sessOf(sid)?.nativeCodeVersion !== 1) store.updateSession(sid,{nativeCodeVersion:1,cli:{}});
     const resumeId = !enhanced && !c.sub && !c.conversation && prov !== 'antigravity' ? sessOf(sid)?.cli?.[ck] : null;
     const onSession = !enhanced && !c.sub && !c.conversation && prov !== 'antigravity' ? (id) => { const cli = sessOf(sid)?.cli || {}; if (cli[ck] !== id) try { store.updateSession(sid, { cli: { ...cli, [ck]: id } }); } catch {} } : null;
-    try { return { ...(await PROV[cm ? cm.engine : prov](mkPrompt(prov !== seat,{resumed:!!resumeId}), trigger, { ...ctxFor(sid, rd), ...c, nativeCode:!enhanced, seat, resumeId, onSession, conn: cm })), prov, rd }; }
+    try { return { ...(await PROV[cm ? cm.engine : prov](mkPrompt(prov !== seat,{resumed:!!resumeId,engine:cm ? cm.engine : prov}), trigger, { ...ctxFor(sid, rd), ...c, nativeCode:!enhanced, seat, resumeId, onSession, conn: cm })), prov, rd }; }
     catch (e) {
       if (resumeId && !e.cancelled && !isLimitError(e.message)) { try { store.updateSession(sid, { cli: { ...sessOf(sid).cli, [ck]: null } }); } catch {} continue; } // stale session: start fresh once
       if (e.cancelled || !isLimitError(e.message)) throw e;
@@ -557,19 +557,27 @@ function startCmd(sid) {
   const rt = RT(sid), c = rt.cmd; rt.cmd = null;
   if (!c) return;
   if (c.autopilot) setMode(sid, 'super'); // Super Auto: the voters answer every question
-  if (c.boss || c.loop || rt.loopFlag?.on) { rt.bossRun = 'b' + Date.now().toString(36); rt.bossRounds = 0; rt.bossPending = []; setBoss(sid, true); } else if (rt.boss) setBoss(sid, false);
+  if (c.boss || c.loop || rt.loopFlag?.on) { rt.bossRun = 'b' + Date.now().toString(36); rt.bossRounds = 0; rt.bossPending = []; setBoss(sid, true); setPlan(sid, []); } else if (rt.boss) setBoss(sid, false);
   if (c.loop || rt.loopFlag?.on) { rt.loop = { goal: c.goal, iter: 0, max: Math.max(1, Math.min(30, Math.trunc(c.loopMax || rt.loopFlag?.max) || loopMaxOf())), status: 'running', reason: '', tests: 'none', runTests: c.runTests, autopilot: !!c.autopilot, phase: c.autopilot ? 'plan' : 'build', review: null, stalls: 0, reviews: 0, base: null, prevReason: '', prevTree: '' }; emitLoop(sid); }
   else if (rt.loop?.status === 'running' && !sessOf(sid)?.messages?.slice(0, -1).findLast((x) => AGENT_NAMES.includes(x.from))?.askUser) stopLoop(sid);
 }
 // per-turn extras: project memory, tag help, boss preamble, and one-shot feedback (loop reason / subagent results)
-const extras = (sid, note) => BL.globalBlock() + BL.memBlock(cwdFor(sid)) + BL.TAGS_HELP + (RT(sid).boss ? BL.BOSS : '') + (note ? note + '\n\n' : '');
+const extras = (sid, note, engine) => BL.globalBlock() + BL.memBlock(cwdFor(sid)) + BL.TAGS_HELP + (RT(sid).boss ? BL.bossPrompt(engine) : '') + openPlan(sid) + (note ? note + '\n\n' : '');
+// an open plan is shown every turn, so steps also get ticked after boss mode has settled
+const openPlan = (sid) => { const p = sessOf(sid)?.plan || []; return p.some((x) => x.status !== 'done') ? `Open plan (the user watches it):\n${p.map((x, i) => `${i + 1}. [${x.status === 'done' ? 'x' : ' '}] ${x.text}`).join('\n')}\nMark a step finished with [done: <number>] on its own line as soon as it is really done. A step that needs the user (an approval, a choice, credentials): stop and ask with [ask-user: your question] instead of working around it.\n\n` : ''; };
 function remember(sid, facts, globals = []) { try { if (facts.length && BL.addMem(cwdFor(sid), facts)) send('memory:update', { sid }); if (globals.length && BL.addGlobal(globals)) send('memory:update', { sid, global: true }); } catch {} }
 // strips [remember:] (always) and [sub:] (boss mode) tags from a reply, acting on them
-function takeTags(sid, who, raw) {
-  const rt = RT(sid); let text = String(raw || '');
-  const r = BL.parseRemember(text); text = r.text; remember(sid, r.facts, r.globals);
-  if (rt.boss) { const g = BL.parseVerdicts(text); text = g.text; gradeSubs(sid, who, g); text = takePlan(sid, text); const s = require('./turn').parseSubs(text); text = s.text.trim(); if (s.subs.length) spawnSubs(sid, who, s.subs); }
-  return text;
+// Tags are read from every message of the turn (agents often write [plan:]/[sub:] before their tool calls); the final text comes back stripped.
+function takeTags(sid, who, raw, said = []) {
+  const rt = RT(sid), T = require('./turn'), fin = String(raw || ''), blob = [...said.filter((x) => x && x.trim() !== fin.trim()), fin].join('\n\n');
+  const r = BL.parseRemember(blob); remember(sid, r.facts, r.globals);
+  takePlan(sid, blob); // [done:] keeps ticking an open plan after boss mode has settled
+  const text = BL.parsePlan(BL.parseRemember(fin).text).text;
+  if (!rt.boss) return text;
+  gradeSubs(sid, who, BL.parseVerdicts(blob));
+  const seen = new Set(), subs = T.parseSubs(blob).subs.filter((x) => { const k = x.title.toLowerCase(); return !seen.has(k) && seen.add(k); });
+  if (subs.length) spawnSubs(sid, who, subs);
+  return T.parseSubs(BL.parsePlan(BL.parseVerdicts(text).text).text).text.trim();
 }
 // live plan: session.plan = [{id, text, status: todo|doing|done}]
 const setPlan = (sid, plan) => { const s = sessOf(sid); if (!s) return; s.plan = plan; try { store.updateSession(sid, {}); } catch {} send('plan:update', { sid, plan }); const L = RT(sid).loop; if (L?.status === 'running' && L.phase === 'plan' && plan.length) { L.phase = 'build'; emitLoop(sid); } };
@@ -628,6 +636,14 @@ async function loopCheck(sid, ep) {
     if (!t.pass) v = { done: false, reason: `tests failed (${cmd}):
 ` + t.out };
   }
+  const open = (sessOf(sid)?.plan || []).filter((x) => x.status !== 'done');
+  const plan = sessOf(sid)?.plan || [], openKey = open.map((x) => x.text).join('; ');
+  // same open steps and an unchanged worktree since the last check: nothing moved, so stop instead of burning rounds (usually the step needs the user)
+  if (!v && open.length && openKey === L.prevOpen && tree && tree === L.prevTree) { L.checking = false; L.iter++; L.status = 'gave-up'; L.reason = 'no progress on: ' + openKey.slice(0, 300) + ' (needs you?)'; L.prevOpen = ''; emitLoop(sid); return; }
+  L.prevOpen = openKey;
+  if (!v && open.length) v = { done: false, reason: `plan steps still open: ${openKey.slice(0, 400)}` };
+  // whole plan ticked and the tests pass: done, no extra verifier run
+  if (!v && plan.length && tp) v = { done: true, reason: '' };
   if (!v) try { v = BL.parseVerdict((await seatRun(sid, last.from, 'other', () => BL.verifierPrompt(L.goal, last.text, files, tp), null, { quiet: true, readonly: true, sub: 'loop-verify' })).text); }
   catch (e) { v = { done: false, failed: true, reason: 'verifier failed: ' + String(e?.message || e).slice(0, 120) }; }
   // autopilot: after DONE, one read-only reviewer pass over the loop's whole diff (max 2 rounds, then accept)
@@ -652,7 +668,7 @@ async function loopCheck(sid, ep) {
   if (v.failed || L.iter >= L.max) { L.status = 'gave-up'; emitLoop(sid); return; }
   if (L.stalls >= 3) { L.status = 'gave-up'; L.reason = 'stalled'; emitLoop(sid); return; }
   emitLoop(sid);
-  rt.turns = 0; rt.paused = false; rt.note = (L.stalls ? BL.STALL_NOTE + '\n\n' : '') + `A check says the goal is not met yet: ${v.reason}\nGoal: ${L.goal}\n` + (rt.boss ? 'You are the boss: assign (or redo with [sub: ...]) the work that closes this gap, grade the results, and keep going until the goal is fully met.' : 'Keep working until it is fully met.');
+  rt.turns = 0; rt.paused = false; rt.note = (L.stalls ? BL.STALL_NOTE + '\n\n' : '') + `A check says the goal is not met yet: ${v.reason}\nGoal: ${L.goal}\n` + (rt.boss ? 'You are the boss: assign (or redo with [sub: ...]) the work that closes this gap, grade the results, and keep going until the goal is fully met.' : 'Keep working until it is fully met.') + ' If what remains needs the user (an approval, a choice, credentials), end your reply with [ask-user: your question] instead.';
   enqueue(sid, last.from, last);
 }
 // no loop to run: boss mode ends once everything has settled
@@ -693,15 +709,16 @@ async function ask(sid, who, trigger, isLead) {
       const spread=isSpreader(sid) || !!rt.remote;
       const result = await seatRun(sid,who,'coding',(_stand,state)=>{
         const session=store.getSession(sid);
-        return (easyModeOn(sid)?SPREAD_ASK+'\n\n':'')+extras(sid,note)+normalPrompt(session,who,state.resumed);
-      },trigger,{spread,noNativeAgents:!!rt.boss,easyCode:easyModeOn(sid),onTodos: list => {
-        // the agent's todo list drives the progress bar
+        return (easyModeOn(sid)?SPREAD_ASK+'\n\n':'')+extras(sid,note,state.engine)+normalPrompt(session,who,state.resumed);
+      },trigger,{spread,easyCode:easyModeOn(sid),onTodos: list => {
+        // the agent's todo list drives the progress bar, and in boss/loop mode the live plan
+        if (ep === rt.epoch && (rt.boss || rt.loop?.status === 'running' || sessOf(sid)?.plan?.some((x) => x.status !== 'done'))) setPlan(sid, BL.todoPlan(list));
         if (ep === rt.epoch) setReqs(sid,{items:list.map(x=>({t:x.t,done:x.done,...(x.now && {by:who,pct:50})})),requestAt:trigger?.at});
       },onProgress: text => {
         if (ep === rt.epoch && !rt.paused) post(sid,who,text,null,null,{progress:true});
       }});
       if (ep !== rt.epoch) return {next:[]};
-      result.text = takeTags(sid, who, result.text);
+      result.text = takeTags(sid, who, result.text, result.said);
       const asked=(easyModeOn(sid)||/\[ask-user/i.test(result.text))?parseTurn(result.text,result.prov || who):null, from=result.prov || who;
       const msg = post(sid,from,asked?.askUser?asked.text:result.text,null,result.attachments,{activity:result.activity || [],usage:result.usage,route:result.rd?.meta,...(result.peer && {peer:result.peer}),...(asked?.askUser && {askUser:true,options:asked.options || []})});
       if (result.usage) send('agent:usage',{sid,who,...result.usage});

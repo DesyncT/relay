@@ -56,4 +56,25 @@ function todos(e) {
   return items.length ? items : null;
 }
 
-module.exports = { claude, codex, clean, todos };
+// Claude Code 2.1+ task tools (TaskCreate/TaskUpdate) are stateful: one tracker per run turns them into the same {t, done, now} list
+function tasks() {
+  const items = new Map(), made = new Map(); // id -> {t, status}; TaskCreate tool_use id -> subject
+  const list = () => [...items.values()].map((x) => ({ t: x.t, done: x.status === 'completed', now: x.status === 'in_progress' }));
+  return (e) => {
+    let ch = false;
+    for (const b of e.message?.content || []) {
+      if (e.type === 'assistant' && b.type === 'tool_use' && b.name === 'TaskCreate') made.set(b.id, String(b.input?.subject || ''));
+      else if (e.type === 'assistant' && b.type === 'tool_use' && b.name === 'TaskUpdate') {
+        const x = items.get(String(b.input?.taskId)); if (!x) continue;
+        if (b.input.status === 'deleted') items.delete(String(b.input.taskId)); else { if (b.input.status) x.status = b.input.status; if (b.input.subject) x.t = String(b.input.subject); }
+        ch = true;
+      } else if (e.type === 'user' && b.type === 'tool_result' && made.has(b.tool_use_id) && !b.is_error) {
+        const c = typeof b.content === 'string' ? b.content : (b.content || []).map((y) => y?.text || '').join(''), id = /#(\d+)/.exec(c)?.[1] || String(items.size + 1);
+        items.set(id, { t: made.get(b.tool_use_id), status: 'pending' }); made.delete(b.tool_use_id); ch = true;
+      }
+    }
+    return ch ? list() : null;
+  };
+}
+
+module.exports = { claude, codex, clean, todos, tasks };
