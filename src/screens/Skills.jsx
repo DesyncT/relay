@@ -125,6 +125,28 @@ function AlwaysUse({ known }) {
   );
 }
 
+// Unbloat: scans what every Relay Claude run loads and turns it off for Relay only (global Claude config untouched)
+function Unbloat() {
+  const [r, setR] = useState(null), [busy, setBusy] = useState(false);
+  const go = async (ch, ...a) => { setBusy(true); setR(await call(ch, sid(), ...a)); setBusy(false); };
+  const allOff = r?.ok && r.items.every((x) => x.fixed || x.off);
+  return (
+    <Section title="Unbloat" sub="Plugins, skills, hooks and tools loaded into every Relay run. Off here = off for Relay only"
+      action={<span className="sk-act">
+        <Btn text={busy ? 'Scanning' : 'Unbloat'} ic="refresh" cls={r ? 'ghost' : ''} onClick={() => go('unbloat:scan')} />
+        {r?.ok && <Btn text={allOff ? 'Turn all back on' : 'Turn all off'} cls="ghost" onClick={() => go('unbloat:all', !allOff)} />}
+      </span>}>
+      {!r ? <div className="sk-empty">Press Unbloat to scan</div> : !r.ok ? <div className="sk-err">{r.error}</div> : (<>
+        <div className="hint" style={{ marginBottom: 8 }}>{`About ${fmt(r.total)} tokens found, ${fmt(r.saved)} turned off. Applies to the next run.`}</div>
+        {r.items.map((x) => (
+          <Row key={x.id} name={x.name} meta={[x.kind, '~' + fmt(x.tokens) + ' tokens', x.hook && 'injects a prompt'].filter(Boolean).join(' · ')} desc={x.why}>
+            {!x.fixed && <label className="sk-opt"><input type="checkbox" aria-label={'Load ' + x.name} checked={!x.off} disabled={busy} onChange={(e) => go('unbloat:set', x.id, !e.target.checked)} />Load</label>}
+          </Row>))}
+      </>)}
+    </Section>
+  );
+}
+
 export default function Skills() {
   const [tab, setTab] = useState('claude'), [view, setView] = useState('installed');
   const [cache, setCache] = useState({}), [busy, setBusy] = useState(new Set()), [search, setSearch] = useState(''), [note, setNote] = useState('');
@@ -211,6 +233,7 @@ export default function Skills() {
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={tab + view} className="sk-stack" {...fadeUp}>{body}</motion.div>
         </AnimatePresence>
+        <Unbloat />
         <AlwaysUse known={known} />
       </div>
     </div>

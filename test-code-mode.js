@@ -65,7 +65,7 @@ async function checkProgress(provider) {
   const finished=new Promise(resolve=>{release=resolve;});
   const context={
     createProgressStream:require('./normal-code').createProgressStream,
-    settings:{claudeCmd:'claude',codexCmd:'codex'},process:{env:{}},DATA:'.',HOME:'.',
+    settings:{claudeCmd:'claude',codexCmd:'codex'},UB:require('./unbloat'),q:(p)=>p,process:{env:{}},DATA:'.',HOME:'.',
     require:name=>name==='./generated-images'?require(name):({sync:()=>''}),q:x=>x,providerArgs:x=>x,splitArgs:()=>[],
     modelFromArgs:()=> 'test',readText:()=>'',path:require('path'),json:JSON.parse,
     activity:{claude(){},codex(){},clean:x=>x,tasks:()=>()=>null},setStatusFor(){},toolStatus:()=>'',base:()=>'',

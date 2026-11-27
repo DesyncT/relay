@@ -60,6 +60,9 @@ if (!hasSingleInstanceLock) app.quit();
 app.on('second-instance', () => { const w = BrowserWindow.getAllWindows()[0]; if (!w) return app.isReady() && createWindow(); if (w.isMinimized()) w.restore(); w.show(); w.focus(); }); // one Relay: launching it again focuses the open window
 let settings = { ...DEFAULTS, ...readJSON(SETTINGS_FILE, {}) };
 settings.routes = mergeRoutes(settings.routes); // per-phase model + effort (routing.js)
+const UB = require('./unbloat'); // Unbloat (Skills page): plugins/skills/hooks/MCP off for Relay's runs; default = everything off
+const ubOpts = (sid) => ({ cfg: settings.unbloat, dataDir: DATA, cwd: sid ? cwdFor(sid) : null, forcedFile: RULE_FILES.forced, sharedFile: RULE_FILES.shared });
+if (settings.unbloat == null) settings.unbloat = UB.all(ubOpts());
 // Provider fallback: down[p] = epoch ms until which provider p is out (0 = fine). Persisted in settings so restarts remember.
 const down = settings.down = { claude: +settings.down?.claude || 0, codex: +settings.down?.codex || 0, antigravity: +settings.down?.antigravity || 0 };
 const missing = new Set(); // CLIs not installed on this PC: treated like disabled, so the installed one plays both seats
@@ -225,8 +228,9 @@ function claudeRun(label, who, prompt, c = {}) {
   const isAntigravity = (c.cmd || settings.claudeCmd).includes('antigravity') || String(who).startsWith('antigravity');
   const bare = (!c.conn && (isAntigravity || (!c.nativeCode && process.env.ANTHROPIC_API_KEY) || c.bare)) ? ['--bare'] : [];
   const uargs = (x) => c.conn ? models.dropModel(splitArgs(x)) : splitArgs(x); // a connected model's --model must not be overridden
-  const chrome = !c.nativeCode && !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Code uses the CLI's own browser configuration.
-  let shared = []; if ((c.easyCode || !c.nativeCode) && !bare.length) try { shared = ['--plugin-dir', q(require('./shareskills').sync(DATA))]; } catch {} // EasyCode gets design skills; Code keeps its own environment.
+  const ub = UB.cfgOf(settings.unbloat); if (c.easyCode) { ub.skills = false; ub.shared = false; } // EasyCode needs its design skills
+  const chrome = !ub.chrome && !c.nativeCode && !isAntigravity && !c.requirementsOnly && !c.conversation && !c.safeReview ? ['--chrome'] : []; // Code uses the CLI's own browser configuration.
+  let shared = bare.length ? [] : UB.args(ub, DATA, q); if (!ub.shared && (c.easyCode || !c.nativeCode) && !bare.length) try { shared.push('--plugin-dir', q(require('./shareskills').sync(DATA))); } catch {} // EasyCode gets design skills; Code keeps its own environment.
   return run(label, c.cmd || settings.claudeCmd, providerArgs(['-p', '--output-format', 'stream-json', '--verbose', ...bare, ...chrome, ...shared, ...(c.resumeId ? ['--resume', c.resumeId] : []), ...(c.safeReview ? [] : uargs(c.extraArgs != null ? c.extraArgs : settings.claudeArgs)), ...(c.route?.extra || []), ...(c.noNativeAgents ? ['--disallowedTools=Task,Agent'] : [])], 'claude', { readonly:c.readonly, textOnly:c.textOnly }).concat(c.onTodos && !bare.length && !c.textOnly ? ['--allowedTools=TodoWrite'] : []), prompt, (l) => {
     const e = json(l);
     try { activity.claude(e, act, c.cwd); const t = activity.todos(e) || tasks(e); if (t) c.onTodos?.(t); } catch {}
@@ -455,7 +459,10 @@ async function seatRun(sid, seat, phase, mkPrompt, trigger, c = {}) {
 
 var swapNoted = new Set(); // auto-switch notes already posted (see seatRun)
 // Forced skills/plugins (Settings): one name per line. Added to every agent and subagent prompt; empty file = nothing.
-const forcedLine = () => { const n = readText(RULE_FILES.forced).split(/\r?\n/).map((x) => x.trim()).filter(Boolean); return n.length ? `Always use these skills/plugins on every task: ${n.join(', ')}. Invoke them before starting work.\n\n` : ''; };
+const forcedLine = () => { if (UB.cfgOf(settings.unbloat).forced) return ''; const n = readText(RULE_FILES.forced).split(/\r?\n/).map((x) => x.trim()).filter(Boolean); return n.length ? `Always use these skills/plugins on every task: ${n.join(', ')}. Invoke them before starting work.\n\n` : ''; };
+ipcMain.handle('unbloat:scan', (_e, sid) => ({ ok: true, ...UB.scan(ubOpts(sid)) }));
+ipcMain.handle('unbloat:set', (_e, sid, id, off) => { settings.unbloat = UB.toggle(settings.unbloat, String(id), off); saveSettings(); return { ok: true, ...UB.scan(ubOpts(sid)) }; });
+ipcMain.handle('unbloat:all', (_e, sid, off) => { settings.unbloat = off === false ? {} : UB.all(ubOpts(sid)); saveSettings(); return { ok: true, ...UB.scan(ubOpts(sid)) }; });
 // Installed skill names: folders in ~/.claude/skills and <project>/.claude/skills
 ipcMain.handle('skills:list', (_e, sid) => {
   const names = new Set();
